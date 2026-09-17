@@ -23,6 +23,11 @@ QToolButton, QPushButton {
   min-height: 32px;
   color: #f0f0f0;
 }
+QToolButton#fold {
+  text-align: left;
+  padding-left: 10px;
+  min-height: 36px;
+}
 QPushButton:hover, QToolButton:hover {
   background: #3a3a3a;
 }
