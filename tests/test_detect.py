@@ -227,6 +227,34 @@ def test_looks_like_thud_rejects_bright_noise() -> None:
     assert not looks_like_thud(snap)
 
 
+def test_tap_interval_merges_double_count() -> None:
+    detector = HeartSoundDetector(tap_interval=0.80)
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(5000):
+        sample = 0.3 * math.sin(math.pi * (i % 400) / 40) if i % 400 < 40 else 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert len(beats) >= 4
+    assert 0.70 < statistics.median(gaps) < 0.90
+
+
+def test_fast_tap_keeps_equal_beats() -> None:
+    detector = HeartSoundDetector(tap_interval=0.40)
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(5000):
+        sample = 0.3 * math.sin(math.pi * (i % 400) / 40) if i % 400 < 40 else 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert len(beats) >= 8
+    assert 0.32 < statistics.median(gaps) < 0.48
+
+
 def test_load_wav_mono(tmp_path: Path) -> None:
     path = tmp_path / "thud.wav"
     with wave.open(str(path), "wb") as wav:

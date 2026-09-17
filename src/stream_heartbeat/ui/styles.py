@@ -31,6 +31,19 @@ QToolButton#fold {
 QPushButton:hover, QToolButton:hover {
   background: #3a3a3a;
 }
+QPushButton#tap {
+  background: #5a3d7a;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+}
+QPushButton#tap:hover {
+  background: #6b4c8c;
+}
+QPushButton#tap:disabled {
+  background: #2a2a2a;
+  color: #777;
+}
 QSlider::groove:horizontal {
   height: 6px;
   background: #333;

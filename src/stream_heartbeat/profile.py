@@ -24,6 +24,7 @@ class HeartProfile:
     show_arrhythmia: bool = True
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
+    tap_interval: float = 0.0
     calibration: list[list[float]] = field(default_factory=list)
 
 

@@ -162,9 +162,11 @@ class HeartSoundDetector:
         self,
         template: CalibrationTemplate | None = None,
         corr_min: float = CORR_MIN,
+        tap_interval: float = 0.0,
     ) -> None:
         self.template = template
         self.corr_min = corr_min
+        self.tap_interval = tap_interval
         self.min_interval = 60.0 / MAX_BPM
         self._last_beat = -1e9
         self._last_interval = DEFAULT_INTERVAL
@@ -181,6 +183,8 @@ class HeartSoundDetector:
         self._pair_mode = False
 
     def _refractory(self) -> float:
+        if self.tap_interval >= 0.25:
+            return max(self.min_interval, min(PAIR_SECONDS, self.tap_interval * 0.55))
         pair = min(PAIR_SECONDS, 0.45 * self._last_interval)
         if self._last_interval >= 0.5:
             pair = max(pair, 0.32)
@@ -189,6 +193,9 @@ class HeartSoundDetector:
         return max(self.min_interval, pair)
 
     def _update_pair_mode(self, gap: float) -> None:
+        if self.tap_interval >= 0.25:
+            self._pair_mode = self.tap_interval >= 0.55
+            return
         self._gaps.append(gap)
         if len(self._gaps) < 4:
             return
@@ -249,6 +256,8 @@ class HeartSoundDetector:
             if 0.20 <= since <= 0.33 and env < self._last_onset_env * 0.85:
                 continue
             if 0.33 < since <= 0.55 and env < self._last_onset_env * 0.55:
+                continue
+            if self.tap_interval >= 0.50 and since < self.tap_interval * 0.72:
                 continue
             if since < self._refractory():
                 continue

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QGroupBox, QToolButton
+from PySide6.QtWidgets import QApplication, QComboBox, QGroupBox, QLabel, QPushButton, QToolButton
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE
 from stream_heartbeat.session import HeartSession
@@ -34,5 +34,13 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert not profiles.isEditable()
     folds = [btn for btn in operator.findChildren(QToolButton) if btn.text() == "推しログ(ぬ)連携"]
     assert folds and not folds[0].isChecked()
+    tap = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "拍")
+    assert not tap.isEnabled()
+    start = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "録音開始")
+    start.click()
+    assert tap.isEnabled()
+    guides = " ".join(label.text() for label in operator.findChildren(QLabel))
+    assert "ヘッドホン" in guides
+    assert "スペース" in guides
     operator.close()
     output.close()
