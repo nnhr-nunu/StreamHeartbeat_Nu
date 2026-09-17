@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 import wave
 from collections import deque
 from pathlib import Path
@@ -175,12 +176,34 @@ class HeartSoundDetector:
         self._hp = 0.0
         self._buf: deque[float] = deque()
         self._sumsq = 0.0
+        self._last_hit_env = 0.0
+        self._last_raw_t = -1e9
+        self._gaps: deque[float] = deque(maxlen=8)
+        self._pair_mode = False
 
     def _refractory(self) -> float:
         pair = min(PAIR_SECONDS, 0.45 * self._last_interval)
         if self._last_interval >= 0.5:
             pair = max(pair, 0.32)
+        if self._pair_mode:
+            pair = max(pair, 0.42)
         return max(self.min_interval, pair)
+
+    def _update_pair_mode(self, gap: float) -> None:
+        self._gaps.append(gap)
+        if len(self._gaps) < 5:
+            return
+        values = list(self._gaps)
+        mean = sum(values) / len(values)
+        if mean <= 1e-9:
+            return
+        var = sum((x - mean) ** 2 for x in values) / len(values)
+        cv = math.sqrt(var) / mean
+        med = statistics.median(values)
+        if 0.27 <= med <= 0.39 and cv < 0.11:
+            self._pair_mode = True
+        elif med >= 0.45 or cv > 0.20:
+            self._pair_mode = False
 
     def feed(self, samples: list[float], t: float, sample_rate: float = 16000.0) -> list[float]:
         hits: list[float] = []
@@ -220,18 +243,25 @@ class HeartSoundDetector:
             sample_t = t + i * dt
             if not (onset or rising):
                 continue
-            if sample_t - self._last_beat < self._refractory():
-                continue
             window = list(self._buf)
             if not looks_like_thud(window):
                 continue
             if self.template is not None and self.corr_min > 0:
                 if self.template.score(window) < self.corr_min:
                     continue
-            if self._last_beat > -1e8:
-                gap = sample_t - self._last_beat
-                if gap > self.min_interval:
-                    self._last_interval = 0.7 * self._last_interval + 0.3 * gap
+            raw_dt = sample_t - self._last_raw_t
+            if raw_dt >= self.min_interval:
+                if self._last_raw_t > -1e8:
+                    self._update_pair_mode(raw_dt)
+                self._last_raw_t = sample_t
+            since = sample_t - self._last_beat
+            if 0.20 <= since <= 0.40 and env < self._last_hit_env * 0.80:
+                continue
+            if since < self._refractory():
+                continue
+            if self._last_beat > -1e8 and since > self.min_interval:
+                self._last_interval = 0.7 * self._last_interval + 0.3 * since
             self._last_beat = sample_t
+            self._last_hit_env = env
             hits.append(sample_t)
         return hits

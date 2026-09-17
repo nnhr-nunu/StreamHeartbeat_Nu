@@ -110,6 +110,54 @@ def test_lub_dub_counts_as_one_beat() -> None:
     assert all(g > 0.55 for g in gaps)
 
 
+def test_regular_half_beats_are_paired() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(10000):
+        sample = 0.25 * math.sin(math.pi * (i % 350) / 40) if i % 350 < 40 else 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    late = [b for b in beats if b > 3.0]
+    assert len(late) >= 6
+    gaps = [b - a for a, b in zip(late, late[1:])]
+    assert statistics.median(gaps) > 0.55
+
+
+def test_quiet_second_sound_is_not_a_second_beat() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(8000):
+        pos = i % 800
+        if pos < 40:
+            sample = 0.28 * math.sin(math.pi * pos / 40)
+        elif 300 <= pos < 330:
+            sample = 0.12 * math.sin(math.pi * (pos - 300) / 30)
+        else:
+            sample = 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert statistics.median(gaps) > 0.65
+
+
+def test_fast_equal_beats_stay_unmerged() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(5000):
+        sample = 0.3 * math.sin(math.pi * (i % 400) / 40) if i % 400 < 40 else 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert len(beats) >= 8
+    assert 0.32 < statistics.median(gaps) < 0.48
+
+
 def test_from_sessions_skips_empty_instead_of_whole_file() -> None:
     silence = [0.001] * 2000
     pulse = [_thud(i, 40) for i in range(90)]
