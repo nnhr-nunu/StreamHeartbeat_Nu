@@ -57,6 +57,17 @@ def test_arrhythmia_needs_two_wild_intervals() -> None:
     assert clock.pop_arrhythmia(t + 1.0) is False
 
 
+def test_long_pause_counts_as_arrhythmia() -> None:
+    clock = BeatClock()
+    t = 0.0
+    for _ in range(8):
+        clock.feed_beat(t)
+        t += 0.5
+    clock.lost_if_silent(t + 2.0)
+    assert clock.pop_arrhythmia(t + 2.0) is True
+    assert clock.pop_arrhythmia(t + 2.1) is False
+
+
 def test_displayed_bpm_uses_median_interval() -> None:
     clock = BeatClock()
     t = 0.0
@@ -76,3 +87,12 @@ def test_oshilog_mismatch() -> None:
     assert clock.bpm_mismatch() is True
     clock.oshilog_bpm = 125
     assert clock.bpm_mismatch() is False
+
+
+def test_slow_bpm_is_not_clipped_to_thirty() -> None:
+    clock = BeatClock()
+    t = 0.0
+    for _ in range(6):
+        clock.feed_beat(t)
+        t += 2.05
+    assert 28 <= clock.bpm <= 30
