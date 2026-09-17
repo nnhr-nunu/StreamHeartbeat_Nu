@@ -1,17 +1,23 @@
-"""心音の型とピーク検出。高い短い音（指パッチン等）は捨てる。"""
+"""心音の型とピーク検出。"""
 
 from __future__ import annotations
 
 import math
 import wave
+from collections import deque
 from pathlib import Path
 
-from stream_heartbeat.config import MAX_BPM, MIN_BPM
+from stream_heartbeat.config import MAX_BPM
 
 THUD_SECONDS = 0.09
 BRIGHTNESS_MAX = 0.82
 ZCR_MAX = 0.22
 CORR_MIN = 0.45
+BUNDLED_CORR_MIN = 0.08
+ENV_ABS_MIN = 0.008
+NOISE_INIT = 0.01
+PAIR_SECONDS = 0.36
+DEFAULT_INTERVAL = 0.8
 
 
 def envelope_rms(samples: list[float], hop: int) -> list[float]:
@@ -67,10 +73,10 @@ def _cosine_demean(a: list[float], b: list[float]) -> float:
     ma = sum(aa) / n
     mb = sum(bb) / n
     da = [x - ma for x in aa]
-    db = [x - mb for x in bb]
+    db = [y - mb for y in bb]
     dot = sum(x * y for x, y in zip(da, db))
     na = math.sqrt(sum(x * x for x in da))
-    nb = math.sqrt(sum(x * x for x in db))
+    nb = math.sqrt(sum(y * y for y in db))
     if na < 1e-9 or nb < 1e-9:
         return 0.0
     return dot / (na * nb)
@@ -85,12 +91,13 @@ def extract_thuds(samples: list[float], sample_rate: float) -> list[list[float]]
     if not env:
         return []
     peak = max(env)
-    if peak < 0.04:
+    if peak < ENV_ABS_MIN:
         return []
     thuds: list[list[float]] = []
-    last_i = -width
+    last_i = -10**9
+    floor = max(peak * 0.35, ENV_ABS_MIN)
     for i, value in enumerate(env):
-        if value < peak * 0.45:
+        if value < floor:
             continue
         center = i * hop
         if center - last_i < int(sample_rate * 60.0 / MAX_BPM):
@@ -102,31 +109,6 @@ def extract_thuds(samples: list[float], sample_rate: float) -> list[list[float]]
             thuds.append(chunk)
             last_i = center
     return thuds
-
-
-class CalibrationTemplate:
-    def __init__(self, wave: list[float]) -> None:
-        self.wave = wave
-
-    @classmethod
-    def from_sessions(
-        cls,
-        sessions: list[list[float]],
-        sample_rate: float = 16000.0,
-    ) -> CalibrationTemplate:
-        thuds: list[list[float]] = []
-        for session in sessions:
-            thuds.extend(extract_thuds(session, sample_rate) or ([session] if session else []))
-        if not thuds:
-            return cls([1.0])
-        length = max(len(s) for s in thuds)
-        acc = [0.0] * length
-        for thud in thuds:
-            for i in range(length):
-                j = min(len(thud) - 1, int(i * len(thud) / length))
-                acc[i] += thud[j]
-        scale = max(len(thuds), 1)
-        return cls([x / scale for x in acc])
 
 
 def load_wav_mono(path: Path) -> list[float]:
@@ -144,15 +126,61 @@ def load_wav_mono(path: Path) -> list[float]:
     return samples
 
 
+class CalibrationTemplate:
+    def __init__(self, wave: list[float], waves: list[list[float]] | None = None) -> None:
+        self.wave = wave
+        self.waves = waves if waves else [wave]
+
+    @classmethod
+    def from_sessions(
+        cls,
+        sessions: list[list[float]],
+        sample_rate: float = 16000.0,
+    ) -> CalibrationTemplate | None:
+        thuds: list[list[float]] = []
+        for session in sessions:
+            thuds.extend(extract_thuds(session, sample_rate))
+        if not thuds:
+            return None
+        thuds.sort(key=lambda item: -_rms(item))
+        picked = thuds[:8]
+        length = max(len(s) for s in picked)
+        acc = [0.0] * length
+        for thud in picked:
+            for i in range(length):
+                j = min(len(thud) - 1, int(i * len(thud) / length))
+                acc[i] += thud[j]
+        scale = max(len(picked), 1)
+        return cls([x / scale for x in acc], picked)
+
+    def score(self, window: list[float]) -> float:
+        return max(_cosine_demean(window, wave) for wave in self.waves)
+
+
 class HeartSoundDetector:
-    def __init__(self, template: CalibrationTemplate | None = None) -> None:
+    def __init__(
+        self,
+        template: CalibrationTemplate | None = None,
+        corr_min: float = CORR_MIN,
+    ) -> None:
         self.template = template
+        self.corr_min = corr_min
         self.min_interval = 60.0 / MAX_BPM
         self._last_beat = -1e9
+        self._last_interval = DEFAULT_INTERVAL
         self._prev_env = 0.0
+        self._noise = NOISE_INIT
+        self._peak = 0.04
         self._lp = 0.0
         self._hp = 0.0
-        self._buf: list[float] = []
+        self._buf: deque[float] = deque()
+        self._sumsq = 0.0
+
+    def _refractory(self) -> float:
+        pair = min(PAIR_SECONDS, 0.45 * self._last_interval)
+        if self._last_interval >= 0.5:
+            pair = max(pair, 0.32)
+        return max(self.min_interval, pair)
 
     def feed(self, samples: list[float], t: float, sample_rate: float = 16000.0) -> list[float]:
         hits: list[float] = []
@@ -160,33 +188,50 @@ class HeartSoundDetector:
         win = max(16, int(THUD_SECONDS * sample_rate))
         lp_a = 1.0 - math.exp(-2.0 * math.pi * 180.0 / max(sample_rate, 1.0))
         hp_a = 1.0 - math.exp(-2.0 * math.pi * 18.0 / max(sample_rate, 1.0))
+        a_up = 1.0 - math.exp(-dt / 6.0)
+        a_dn = 1.0 - math.exp(-dt / 0.25)
+        peak_decay = math.exp(-dt / 2.2)
         for i, sample in enumerate(samples):
             self._lp += lp_a * (sample - self._lp)
             self._hp += hp_a * (self._lp - self._hp)
             band = self._lp - self._hp
             self._buf.append(band)
-            if len(self._buf) > win * 3:
-                self._buf = self._buf[-win * 3 :]
+            self._sumsq += band * band
+            if len(self._buf) > win:
+                old = self._buf.popleft()
+                self._sumsq -= old * old
             if len(self._buf) < win:
                 continue
-            window = self._buf[-win:]
-            env = _rms(window)
-            onset = env > 0.045 and env > self._prev_env * 1.35 and self._prev_env <= env
-            rising = env > 0.045 and self._prev_env <= 0.045 * 1.05
-            self._prev_env = 0.85 * self._prev_env + 0.15 * env
+            if self._sumsq < 0.0:
+                self._sumsq = 0.0
+            env = math.sqrt(self._sumsq / win)
+            if env < self._noise:
+                self._noise += a_dn * (env - self._noise)
+            else:
+                self._noise += a_up * (env - self._noise)
+            self._noise = max(self._noise, 1e-4)
+            self._peak *= peak_decay
+            self._peak = max(self._peak, env)
+            denom = max(self._peak, self._noise * 4.0, 0.012)
+            norm = env / denom
+            onset = norm >= 0.42 and env > self._prev_env * 1.12 and self._prev_env <= env
+            rising = norm >= 0.42 and self._prev_env < 0.42 * denom
+            self._prev_env = 0.82 * self._prev_env + 0.18 * env
             sample_t = t + i * dt
             if not (onset or rising):
                 continue
-            if sample_t - self._last_beat < self.min_interval:
+            if sample_t - self._last_beat < self._refractory():
                 continue
-            if sample_t - self._last_beat < 60.0 / MIN_BPM and env < 0.08:
-                continue
+            window = list(self._buf)
             if not looks_like_thud(window):
                 continue
-            if self.template is not None:
-                corr = _cosine_demean(window, self.template.wave)
-                if corr < CORR_MIN:
+            if self.template is not None and self.corr_min > 0:
+                if self.template.score(window) < self.corr_min:
                     continue
+            if self._last_beat > -1e8:
+                gap = sample_t - self._last_beat
+                if gap > self.min_interval:
+                    self._last_interval = 0.7 * self._last_interval + 0.3 * gap
             self._last_beat = sample_t
             hits.append(sample_t)
         return hits

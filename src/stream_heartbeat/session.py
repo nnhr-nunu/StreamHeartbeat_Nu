@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from stream_heartbeat.bundled import bundled_heart_sessions
 from stream_heartbeat.clock import BeatClock
-from stream_heartbeat.detect import CalibrationTemplate, HeartSoundDetector
+from stream_heartbeat.detect import BUNDLED_CORR_MIN, CalibrationTemplate, HeartSoundDetector
 from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.profile import HeartProfile
 
@@ -18,11 +18,13 @@ class HeartSession:
         self.rebuild_detector()
 
     def rebuild_detector(self) -> None:
-        template = None
-        sessions = self.profile.calibration or bundled_heart_sessions()
-        if sessions:
-            template = CalibrationTemplate.from_sessions(sessions)
-        self.detector = HeartSoundDetector(template=template)
+        if self.profile.calibration:
+            template = CalibrationTemplate.from_sessions(self.profile.calibration)
+            self.detector = HeartSoundDetector(template=template)
+            return
+        sessions = bundled_heart_sessions()
+        template = CalibrationTemplate.from_sessions(sessions) if sessions else None
+        self.detector = HeartSoundDetector(template=template, corr_min=BUNDLED_CORR_MIN)
 
     def begin_calibration(self) -> None:
         self.calibrating = []
