@@ -1,0 +1,43 @@
+---
+description: Windows PowerShell でも失敗しない git commit 手順（bash heredoc 禁止）
+alwaysApply: true
+---
+
+# Git commit（Windows / PowerShell）
+
+本リポジトリの Cursor 既定ターミナルは **PowerShell 7**。**bash 形式の heredoc は使わない**。
+
+```
+# NG — PowerShell では ParserError
+git commit -m "$(cat <<'EOF'
+...
+EOF
+)"
+```
+
+## 1行メッセージ
+
+```powershell
+git commit -m "開発環境: Python 骨格と Cursor ルールを追加"
+```
+
+## 複数行 — PowerShell here-string
+
+```powershell
+$msg = @'
+開発環境: Python 骨格と Cursor ルールを追加
+
+操作画面と配信用窓の 2 窓で起動できるようにする。
+'@
+git commit -m $msg
+```
+
+## 複数行 — ファイル経由
+
+```powershell
+@'
+開発環境: Python 骨格と Cursor ルールを追加
+'@ | Set-Content -Path .git/COMMIT_MSG_TEMP -Encoding utf8
+git commit -F .git/COMMIT_MSG_TEMP
+Remove-Item .git/COMMIT_MSG_TEMP
+```

@@ -1,0 +1,17 @@
+---
+description: 配信用の窓にデバッグ情報を出さない
+alwaysApply: true
+---
+
+# 配信出力
+
+配信用ウィンドウは OBS が取り込む画素だけを出す。ファイル名・パス・例外文・開発者向けラベルは操作画面に限る。
+
+```
+# NG — 配信用キャンバスに BPM のデバッグ文字列を直書き
+painter.drawText(10, 20, f"debug bpm={raw}")
+
+# OK — 視聴者向け表示だけ。生の内部値は操作画面へ
+if settings.show_bpm:
+    painter.drawText(rect, viewer_bpm_text)
+```

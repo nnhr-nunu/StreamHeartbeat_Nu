@@ -1,0 +1,13 @@
+---
+description: Python パッケージ構成と分割
+globs: src/**/*.py
+alwaysApply: false
+---
+
+# Python
+
+- パッケージは `src/stream_heartbeat/`。起動は `python -m stream_heartbeat`
+- GUI は PySide6
+- 心拍の検出・描画・設定をウィンドウクラスに直書きしない。入力 / 描画 / 設定の層へ分ける
+- 型ヒントを付ける。`from __future__ import annotations` をモジュール先頭に
+- 1 ファイル 800 行超で分割を検討。UI / 入力 / 描画は混ぜない
