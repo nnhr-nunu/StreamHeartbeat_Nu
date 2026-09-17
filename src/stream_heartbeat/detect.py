@@ -228,6 +228,9 @@ class HeartSoundDetector:
             if self._sumsq < 0.0:
                 self._sumsq = 0.0
             env = math.sqrt(self._sumsq / win)
+            sample_t = t + i * dt
+            if 0 <= sample_t - self._last_beat < 0.12:
+                self._last_hit_env = max(self._last_hit_env, env)
             if env < self._noise:
                 self._noise += a_dn * (env - self._noise)
             else:
@@ -240,7 +243,6 @@ class HeartSoundDetector:
             onset = norm >= 0.42 and env > self._prev_env * 1.12 and self._prev_env <= env
             rising = norm >= 0.42 and self._prev_env < 0.42 * denom
             self._prev_env = 0.82 * self._prev_env + 0.18 * env
-            sample_t = t + i * dt
             if not (onset or rising):
                 continue
             window = list(self._buf)
@@ -255,7 +257,7 @@ class HeartSoundDetector:
                     self._update_pair_mode(raw_dt)
                 self._last_raw_t = sample_t
             since = sample_t - self._last_beat
-            if 0.20 <= since <= 0.40 and env < self._last_hit_env * 0.80:
+            if 0.20 <= since <= 0.55 and env < self._last_hit_env * 0.78:
                 continue
             if since < self._refractory():
                 continue

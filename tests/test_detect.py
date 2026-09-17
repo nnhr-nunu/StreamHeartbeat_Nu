@@ -158,6 +158,39 @@ def test_fast_equal_beats_stay_unmerged() -> None:
     assert 0.32 < statistics.median(gaps) < 0.48
 
 
+def test_slow_heart_near_thirty_is_detected() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(12000):
+        sample = 0.35 * math.sin(math.pi * (i % 1900) / 50) if i % 1900 < 50 else 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    assert len(beats) >= 5
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert 1.6 < statistics.median(gaps) < 2.2
+
+
+def test_quiet_gurgle_is_not_an_extra_beat() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(8000):
+        pos = i % 800
+        if pos < 40:
+            sample = 0.3 * math.sin(math.pi * pos / 40)
+        elif 480 <= pos < 510:
+            sample = 0.11 * math.sin(math.pi * (pos - 480) / 30)
+        else:
+            sample = 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert statistics.median(gaps) > 0.7
+
+
 def test_from_sessions_skips_empty_instead_of_whole_file() -> None:
     silence = [0.001] * 2000
     pulse = [_thud(i, 40) for i in range(90)]

@@ -130,9 +130,16 @@ class BeatClock:
         return 0.30 + 0.70 * max(beat.squeeze, beat.eject * 0.55)
 
     def pop_arrhythmia(self, t: float) -> bool:
-        if self._wild < ARRHYTHMIA_STREAK:
-            return False
         if t < self._arrhythmia_until:
+            return False
+        if self._beats:
+            pause = t - self._beats[-1]
+            typical = self._median_interval() or self.interval()
+            if pause >= max(1.8, 2.2 * typical):
+                self._arrhythmia_until = t + ARRHYTHMIA_COOLDOWN_S
+                self._wild = 0
+                return True
+        if self._wild < ARRHYTHMIA_STREAK:
             return False
         self._arrhythmia_until = t + ARRHYTHMIA_COOLDOWN_S
         self._wild = 0
