@@ -15,7 +15,21 @@ def test_bpm_from_intervals() -> None:
 def test_pulse_peaks_after_beat() -> None:
     clock = BeatClock()
     clock.feed_beat(1.0)
-    assert clock.pulse_scale(1.0) > clock.pulse_scale(1.3)
+    assert clock.pulse_scale(1.05) > clock.pulse_scale(1.35)
+
+
+def test_ejection_follows_squeeze() -> None:
+    clock = BeatClock()
+    clock.feed_beat(0.0)
+    clock.feed_beat(0.8)
+    squeeze = clock.cycle(0.85)
+    eject = clock.cycle(0.92)
+    rest = clock.cycle(1.35)
+    assert squeeze.squeeze > eject.squeeze
+    assert eject.eject > squeeze.eject
+    assert rest.squeeze < 0.2
+    assert rest.eject < 0.2
+    assert squeeze.apex < rest.apex
 
 
 def test_lost_keeps_last_bpm_and_metronome() -> None:
