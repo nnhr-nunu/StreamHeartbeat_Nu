@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 import wave
 from pathlib import Path
 
@@ -57,6 +58,7 @@ def test_finger_snap_is_not_a_beat() -> None:
 def test_template_prefers_matching_shape() -> None:
     pulse = [_thud(i, 40) for i in range(90)]
     template = CalibrationTemplate.from_sessions([pulse, pulse], sample_rate=1000)
+    assert template is not None
     detector = HeartSoundDetector(template=template)
     t = 0.0
     hits: list[float] = []
@@ -71,6 +73,49 @@ def test_template_prefers_matching_shape() -> None:
         miss.extend(miss_det.feed([0.5], t, 1000))
         t += 0.001
     assert miss == []
+
+
+def test_quiet_heart_is_detected() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(8000):
+        sample = 0.055 * math.sin(math.pi * (i % 800) / 50) if i % 800 < 50 else 0.002
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    assert len(beats) >= 7
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert all(0.65 < g < 0.95 for g in gaps)
+
+
+def test_lub_dub_counts_as_one_beat() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(9000):
+        pos = i % 900
+        if pos < 40:
+            sample = 0.22 * math.sin(math.pi * pos / 40)
+        elif 280 <= pos < 315:
+            sample = 0.14 * math.sin(math.pi * (pos - 280) / 35)
+        else:
+            sample = 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    assert len(beats) >= 7
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert statistics.median(gaps) > 0.7
+    assert all(g > 0.55 for g in gaps)
+
+
+def test_from_sessions_skips_empty_instead_of_whole_file() -> None:
+    silence = [0.001] * 2000
+    pulse = [_thud(i, 40) for i in range(90)]
+    template = CalibrationTemplate.from_sessions([silence, pulse], sample_rate=1000)
+    assert template is not None
+    assert len(template.wave) <= 200
 
 
 def test_looks_like_thud_rejects_bright_noise() -> None:

@@ -6,8 +6,8 @@ from pathlib import Path
 
 from stream_heartbeat.detect import load_wav_mono
 
-AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma"}
-AUDIO_FILTER = "音声 (*.wav *.mp3 *.m4a *.aac *.ogg *.flac);;すべて (*.*)"
+AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mp4", ".mov", ".m4v"}
+AUDIO_FILTER = "音声・動画 (*.wav *.mp3 *.m4a *.mp4 *.mov);;すべて (*.*)"
 
 
 def load_audio_mono(path: Path) -> list[float]:
