@@ -45,6 +45,7 @@ def _envelope(dt: float, start: float, peak: float, end: float) -> float:
 class BeatClock:
     def __init__(self) -> None:
         self._beats: list[float] = []
+        self._intervals: list[float] = []
         self._bpm = float(DEFAULT_BPM)
         self.detected = False
         self.oshilog_bpm: int | None = None
@@ -72,8 +73,10 @@ class BeatClock:
         self._last_event = t
 
     def _update_bpm(self, interval: float) -> None:
-        bpm = 60.0 / interval
-        self._bpm = min(MAX_BPM, max(MIN_BPM, bpm))
+        self._intervals.append(interval)
+        self._intervals = self._intervals[-8:]
+        med = statistics.median(self._intervals)
+        self._bpm = min(MAX_BPM, max(MIN_BPM, 60.0 / med))
 
     def _median_interval(self) -> float | None:
         if len(self._beats) < 3:
