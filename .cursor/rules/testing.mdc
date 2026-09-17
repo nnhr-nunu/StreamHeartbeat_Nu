@@ -1,0 +1,12 @@
+---
+description: pytest の方針
+globs: tests/**
+alwaysApply: false
+---
+
+# テスト
+
+- 自明なモックだけのテストは足さない
+- GUI の E2E は必要になってから。まずは入力の数値化と表示設定の単体
+- Qt を触るテストは `QT_QPA_PLATFORM=offscreen` を前提にする
+- commit 前: `pytest`
