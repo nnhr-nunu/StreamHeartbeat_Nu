@@ -1,0 +1,73 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev]"
+      - name: Test
+        env:
+          PYTHONFAULTHANDLER: "1"
+          QT_QPA_PLATFORM: "offscreen"
+        run: pytest -q --tb=short
+      - name: Lint
+        run: ruff check src tests
+      - name: Build exe
+        if: github.event_name != 'pull_request'
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name StreamHeartbeat
+          --icon src/stream_heartbeat/assets/app_icon.ico
+          --version-file packaging/windows_version.txt
+          --collect-all PySide6
+          --hidden-import PySide6.QtMultimedia
+          --add-data "src/stream_heartbeat/assets;stream_heartbeat/assets"
+          src/stream_heartbeat/__main__.py
+      - if: github.event_name != 'pull_request'
+        run: Copy-Item packaging/HOW_TO_RUN.txt dist/StreamHeartbeat/使いかた.txt
+      - if: github.event_name != 'pull_request'
+        run: Compress-Archive -Path dist/StreamHeartbeat/* -DestinationPath StreamHeartbeat-windows.zip -Force
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: StreamHeartbeat-windows.zip
+
+  release:
+    needs: [windows]
+    if: github.event_name != 'pull_request' && needs.windows.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 最新版（展開して起動）
+          body: |
+            ## ダウンロード手順
+
+            1. このページ下部の **Assets** を開く
+            2. `StreamHeartbeat-windows.zip` をダウンロードする
+            3. zip を展開して `StreamHeartbeat.exe` を開く
+
+            OBS の「ウィンドウの取り込み」で `StreamHeartbeat(ぬ) - 配信出力` を選び、クロマキーで緑を抜いてください。
+
+            起動時の警告は署名していないためです。ウイルスではありません。Windows は「詳細情報」→「実行」。
+          files: |
+            windows-zip/StreamHeartbeat-windows.zip
+          fail_on_unmatched_files: true
+          make_latest: true
