@@ -28,7 +28,7 @@ stream-heartbeat = "stream_heartbeat.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-stream_heartbeat = ["assets/*"]
+stream_heartbeat = ["assets/*", "assets/heart_samples/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

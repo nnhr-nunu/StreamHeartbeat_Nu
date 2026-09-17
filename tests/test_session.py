@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import math
+from unittest.mock import patch
 
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.session import HeartSession
 
 
-def test_tick_feeds_clock_from_peaks() -> None:
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_tick_feeds_clock_from_peaks(_bundled: object) -> None:
     session = HeartSession()
     t = 0.0
     for i in range(2500):

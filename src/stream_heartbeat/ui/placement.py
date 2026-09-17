@@ -1,4 +1,4 @@
-"""操作画面と配信用を横に並べ、起動時に重ならないようにする。"""
+"""操作画面を右、配信用を左に置く。"""
 
 from __future__ import annotations
 
@@ -11,14 +11,21 @@ MARGIN = 32
 def place_side_by_side(operator: QSize, output: QSize, screen: QRect) -> tuple[QPoint, QPoint]:
     left = screen.x() + MARGIN
     top = screen.y() + MARGIN
-    op = QPoint(left, top)
-    out = QPoint(left + operator.width() + GAP, top)
-    if out.x() + output.width() > screen.right() - 8:
-        out = QPoint(left + min(320, operator.width() // 2), top + min(220, operator.height() // 3))
+    out = QPoint(left, top)
+    op = QPoint(left + output.width() + GAP, top)
+    if op.x() + operator.width() > screen.right() - 8:
+        op = QPoint(
+            min(screen.right() - operator.width() - 8, left + min(360, output.width() // 2)),
+            top + min(200, output.height() // 4),
+        )
+    op = QPoint(
+        min(op.x(), max(screen.x(), screen.right() - operator.width() - 8)),
+        min(op.y(), max(screen.y(), screen.bottom() - operator.height() - 8)),
+    )
     out = QPoint(
         min(out.x(), max(screen.x(), screen.right() - output.width() - 8)),
         min(out.y(), max(screen.y(), screen.bottom() - output.height() - 8)),
     )
     if abs(out.x() - op.x()) < 80 and abs(out.y() - op.y()) < 80:
-        out = QPoint(min(screen.right() - output.width() - 8, op.x() + 240), op.y() + 160)
+        op = QPoint(min(screen.right() - operator.width() - 8, out.x() + 280), out.y() + 140)
     return op, out

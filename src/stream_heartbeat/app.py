@@ -42,6 +42,9 @@ def run() -> int:
     area = screen.availableGeometry() if screen is not None else None
     if area is not None:
         op_pos, out_pos = place_side_by_side(operator.size(), output.size(), area)
-        operator.move(op_pos)
         output.move(out_pos)
+        operator.move(op_pos)
+    output.raise_()
+    operator.raise_()
+    operator.activateWindow()
     return app.exec()
