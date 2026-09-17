@@ -8,11 +8,12 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QRadialGradient
 
 from stream_heartbeat.clock import CardiacCycle
-from stream_heartbeat.config import CHROMA_HEX
 from stream_heartbeat.overlay import FloatBurst
 from stream_heartbeat.ui.heart_realistic import paint_realistic
 
-CHROMA = QColor(CHROMA_HEX)
+ECG_COLOR = QColor(210, 24, 36)
+ECG_GLOW = QColor(120, 8, 14)
+ECG_PEN_MIN = 8
 TEXT_COLOR = QColor(255, 236, 180)
 BPM_COLOR = QColor(255, 255, 255)
 
@@ -115,20 +116,23 @@ def _paint_mech(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCyc
 
 
 def _paint_ecg(painter: QPainter, rect: QRectF, cycle: CardiacCycle, phase: float) -> None:
-    painter.setPen(QPen(QColor(18, 22, 70), 3))
+    width = max(ECG_PEN_MIN, int(rect.height() * 0.028))
     mid = rect.center().y()
     left = rect.left()
-    width = rect.width()
+    span = rect.width()
     path = QPainterPath()
     samples = 180
     for i in range(samples + 1):
         u = (i / samples + phase) % 1.0
-        y = mid - _ecg_y(u) * rect.height() * 0.22 * (0.65 + 0.35 * max(cycle.squeeze, cycle.eject))
-        x = left + width * i / samples
+        y = mid - _ecg_y(u) * rect.height() * 0.28 * (0.65 + 0.35 * max(cycle.squeeze, cycle.eject))
+        x = left + span * i / samples
         if i == 0:
             path.moveTo(x, y)
         else:
             path.lineTo(x, y)
+    painter.setPen(QPen(ECG_GLOW, width + 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.drawPath(path)
+    painter.setPen(QPen(ECG_COLOR, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
     painter.drawPath(path)
 
 

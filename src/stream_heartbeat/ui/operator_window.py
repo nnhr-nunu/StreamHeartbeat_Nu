@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import wave
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -9,13 +10,16 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -24,6 +28,7 @@ from PySide6.QtWidgets import (
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicTap, list_mics
 from stream_heartbeat.config import DETECT_LOST_LABEL, DISCLAIMER
+from stream_heartbeat.detect import load_wav_mono
 from stream_heartbeat.oshilog import fetch_aux_bpm
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
@@ -56,17 +61,20 @@ class OperatorWindow(QMainWindow):
         self._data_dir = resolve_data_dir()
         self._mono = 0.0
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
-        self.setMinimumSize(440, 680)
-        self.resize(480, 740)
+        self.setMinimumSize(440, 420)
+        self.resize(500, 760)
         self.setStyleSheet(DARK_QSS)
         apply_app_icon(self)
 
         self._status = QLabel(DETECT_LOST_LABEL)
         self._status.setObjectName("status")
+        self._status.setWordWrap(True)
         self._aux = QLabel("OshiLog 補助: —")
         self._aux.setObjectName("meta")
+        self._aux.setWordWrap(True)
         self._warn = QLabel("")
         self._warn.setObjectName("warn")
+        self._warn.setWordWrap(True)
         disclaimer = QLabel(DISCLAIMER)
         disclaimer.setObjectName("disclaimer")
         disclaimer.setWordWrap(True)
@@ -85,6 +93,7 @@ class OperatorWindow(QMainWindow):
         self._opacity.setRange(10, 100)
         self._text = QLineEdit()
         self._show_bpm = QCheckBox("心拍数を配信用に出す")
+        self._show_arrhythmia = QCheckBox("不整脈！を配信用に出す")
         self._public_id = QLineEdit()
         self._bpm_url = QLineEdit()
         self._level = QLabel("入力: —")
@@ -92,11 +101,13 @@ class OperatorWindow(QMainWindow):
         start_cal = QPushButton("キャリブ開始")
         keep_cal = QPushButton("このセッションを採用")
         drop_cal = QPushButton("破棄")
+        load_cal = QPushButton("心音WAVを追加")
         save_btn = QPushButton("プロファイルを保存")
 
         start_cal.clicked.connect(self._session.begin_calibration)
         keep_cal.clicked.connect(self._commit_cal)
         drop_cal.clicked.connect(self._session.discard_calibration)
+        load_cal.clicked.connect(self._add_wav_sample)
         save_btn.clicked.connect(self._save_current)
         self._profiles.currentTextChanged.connect(self._maybe_load_named)
         self._style.currentIndexChanged.connect(self._apply_controls)
@@ -104,6 +115,7 @@ class OperatorWindow(QMainWindow):
         self._opacity.valueChanged.connect(self._apply_controls)
         self._text.textChanged.connect(self._apply_controls)
         self._show_bpm.toggled.connect(self._apply_controls)
+        self._show_arrhythmia.toggled.connect(self._apply_controls)
         self._mics.currentIndexChanged.connect(self._restart_mic)
 
         look = QFormLayout()
@@ -112,6 +124,7 @@ class OperatorWindow(QMainWindow):
         look.addRow("透明度", self._opacity)
         look.addRow("同期文字", self._text)
         look.addRow(self._show_bpm)
+        look.addRow(self._show_arrhythmia)
         look_box = QGroupBox("配信用の見た目")
         look_box.setLayout(look)
 
@@ -131,9 +144,17 @@ class OperatorWindow(QMainWindow):
         cal_row.addWidget(start_cal)
         cal_row.addWidget(keep_cal)
         cal_row.addWidget(drop_cal)
+        cal_hint = QLabel(
+            "同じマイクで自分の心音を録るか、16bit WAV を足すと精度が上がります。"
+            "指パッチンのような高い短い音は捨てます。"
+        )
+        cal_hint.setObjectName("meta")
+        cal_hint.setWordWrap(True)
         cal_box = QGroupBox("キャリブ（配信前）")
         cal_inner = QVBoxLayout()
         cal_inner.addLayout(cal_row)
+        cal_inner.addWidget(load_cal)
+        cal_inner.addWidget(cal_hint)
         cal_box.setLayout(cal_inner)
 
         root = QWidget()
@@ -150,7 +171,11 @@ class OperatorWindow(QMainWindow):
         layout.addWidget(self._warn)
         layout.addStretch(1)
         layout.addWidget(version)
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
 
         self._fill_mics()
         self._fill_profiles()
@@ -205,6 +230,7 @@ class OperatorWindow(QMainWindow):
     def _load_into_controls(self, profile: HeartProfile) -> None:
         self._text.setText(profile.beat_text)
         self._show_bpm.setChecked(profile.show_bpm)
+        self._show_arrhythmia.setChecked(profile.show_arrhythmia)
         self._scale.setValue(int(profile.scale * 100))
         self._opacity.setValue(int(profile.opacity * 100))
         self._public_id.setText(profile.oshilog_public_id)
@@ -224,6 +250,7 @@ class OperatorWindow(QMainWindow):
         profile.opacity = self._opacity.value() / 100.0
         profile.beat_text = self._text.text() or "ドクン"
         profile.show_bpm = self._show_bpm.isChecked()
+        profile.show_arrhythmia = self._show_arrhythmia.isChecked()
         profile.oshilog_public_id = self._public_id.text().strip()
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
         if self._mics.currentData():
@@ -240,6 +267,24 @@ class OperatorWindow(QMainWindow):
     def _commit_cal(self) -> None:
         self._session.commit_calibration()
         self._save_current()
+
+    def _add_wav_sample(self) -> None:
+        path, _ok = QFileDialog.getOpenFileName(self, "心音WAVを追加", "", "WAV (*.wav)")
+        if not path:
+            return
+        try:
+            samples = load_wav_mono(Path(path))
+        except (OSError, ValueError, wave.Error):
+            self._warn.setText("WAV は 16bit で、先頭チャンネルだけ使います")
+            return
+        if not samples:
+            self._warn.setText("WAV が空でした")
+            return
+        self._session.profile.calibration.append(samples)
+        self._session.rebuild_detector()
+        self._save_current()
+        count = len(self._session.profile.calibration)
+        self._status.setText(f"心音サンプルを追加しました（{count} 件）")
 
     def _save_current(self) -> None:
         self._apply_controls()

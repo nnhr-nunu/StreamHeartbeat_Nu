@@ -41,5 +41,5 @@ class HeartSession:
             self.clock.feed_beat(beat_t)
             self.overlay.on_beat(beat_t, self.profile.beat_text)
         self.clock.lost_if_silent(t)
-        if self.clock.pop_arrhythmia(t):
+        if self.clock.pop_arrhythmia(t) and self.profile.show_arrhythmia:
             self.overlay.on_arrhythmia(t)

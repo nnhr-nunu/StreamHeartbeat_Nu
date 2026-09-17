@@ -19,8 +19,8 @@ QToolButton, QPushButton {
   background: #2a2a2a;
   border: none;
   border-radius: 10px;
-  padding: 8px 12px;
-  min-height: 40px;
+  padding: 6px 10px;
+  min-height: 32px;
   color: #f0f0f0;
 }
 QPushButton:hover, QToolButton:hover {
@@ -65,8 +65,8 @@ QComboBox QAbstractItemView {
 QGroupBox {
   border: 1px solid #333;
   border-radius: 10px;
-  margin-top: 14px;
-  padding: 10px 8px 8px 8px;
+  margin-top: 12px;
+  padding: 8px 8px 6px 8px;
   color: #e8e8e8;
   background: transparent;
 }

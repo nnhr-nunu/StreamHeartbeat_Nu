@@ -21,6 +21,7 @@ class HeartProfile:
     opacity: float = 1.0
     beat_text: str = DEFAULT_BEAT_TEXT
     show_bpm: bool = True
+    show_arrhythmia: bool = True
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
     calibration: list[list[float]] = field(default_factory=list)

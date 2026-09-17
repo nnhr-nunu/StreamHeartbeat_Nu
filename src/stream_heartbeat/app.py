@@ -17,6 +17,7 @@ from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
+from stream_heartbeat.ui.placement import place_side_by_side
 
 
 def _initial_session() -> HeartSession:
@@ -37,4 +38,10 @@ def run() -> int:
     operator = OperatorWindow(session, output)
     operator.show()
     output.show()
+    screen = app.primaryScreen()
+    area = screen.availableGeometry() if screen is not None else None
+    if area is not None:
+        op_pos, out_pos = place_side_by_side(operator.size(), output.size(), area)
+        operator.move(op_pos)
+        output.move(out_pos)
     return app.exec()
