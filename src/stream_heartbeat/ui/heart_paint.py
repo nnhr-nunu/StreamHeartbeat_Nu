@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QRadialGr
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.overlay import FloatBurst
+from stream_heartbeat.ui.heart_imaging import paint_echo, paint_mri, paint_xray
 from stream_heartbeat.ui.heart_realistic import paint_realistic
 
 ECG_COLOR = QColor(210, 24, 36)
@@ -47,6 +48,12 @@ def paint_heart(
         _paint_cute(painter, rect, scale, cycle)
     elif style == "mech":
         _paint_mech(painter, rect, scale, cycle)
+    elif style == "echo":
+        paint_echo(painter, rect, scale, cycle)
+    elif style == "mri":
+        paint_mri(painter, rect, scale, cycle)
+    elif style == "xray":
+        paint_xray(painter, rect, scale, cycle)
     else:
         paint_realistic(painter, rect, scale=scale, cycle=cycle)
     painter.restore()
