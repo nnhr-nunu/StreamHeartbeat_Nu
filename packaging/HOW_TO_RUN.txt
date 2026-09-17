@@ -1,0 +1,16 @@
+StreamHeartbeat(ぬ)
+
+起動するもの:
+- Windows: StreamHeartbeat.exe
+
+1. この ZIP を展開する
+2. StreamHeartbeat.exe を開く（インストール不要）
+3. マイクを選び、必要ならキャリブする
+4. OBS「ウィンドウの取り込み」で次の名前を選ぶ
+   StreamHeartbeat(ぬ) - 配信出力
+5. クロマキーで緑を抜く
+
+操作画面を閉じると配信出力も終わります。設定は Windows のアプリデータに残るので、
+zip を入れ直してもプロファイルは残ります。
+
+詳しくは GitHub の README を見てください。

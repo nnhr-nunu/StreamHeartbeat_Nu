@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stream_heartbeat import OPERATOR_WINDOW_TITLE
+from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicTap, list_mics
 from stream_heartbeat.config import DETECT_LOST_LABEL, DISCLAIMER
 from stream_heartbeat.oshilog import fetch_aux_bpm
@@ -34,7 +35,9 @@ from stream_heartbeat.profile import (
     save_profile,
 )
 from stream_heartbeat.session import HeartSession
+from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.output_window import OutputWindow
+from stream_heartbeat.ui.styles import DARK_QSS
 
 STYLES = [
     ("realistic", "リアル"),
@@ -53,14 +56,22 @@ class OperatorWindow(QMainWindow):
         self._data_dir = resolve_data_dir()
         self._mono = 0.0
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
-        self.setMinimumSize(420, 560)
-        self.resize(460, 640)
+        self.setMinimumSize(440, 680)
+        self.resize(480, 740)
+        self.setStyleSheet(DARK_QSS)
+        apply_app_icon(self)
 
         self._status = QLabel(DETECT_LOST_LABEL)
+        self._status.setObjectName("status")
         self._aux = QLabel("OshiLog 補助: —")
+        self._aux.setObjectName("meta")
         self._warn = QLabel("")
+        self._warn.setObjectName("warn")
         disclaimer = QLabel(DISCLAIMER)
+        disclaimer.setObjectName("disclaimer")
         disclaimer.setWordWrap(True)
+        version = QLabel(display_version())
+        version.setObjectName("meta")
 
         self._profiles = QComboBox()
         self._profiles.setEditable(True)
@@ -95,32 +106,50 @@ class OperatorWindow(QMainWindow):
         self._show_bpm.toggled.connect(self._apply_controls)
         self._mics.currentIndexChanged.connect(self._restart_mic)
 
-        form = QFormLayout()
-        form.addRow("プロファイル", self._profiles)
-        form.addRow("マイク", self._mics)
-        form.addRow("スタイル", self._style)
-        form.addRow("大きさ", self._scale)
-        form.addRow("透明度", self._opacity)
-        form.addRow("同期文字", self._text)
-        form.addRow(self._show_bpm)
-        form.addRow("OshiLog 心拍ID", self._public_id)
-        form.addRow("補助 BPM URL", self._bpm_url)
+        look = QFormLayout()
+        look.addRow("スタイル", self._style)
+        look.addRow("大きさ", self._scale)
+        look.addRow("透明度", self._opacity)
+        look.addRow("同期文字", self._text)
+        look.addRow(self._show_bpm)
+        look_box = QGroupBox("配信用の見た目")
+        look_box.setLayout(look)
+
+        input_form = QFormLayout()
+        input_form.addRow("プロファイル", self._profiles)
+        input_form.addRow("マイク", self._mics)
+        input_box = QGroupBox("入力")
+        input_box.setLayout(input_form)
+
+        oshi = QFormLayout()
+        oshi.addRow("心拍ID", self._public_id)
+        oshi.addRow("補助 BPM URL", self._bpm_url)
+        oshi_box = QGroupBox("OshiLog")
+        oshi_box.setLayout(oshi)
 
         cal_row = QHBoxLayout()
         cal_row.addWidget(start_cal)
         cal_row.addWidget(keep_cal)
         cal_row.addWidget(drop_cal)
+        cal_box = QGroupBox("キャリブ（配信前）")
+        cal_inner = QVBoxLayout()
+        cal_inner.addLayout(cal_row)
+        cal_box.setLayout(cal_inner)
 
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.addWidget(disclaimer)
-        layout.addLayout(form)
-        layout.addLayout(cal_row)
+        layout.addWidget(input_box)
+        layout.addWidget(look_box)
+        layout.addWidget(cal_box)
+        layout.addWidget(oshi_box)
         layout.addWidget(save_btn)
         layout.addWidget(self._level)
         layout.addWidget(self._status)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
+        layout.addStretch(1)
+        layout.addWidget(version)
         self.setCentralWidget(root)
 
         self._fill_mics()

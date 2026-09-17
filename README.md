@@ -1,6 +1,30 @@
 # StreamHeartbeat(ぬ)
 
-配信中に心臓の描画を出すためのデスクトップアプリです。開発中の骨格で、製品の動きはまだありません。
+配信中に、自分の心拍に合わせて脈打つ心臓を OBS へ出すソフトです。VTube Studio のアバターの上に重ねる想定です。
+
+操作用ウィンドウで見た目とマイクを決め、配信用ウィンドウを OBS が取り込みます。
+
+## 入手
+
+**[最新版のダウンロードページを開く](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)**
+
+1. 上記の最新版ページを開きます。
+2. Windows は `StreamHeartbeat-windows.zip` をダウンロードします。
+3. zip を展開します。
+4. `StreamHeartbeat.exe` を開きます。
+
+起動時に「Windows によって PC が保護されました」と出ることがあります。ストア経由ではないためで、ウイルスではありません。**詳細情報** → **実行** を選んでください。
+
+## 使い方
+
+1. 操作画面でマイクを選びます。同じマイクを OBS でも使うときは、OBS 側の独占モードをオフにしてください。
+2. 必要なら「キャリブ開始」で心音と少しの発話を録り、「このセッションを採用」します。
+3. スタイル・大きさ・透明度・「ドクン」などの文字を決めます。変更は配信用へすぐ出ます。
+4. OBS で「ウィンドウの取り込み」を追加し、`StreamHeartbeat(ぬ) - 配信出力` を選びます。
+5. クロマキーで緑を抜きます。枠まで写るときは OBS 側でクロップします。
+6. 操作画面を閉じるとアプリごと終了し、配信からも消えます。
+
+設定は Windows のアプリデータに残るので、zip を入れ直してもプロファイルは残ります。
 
 ## 開発者向けセットアップ（Windows）
 
@@ -14,16 +38,9 @@ py -3.10 -m venv .venv
 .\.venv\Scripts\pytest.exe
 ```
 
-起動:
+起動は `起動.bat`、または `.\.venv\Scripts\python.exe -m stream_heartbeat`。
 
-- `起動.bat`
-- または `.\.venv\Scripts\python.exe -m stream_heartbeat`
+## 開発者・お問い合わせ
 
-窓は 2 つ出ます。
-
-- `StreamHeartbeat(ぬ)` … 操作画面
-- `StreamHeartbeat(ぬ) - 配信出力` … OBS の「ウィンドウの取り込み」用（いまは緑一色）
-
-## 開発ルール
-
-OshiLog と同じ運用（日本語 commit、完了は `git log`、`task.md` は未完了のみ、README は入口専用）に、StreamMediaViewer(ぬ) の Python / 2 窓 / Cursor ルールを合わせています。詳細は [`AGENTS.md`](./AGENTS.md)。
+開発者: ぬぬはら
+X: [@nnhr_nunu](https://x.com/nnhr_nunu)

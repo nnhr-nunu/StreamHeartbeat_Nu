@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QMainWindow, QWidget
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
 from stream_heartbeat.config import CHROMA_HEX
 from stream_heartbeat.session import HeartSession
+from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.heart_paint import paint_bpm, paint_bursts, paint_heart
+from stream_heartbeat.ui.styles import DARK_QSS
 
 CHROMA = QColor(CHROMA_HEX)
 
@@ -37,7 +39,7 @@ class OutputCanvas(QWidget):
             style=profile.style,
             scale=profile.scale,
             opacity=profile.opacity,
-            pulse=clock.pulse_scale(t),
+            cycle=clock.cycle(t),
             ecg_phase=(t / max(clock.interval(), 0.2)) % 1.0,
         )
         paint_bursts(painter, self.rect(), self._session.overlay.bursts_at(t))
@@ -52,6 +54,8 @@ class OutputWindow(QMainWindow):
         self.setMinimumSize(480, 480)
         self.resize(720, 720)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setStyleSheet(DARK_QSS)
+        apply_app_icon(self)
         self.canvas = OutputCanvas(session)
         self.canvas.setObjectName("outputCanvas")
         self.setCentralWidget(self.canvas)
