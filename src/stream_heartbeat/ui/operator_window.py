@@ -39,6 +39,7 @@ from stream_heartbeat.profile import (
     save_last_profile_name,
     save_profile,
 )
+from stream_heartbeat.render.heart_shaders import REALISTIC_LOOKS
 from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
@@ -54,6 +55,8 @@ STYLES = [
     ("mech", "機械"),
     ("ecg", "心電図"),
 ]
+ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
+GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
 
 
 class OperatorWindow(QMainWindow):
@@ -93,6 +96,17 @@ class OperatorWindow(QMainWindow):
         self._style = QComboBox()
         for key, label in STYLES:
             self._style.addItem(label, key)
+        self._look = QComboBox()
+        for look in REALISTIC_LOOKS:
+            self._look.addItem(look.label, look.key)
+        self._angle_locked = QCheckBox("角度を固定（配信用の窓をドラッグしても回さない）")
+        self._reset_angle = QPushButton("角度をリセット")
+        self._angle_hint = QLabel("配信用の窓を左ドラッグで回転、ダブルクリックで元の向き。")
+        self._angle_hint.setObjectName("meta")
+        self._angle_hint.setWordWrap(True)
+        self._gl_note = QLabel("")
+        self._gl_note.setObjectName("warn")
+        self._gl_note.setWordWrap(True)
         self._scale = QSlider(Qt.Orientation.Horizontal)
         self._scale.setRange(20, 120)
         self._opacity = QSlider(Qt.Orientation.Horizontal)
@@ -127,6 +141,9 @@ class OperatorWindow(QMainWindow):
         save_as_btn.clicked.connect(self._save_as)
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
+        self._look.currentIndexChanged.connect(self._apply_controls)
+        self._angle_locked.toggled.connect(self._apply_controls)
+        self._reset_angle.clicked.connect(self._output.canvas.reset_angle)
         self._scale.valueChanged.connect(self._apply_controls)
         self._opacity.valueChanged.connect(self._apply_controls)
         self._text.textChanged.connect(self._apply_controls)
@@ -136,11 +153,23 @@ class OperatorWindow(QMainWindow):
 
         look = QFormLayout()
         look.addRow("スタイル", self._style)
+        self._look_label = QLabel("質感")
+        look.addRow(self._look_label, self._look)
         look.addRow("大きさ", self._scale)
         look.addRow("透明度", self._opacity)
         look.addRow("同期文字", self._text)
         look.addRow(self._show_bpm)
         look.addRow(self._show_arrhythmia)
+        angle_row = QHBoxLayout()
+        angle_row.addWidget(self._angle_locked, 1)
+        angle_row.addWidget(self._reset_angle)
+        self._angle_wrap = QWidget()
+        angle_col = QVBoxLayout(self._angle_wrap)
+        angle_col.setContentsMargins(0, 0, 0, 0)
+        angle_col.addLayout(angle_row)
+        angle_col.addWidget(self._angle_hint)
+        look.addRow(self._angle_wrap)
+        look.addRow(self._gl_note)
         look_box = QGroupBox("配信用の見た目")
         look_box.setLayout(look)
 
@@ -276,24 +305,52 @@ class OperatorWindow(QMainWindow):
         self._restart_mic()
 
     def _load_into_controls(self, profile: HeartProfile) -> None:
-        self._text.setText(profile.beat_text)
-        self._show_bpm.setChecked(profile.show_bpm)
-        self._show_arrhythmia.setChecked(profile.show_arrhythmia)
-        self._scale.setValue(int(profile.scale * 100))
-        self._opacity.setValue(int(profile.opacity * 100))
-        self._public_id.setText(profile.oshilog_public_id)
-        self._bpm_url.setText(profile.oshilog_bpm_url)
-        idx = max(0, self._style.findData(profile.style))
-        self._style.setCurrentIndex(idx)
-        for i in range(self._mics.count()):
-            if self._mics.itemData(i) == profile.mic_id:
-                self._mics.setCurrentIndex(i)
-                break
+        # 途中で値変更の合図が飛ぶと、まだ初期値の他の項目でプロファイルが上書きされる。
+        # 全部入れ終わってから一度だけ反映する。
+        widgets = (
+            self._text,
+            self._show_bpm,
+            self._show_arrhythmia,
+            self._scale,
+            self._opacity,
+            self._public_id,
+            self._bpm_url,
+            self._style,
+            self._look,
+            self._angle_locked,
+            self._mics,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
+        try:
+            self._text.setText(profile.beat_text)
+            self._show_bpm.setChecked(profile.show_bpm)
+            self._show_arrhythmia.setChecked(profile.show_arrhythmia)
+            self._scale.setValue(int(profile.scale * 100))
+            self._opacity.setValue(int(profile.opacity * 100))
+            self._public_id.setText(profile.oshilog_public_id)
+            self._bpm_url.setText(profile.oshilog_bpm_url)
+            idx = max(0, self._style.findData(profile.style))
+            self._style.setCurrentIndex(idx)
+            look_idx = max(0, self._look.findData(profile.realistic_look))
+            self._look.setCurrentIndex(look_idx)
+            for i in range(self._mics.count()):
+                if self._mics.itemData(i) == profile.mic_id:
+                    self._mics.setCurrentIndex(i)
+                    break
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+        self._output.canvas.sync_orbit_from_profile()
+        self._apply_controls()
 
     def _apply_controls(self) -> None:
         profile = self._session.profile
         profile.name = self._profiles.currentText().strip() or "default"
         profile.style = str(self._style.currentData() or "realistic")
+        profile.realistic_look = str(self._look.currentData() or "surgical")
+        self._output.canvas.angle_locked = self._angle_locked.isChecked()
+        self._refresh_style_controls()
         profile.scale = self._scale.value() / 100.0
         profile.opacity = self._opacity.value() / 100.0
         profile.beat_text = self._text.text() or "ドクン"
@@ -303,6 +360,16 @@ class OperatorWindow(QMainWindow):
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
         if self._mics.currentData():
             profile.mic_id = str(self._mics.currentData())
+
+    def _refresh_style_controls(self) -> None:
+        style = str(self._style.currentData() or "realistic")
+        is_realistic = style == "realistic"
+        self._look.setVisible(is_realistic)
+        self._look_label.setVisible(is_realistic)
+        self._angle_wrap.setVisible(style in ROTATABLE_STYLES)
+        failed = style in ROTATABLE_STYLES and self._output.canvas.gl_error is not None
+        self._gl_note.setText(GL_FAIL_LABEL if failed else "")
+        self._gl_note.setVisible(failed)
 
     def _restart_mic(self) -> None:
         self._apply_controls()
@@ -418,6 +485,8 @@ class OperatorWindow(QMainWindow):
                 self._warn.setText("時計と数字がズレています（推しログは遅延します）")
             else:
                 self._warn.setText("")
+        if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
+            self._refresh_style_controls()
         self._output.canvas.set_now(self._mono)
 
     def closeEvent(self, event: QCloseEvent) -> None:
