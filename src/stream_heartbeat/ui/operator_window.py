@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
-from stream_heartbeat.audio import MicTap, list_mics
+from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
 from stream_heartbeat.config import DETECT_LOST_LABEL, DISCLAIMER
 from stream_heartbeat.oshilog import fetch_aux_bpm
 from stream_heartbeat.paths import resolve_data_dir
@@ -62,6 +62,7 @@ class OperatorWindow(QMainWindow):
         self._session = session
         self._output = output
         self._mic = MicTap()
+        self._monitor = MicMonitor()
         self._data_dir = resolve_data_dir()
         self._mono = 0.0
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
@@ -106,14 +107,22 @@ class OperatorWindow(QMainWindow):
         start_cal = QPushButton("録音開始")
         keep_cal = QPushButton("録音を保存")
         drop_cal = QPushButton("録音をやめる")
+        self._tap_btn = QPushButton("拍")
+        self._tap_btn.setObjectName("tap")
+        self._tap_btn.setEnabled(False)
         load_cal = QPushButton("心音ファイルを追加")
         save_btn = QPushButton("上書き保存")
         save_as_btn = QPushButton("名前を付けて保存")
 
-        start_cal.clicked.connect(self._session.begin_calibration)
+        start_cal.clicked.connect(self._begin_cal)
         keep_cal.clicked.connect(self._commit_cal)
-        drop_cal.clicked.connect(self._session.discard_calibration)
+        drop_cal.clicked.connect(self._drop_cal)
+        self._tap_btn.clicked.connect(self._tap_now)
         load_cal.clicked.connect(self._add_audio_sample)
+        self._tap_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self._tap_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._tap_shortcut.activated.connect(self._tap_now)
+        self._tap_shortcut.setEnabled(False)
         save_btn.clicked.connect(self._save_current)
         save_as_btn.clicked.connect(self._save_as)
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
@@ -177,13 +186,18 @@ class OperatorWindow(QMainWindow):
         cal_row.addWidget(keep_cal)
         cal_row.addWidget(drop_cal)
         cal_hint = QLabel(
-            "同じマイクで自分の心音を録るか、wav / mp3 などを足すと精度が上がります。"
+            "録音中は操作画面だけに心音が流れます。配信には出ません。\n"
+            "ヘッドホンをつけて、スピーカーからのハウリングを防いでください。\n"
+            "ドクン（心臓が鳴った瞬間）に合わせて「拍」かスペース。少し遅れても大丈夫です。\n"
+            "4回以上そろえると、テンポの取り違え（倍・半分）を覚えます。クリックは任意です。\n"
+            "同じマイクで録るか、wav / mp3 などを足すと、心音の型も精度が上がります。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
         cal_box = QGroupBox("キャリブレーション（配信前調整）")
         cal_inner = QVBoxLayout()
         cal_inner.addLayout(cal_row)
+        cal_inner.addWidget(self._tap_btn)
         cal_inner.addWidget(load_cal)
         cal_inner.addWidget(cal_hint)
         cal_box.setLayout(cal_inner)
@@ -298,8 +312,32 @@ class OperatorWindow(QMainWindow):
         except Exception:
             self._level.setText("入力: マイクを開けません（OBS と同時なら独占モードをオフ）")
 
+    def _set_calibrating_ui(self, on: bool) -> None:
+        self._tap_btn.setEnabled(on)
+        self._tap_shortcut.setEnabled(on)
+        if on:
+            self._monitor.start()
+            self._tap_btn.setFocus()
+            self._warn.setText("ヘッドホン推奨。録音は操作画面だけに聞こえます。")
+        else:
+            self._monitor.stop()
+            if self._warn.text().startswith("ヘッドホン"):
+                self._warn.setText("")
+
+    def _begin_cal(self) -> None:
+        self._session.begin_calibration(self._mono)
+        self._set_calibrating_ui(True)
+
+    def _drop_cal(self) -> None:
+        self._session.discard_calibration()
+        self._set_calibrating_ui(False)
+
+    def _tap_now(self) -> None:
+        self._session.tap(self._mono)
+
     def _commit_cal(self) -> None:
         self._session.commit_calibration()
+        self._set_calibrating_ui(False)
         self._save_current()
 
     def _add_audio_sample(self) -> None:
@@ -364,20 +402,27 @@ class OperatorWindow(QMainWindow):
         if samples:
             peak = max(abs(x) for x in samples)
             self._level.setText(f"入力: {peak:.2f}")
+        recording = self._session.calibrating is not None
+        if recording and samples:
+            self._monitor.write_mono(samples)
         self._mono += 0.016
         self._session.tick(self._mono, samples)
-        if self._session.clock.detected:
+        if recording:
+            self._status.setText(f"録音中  {self._session.tap_label()}")
+        elif self._session.clock.detected:
             self._status.setText(f"検出中  {self._session.clock.bpm} BPM")
         else:
             self._status.setText(DETECT_LOST_LABEL)
-        if self._session.clock.bpm_mismatch():
-            self._warn.setText("時計と数字がズレています（推しログは遅延します）")
-        else:
-            self._warn.setText("")
+        if not recording:
+            if self._session.clock.bpm_mismatch():
+                self._warn.setText("時計と数字がズレています（推しログは遅延します）")
+            else:
+                self._warn.setText("")
         self._output.canvas.set_now(self._mono)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save_current()
+        self._monitor.stop()
         self._mic.stop()
         self._output.allow_close()
         self._output.close()
