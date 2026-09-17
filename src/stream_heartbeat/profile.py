@@ -25,6 +25,9 @@ class HeartProfile:
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
     tap_interval: float = 0.0
+    realistic_look: str = "surgical"
+    heart_yaw_deg: float = -18.0
+    heart_pitch_deg: float = 12.0
     calibration: list[list[float]] = field(default_factory=list)
 
 

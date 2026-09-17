@@ -1,32 +1,64 @@
-"""配信用キャンバスの心臓・文字。緑はクロマキー専用。"""
+"""配信用キャンバスの 2D 描画と文字。緑はクロマキー専用。
+
+立体で描くスタイル（リアル・機械・レントゲン・MRI）は heart_gl が担い、
+ここは 2D スタイルと、立体が使えないときの代替、文字を担う。
+"""
 
 from __future__ import annotations
 
-import math
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QRadialGradient
-
-from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.overlay import FloatBurst
-from stream_heartbeat.ui.heart_imaging import paint_echo, paint_mri, paint_xray
+from stream_heartbeat.ui.heart_cute import paint_cute
+from stream_heartbeat.ui.heart_ecg import paint_ecg
+from stream_heartbeat.ui.heart_echo import paint_echo
+from stream_heartbeat.ui.heart_imaging import (
+    paint_mri_backdrop,
+    paint_mri_flat_heart,
+    paint_mri_overlay,
+    paint_xray_backdrop,
+    paint_xray_flat_heart,
+    paint_xray_overlay,
+)
 from stream_heartbeat.ui.heart_realistic import paint_realistic
 
-ECG_COLOR = QColor(210, 24, 36)
-ECG_GLOW = QColor(120, 8, 14)
-ECG_PEN_MIN = 8
 TEXT_COLOR = QColor(255, 236, 180)
 BPM_COLOR = QColor(255, 255, 255)
 
+GL_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
+PANEL_STYLES = frozenset({"xray", "mri"})
 
-def _heart_path(cx: float, cy: float, size: float) -> QPainterPath:
-    s = size
-    path = QPainterPath()
-    path.moveTo(cx, cy + 0.38 * s)
-    path.cubicTo(cx + 1.02 * s, cy - 0.08 * s, cx + 0.52 * s, cy - 0.92 * s, cx, cy - 0.32 * s)
-    path.cubicTo(cx - 0.52 * s, cy - 0.92 * s, cx - 1.02 * s, cy - 0.08 * s, cx, cy + 0.38 * s)
-    path.closeSubpath()
-    return path
+
+def paint_backdrop(
+    painter: QPainter, rect: QRectF, *, style: str, scale: float, opacity: float
+) -> None:
+    """立体心臓より先に描く背景。レントゲンと MRI のパネル。"""
+    if style not in PANEL_STYLES:
+        return
+    painter.save()
+    painter.setOpacity(max(0.08, min(1.0, opacity)))
+    if style == "xray":
+        paint_xray_backdrop(painter, rect, scale)
+    else:
+        paint_mri_backdrop(painter, rect, scale)
+    painter.restore()
+
+
+def paint_overlay(
+    painter: QPainter, rect: QRectF, *, style: str, opacity: float, cycle: CardiacCycle
+) -> None:
+    """立体心臓のあとに描く前景。肋骨・粒子。"""
+    if style not in PANEL_STYLES:
+        return
+    painter.save()
+    painter.setOpacity(max(0.08, min(1.0, opacity)))
+    if style == "xray":
+        paint_xray_overlay(painter, rect, cycle)
+    else:
+        paint_mri_overlay(painter, rect, cycle)
+    painter.restore()
 
 
 def paint_heart(
@@ -37,125 +69,26 @@ def paint_heart(
     scale: float,
     opacity: float,
     cycle: CardiacCycle,
-    ecg_phase: float,
+    clock: BeatClock | None = None,
+    now: float = 0.0,
 ) -> None:
+    """2D スタイル、または立体が使えないときの代替を描く。"""
     painter.save()
     painter.setOpacity(max(0.08, min(1.0, opacity)))
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     if style == "ecg":
-        _paint_ecg(painter, rect, cycle, ecg_phase)
+        paint_ecg(painter, rect, clock if clock is not None else BeatClock(), now)
     elif style == "cute":
-        _paint_cute(painter, rect, scale, cycle)
-    elif style == "mech":
-        _paint_mech(painter, rect, scale, cycle)
+        paint_cute(painter, rect, scale, cycle)
     elif style == "echo":
         paint_echo(painter, rect, scale, cycle)
-    elif style == "mri":
-        paint_mri(painter, rect, scale, cycle)
     elif style == "xray":
-        paint_xray(painter, rect, scale, cycle)
+        paint_xray_flat_heart(painter, rect, scale, cycle)
+    elif style == "mri":
+        paint_mri_flat_heart(painter, rect, scale, cycle)
     else:
         paint_realistic(painter, rect, scale=scale, cycle=cycle)
     painter.restore()
-
-
-def _paint_cute(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle) -> None:
-    cx = rect.center().x()
-    cy = rect.center().y()
-    size = min(rect.width(), rect.height()) * 0.36 * scale
-    painter.save()
-    painter.translate(cx, cy)
-    painter.scale(1.0 + 0.10 * cycle.waist, 1.0 - 0.16 * cycle.squeeze)
-    painter.translate(-cx, -cy)
-    path = _heart_path(cx, cy, size)
-    painter.setBrush(QColor(255, 118, 168))
-    painter.setPen(QPen(QColor(255, 64, 122), max(3.0, size * 0.04)))
-    painter.drawPath(path)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(255, 255, 255, 210))
-    painter.drawEllipse(QPointF(cx - 0.16 * size, cy - 0.12 * size), size * 0.07, size * 0.09)
-    painter.drawEllipse(QPointF(cx + 0.12 * size, cy - 0.12 * size), size * 0.07, size * 0.09)
-    painter.setBrush(QColor(40, 24, 48))
-    painter.drawEllipse(QPointF(cx - 0.16 * size, cy - 0.11 * size), size * 0.03, size * 0.04)
-    painter.drawEllipse(QPointF(cx + 0.12 * size, cy - 0.11 * size), size * 0.03, size * 0.04)
-    if cycle.eject > 0.2:
-        painter.setBrush(QColor(255, 80, 130, int(180 * cycle.eject)))
-        painter.drawEllipse(
-            QPointF(cx, cy - 0.62 * size),
-            size * 0.08 * cycle.eject,
-            size * 0.12 * cycle.eject,
-        )
-    painter.restore()
-
-
-def _paint_mech(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle) -> None:
-    cx = rect.center().x()
-    cy = rect.center().y()
-    size = min(rect.width(), rect.height()) * 0.34 * scale
-    painter.save()
-    painter.translate(cx, cy)
-    painter.scale(cycle.waist, 0.92 + 0.08 * (1.0 - cycle.squeeze))
-    painter.translate(-cx, -cy)
-    path = _heart_path(cx, cy, size)
-    painter.setBrush(QColor(28, 38, 52))
-    painter.setPen(QPen(QColor(0, 210, 255), max(2.5, size * 0.03)))
-    painter.drawPath(path)
-    glow = QRadialGradient(QPointF(cx, cy), size * 0.28)
-    glow.setColorAt(0.0, QColor(0, 255, 210, int(80 + 140 * cycle.squeeze)))
-    glow.setColorAt(1.0, QColor(0, 80, 90, 0))
-    painter.setBrush(glow)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(QPointF(cx, cy), size * 0.20, size * 0.20)
-    painter.setPen(QPen(QColor(0, 210, 255, 180), 1.5))
-    for i in range(6):
-        ang = i * math.pi / 3 + cycle.eject * 0.8
-        painter.drawLine(
-            QPointF(cx + math.cos(ang) * size * 0.12, cy + math.sin(ang) * size * 0.12),
-            QPointF(cx + math.cos(ang) * size * 0.28, cy + math.sin(ang) * size * 0.28),
-        )
-    if cycle.eject > 0.15:
-        painter.setPen(QPen(QColor(255, 90, 40, int(220 * cycle.eject)), 3))
-        painter.drawLine(
-            QPointF(cx + 0.08 * size, cy - 0.34 * size),
-            QPointF(cx + 0.42 * size, cy - 0.62 * size),
-        )
-    painter.restore()
-
-
-def _paint_ecg(painter: QPainter, rect: QRectF, cycle: CardiacCycle, phase: float) -> None:
-    width = max(ECG_PEN_MIN, int(rect.height() * 0.028))
-    mid = rect.center().y()
-    left = rect.left()
-    span = rect.width()
-    path = QPainterPath()
-    samples = 180
-    for i in range(samples + 1):
-        u = (i / samples + phase) % 1.0
-        y = mid - _ecg_y(u) * rect.height() * 0.28 * (0.65 + 0.35 * max(cycle.squeeze, cycle.eject))
-        x = left + span * i / samples
-        if i == 0:
-            path.moveTo(x, y)
-        else:
-            path.lineTo(x, y)
-    painter.setPen(QPen(ECG_GLOW, width + 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    painter.drawPath(path)
-    painter.setPen(QPen(ECG_COLOR, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    painter.drawPath(path)
-
-
-def _ecg_y(u: float) -> float:
-    if 0.10 <= u < 0.18:
-        return 0.22 * math.sin(math.pi * (u - 0.10) / 0.08)
-    if 0.22 <= u < 0.24:
-        return -0.18
-    if 0.24 <= u < 0.28:
-        peak = 0.26
-        return 1.0 - abs(u - peak) / 0.02
-    if 0.28 <= u < 0.31:
-        return -0.28 * (1.0 - (u - 0.28) / 0.03)
-    if 0.42 <= u < 0.58:
-        return 0.32 * math.sin(math.pi * (u - 0.42) / 0.16)
-    return 0.0
 
 
 def paint_bursts(painter: QPainter, rect: QRectF, bursts: list[FloatBurst]) -> None:
@@ -169,6 +102,7 @@ def paint_bursts(painter: QPainter, rect: QRectF, bursts: list[FloatBurst]) -> N
         x = rect.left() + burst.pos[0] * rect.width()
         y = rect.top() + burst.pos[1] * rect.height()
         painter.drawText(int(x), int(y), burst.text)
+    painter.setOpacity(1.0)
 
 
 def paint_bpm(painter: QPainter, rect: QRectF, bpm: int) -> None:

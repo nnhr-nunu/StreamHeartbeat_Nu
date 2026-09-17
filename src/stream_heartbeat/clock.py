@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import math
 import statistics
 from dataclasses import dataclass
@@ -103,6 +104,20 @@ class BeatClock:
             return last
         n = math.floor((t - last) / step)
         return last + n * step
+
+    def origin_before(self, t: float) -> float:
+        """時刻 t 以前で最後に打った拍。検出が切れたあとは一定間隔で刻む。"""
+        if not self._beats:
+            return self._pulse_origin(t)
+        idx = bisect.bisect_right(self._beats, t) - 1
+        if idx < 0:
+            step = self.interval()
+            first = self._beats[0]
+            n = math.ceil((first - t) / step)
+            return first - n * step
+        if idx == len(self._beats) - 1:
+            return self._pulse_origin(t)
+        return self._beats[idx]
 
     def cycle(self, t: float) -> CardiacCycle:
         origin = self._pulse_origin(t)

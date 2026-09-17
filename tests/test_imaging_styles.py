@@ -4,17 +4,23 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QComboBox
 
-from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.config import CHROMA_HEX
 from stream_heartbeat.session import HeartSession
+from stream_heartbeat.ui.heart_cute import CUTE_BASE, CUTE_DEEP
+from stream_heartbeat.ui.heart_echo import ECHO_BRIGHT, ECHO_MYO
 from stream_heartbeat.ui.heart_imaging import (
-    ECHO_BRIGHT,
     MRI_BLOOD,
     MRI_TISSUE,
     XRAY_BONE,
     XRAY_HEART,
 )
-from stream_heartbeat.ui.heart_paint import paint_heart
+from stream_heartbeat.ui.heart_paint import (
+    GL_STYLES,
+    paint_backdrop,
+    paint_heart,
+    paint_overlay,
+)
 from stream_heartbeat.ui.operator_window import STYLES, OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 
@@ -38,15 +44,25 @@ def _assert_not_chroma(color: QColor) -> None:
     assert not (color.red() == 0 and color.green() == 255 and color.blue() == 0)
 
 
-def test_imaging_palette_avoids_chroma_green() -> None:
-    for color in (ECHO_BRIGHT, MRI_BLOOD, MRI_TISSUE, XRAY_BONE, XRAY_HEART):
+def test_palettes_avoid_chroma_green() -> None:
+    for color in (
+        ECHO_BRIGHT,
+        ECHO_MYO,
+        MRI_BLOOD,
+        MRI_TISSUE,
+        XRAY_BONE,
+        XRAY_HEART,
+        CUTE_BASE,
+        CUTE_DEEP,
+    ):
         _assert_not_chroma(color)
 
 
-def test_operator_lists_echo_mri_xray(qapp: QApplication) -> None:
+def test_operator_lists_all_styles(qapp: QApplication) -> None:
     del qapp
     keys = [key for key, _label in STYLES]
     assert keys == ["realistic", "echo", "mri", "xray", "cute", "mech", "ecg"]
+    assert GL_STYLES == {"realistic", "mech", "xray", "mri"}
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
@@ -63,21 +79,33 @@ def test_operator_lists_echo_mri_xray(qapp: QApplication) -> None:
     output.close()
 
 
-def _paints_over_chroma(style: str, qapp: QApplication) -> None:
-    del qapp
+def _render_2d(style: str) -> QImage:
     image = QImage(240, 240, QImage.Format.Format_RGB32)
     image.fill(CHROMA)
     painter = QPainter(image)
+    rect = QRectF(0, 0, 240, 240)
+    clock = BeatClock()
+    clock.feed_beat(0.0)
+    clock.feed_beat(0.8)
+    paint_backdrop(painter, rect, style=style, scale=1.0, opacity=1.0)
     paint_heart(
         painter,
-        QRectF(0, 0, 240, 240),
+        rect,
         style=style,
         scale=1.0,
         opacity=1.0,
         cycle=_cycle(),
-        ecg_phase=0.0,
+        clock=clock,
+        now=1.0,
     )
+    paint_overlay(painter, rect, style=style, opacity=1.0, cycle=_cycle())
     painter.end()
+    return image
+
+
+def _paints_over_chroma(style: str, qapp: QApplication) -> None:
+    del qapp
+    image = _render_2d(style)
     found = False
     for y in range(24, 216, 6):
         for x in range(24, 216, 6):
@@ -92,9 +120,24 @@ def test_echo_paints_sector_not_chroma(qapp: QApplication) -> None:
     _paints_over_chroma("echo", qapp)
 
 
-def test_mri_paints_torso_not_chroma(qapp: QApplication) -> None:
+def test_mri_panel_not_chroma(qapp: QApplication) -> None:
     _paints_over_chroma("mri", qapp)
 
 
-def test_xray_paints_chest_not_chroma(qapp: QApplication) -> None:
+def test_xray_panel_not_chroma(qapp: QApplication) -> None:
     _paints_over_chroma("xray", qapp)
+
+
+def test_cute_and_ecg_paint_over_chroma(qapp: QApplication) -> None:
+    _paints_over_chroma("cute", qapp)
+    _paints_over_chroma("ecg", qapp)
+
+
+def test_imaging_panels_are_dark_not_green(qapp: QApplication) -> None:
+    del qapp
+    for style in ("xray", "mri"):
+        image = _render_2d(style)
+        center = image.pixelColor(120, 120)
+        assert center.green() < 200, style
+        corner = image.pixelColor(2, 2)
+        assert corner == CHROMA, style
