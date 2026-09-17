@@ -110,7 +110,7 @@ def test_lub_dub_counts_as_one_beat() -> None:
     assert all(g > 0.55 for g in gaps)
 
 
-def test_regular_half_beats_are_paired() -> None:
+def test_equal_fast_beats_are_not_halved() -> None:
     detector = HeartSoundDetector()
     sr = 1000
     t = 0.0
@@ -120,9 +120,30 @@ def test_regular_half_beats_are_paired() -> None:
         beats.extend(detector.feed([sample], t, sr))
         t += 1 / sr
     late = [b for b in beats if b > 3.0]
-    assert len(late) >= 6
+    assert len(late) >= 12
     gaps = [b - a for a, b in zip(late, late[1:])]
-    assert statistics.median(gaps) > 0.55
+    assert 0.28 < statistics.median(gaps) < 0.45
+
+
+def test_short_long_pair_is_one_beat() -> None:
+    detector = HeartSoundDetector()
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(12000):
+        pos = i % 1200
+        if pos < 40:
+            sample = 0.24 * math.sin(math.pi * pos / 40)
+        elif 320 <= pos < 360:
+            sample = 0.22 * math.sin(math.pi * (pos - 320) / 40)
+        else:
+            sample = 0.01
+        beats.extend(detector.feed([sample], t, sr))
+        t += 1 / sr
+    late = [b for b in beats if b > 4.0]
+    assert len(late) >= 5
+    gaps = [b - a for a, b in zip(late, late[1:])]
+    assert statistics.median(gaps) > 0.9
 
 
 def test_quiet_second_sound_is_not_a_second_beat() -> None:

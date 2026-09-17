@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import statistics
 import wave
 from collections import deque
 from pathlib import Path
@@ -176,7 +175,7 @@ class HeartSoundDetector:
         self._hp = 0.0
         self._buf: deque[float] = deque()
         self._sumsq = 0.0
-        self._last_hit_env = 0.0
+        self._last_onset_env = 0.0
         self._last_raw_t = -1e9
         self._gaps: deque[float] = deque(maxlen=8)
         self._pair_mode = False
@@ -191,19 +190,11 @@ class HeartSoundDetector:
 
     def _update_pair_mode(self, gap: float) -> None:
         self._gaps.append(gap)
-        if len(self._gaps) < 5:
+        if len(self._gaps) < 4:
             return
-        values = list(self._gaps)
-        mean = sum(values) / len(values)
-        if mean <= 1e-9:
-            return
-        var = sum((x - mean) ** 2 for x in values) / len(values)
-        cv = math.sqrt(var) / mean
-        med = statistics.median(values)
-        if 0.27 <= med <= 0.39 and cv < 0.11:
-            self._pair_mode = True
-        elif med >= 0.45 or cv > 0.20:
-            self._pair_mode = False
+        shorts = sum(1 for item in self._gaps if item < 0.42)
+        longs = sum(1 for item in self._gaps if item >= 0.50)
+        self._pair_mode = shorts >= 2 and longs >= 2
 
     def feed(self, samples: list[float], t: float, sample_rate: float = 16000.0) -> list[float]:
         hits: list[float] = []
@@ -229,8 +220,6 @@ class HeartSoundDetector:
                 self._sumsq = 0.0
             env = math.sqrt(self._sumsq / win)
             sample_t = t + i * dt
-            if 0 <= sample_t - self._last_beat < 0.12:
-                self._last_hit_env = max(self._last_hit_env, env)
             if env < self._noise:
                 self._noise += a_dn * (env - self._noise)
             else:
@@ -257,13 +246,15 @@ class HeartSoundDetector:
                     self._update_pair_mode(raw_dt)
                 self._last_raw_t = sample_t
             since = sample_t - self._last_beat
-            if 0.20 <= since <= 0.55 and env < self._last_hit_env * 0.78:
+            if 0.20 <= since <= 0.33 and env < self._last_onset_env * 0.85:
+                continue
+            if 0.33 < since <= 0.55 and env < self._last_onset_env * 0.55:
                 continue
             if since < self._refractory():
                 continue
             if self._last_beat > -1e8 and since > self.min_interval:
                 self._last_interval = 0.7 * self._last_interval + 0.3 * since
             self._last_beat = sample_t
-            self._last_hit_env = env
+            self._last_onset_env = env
             hits.append(sample_t)
         return hits
