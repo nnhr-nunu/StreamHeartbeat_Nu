@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from stream_heartbeat.overlay import OverlayState
+from stream_heartbeat.overlay import OverlayState, burst_font_px, burst_opacity
 
 
 def test_beat_text_fades_and_caps_at_three() -> None:
@@ -18,6 +18,14 @@ def test_arrhythmia_uses_same_burst_channel() -> None:
     assert bursts
     assert bursts[0].text == "不整脈！"
     assert 0.0 < bursts[0].alpha <= 1.0
+
+
+def test_burst_font_and_opacity_follow_settings() -> None:
+    assert burst_font_px(400.0, 1.0) == 24
+    assert burst_font_px(400.0, 2.0) == 48
+    assert burst_font_px(400.0, 0.5) == 12
+    assert burst_opacity(1.0, 0.4) == 0.4
+    assert burst_opacity(0.5, 0.5) == 0.25
 
 
 def test_positions_stay_inside_margin() -> None:

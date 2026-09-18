@@ -12,6 +12,9 @@ def test_profile_roundtrip(tmp_path: Path) -> None:
         beat_text="トクン",
         show_bpm=False,
         show_arrhythmia=False,
+        show_beat_text=False,
+        beat_text_scale=1.4,
+        beat_text_opacity=0.6,
         tap_interval=0.8,
     )
     save_profile(path, original)
@@ -20,6 +23,9 @@ def test_profile_roundtrip(tmp_path: Path) -> None:
     assert loaded.beat_text == "トクン"
     assert loaded.show_bpm is False
     assert loaded.show_arrhythmia is False
+    assert loaded.show_beat_text is False
+    assert loaded.beat_text_scale == 1.4
+    assert loaded.beat_text_opacity == 0.6
     assert loaded.tap_interval == 0.8
 
 

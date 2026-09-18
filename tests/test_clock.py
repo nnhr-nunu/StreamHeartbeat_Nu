@@ -96,3 +96,15 @@ def test_slow_bpm_is_not_clipped_to_thirty() -> None:
         clock.feed_beat(t)
         t += 2.05
     assert 28 <= clock.bpm <= 30
+
+
+def test_stall_gap_does_not_clip_bpm_to_minimum() -> None:
+    clock = BeatClock()
+    t = 0.0
+    for _ in range(6):
+        clock.feed_beat(t)
+        t += 0.5
+    assert clock.bpm == 120
+    clock.feed_beat(t + 3.0)
+    assert clock.bpm == 120
+    assert clock.detected is True

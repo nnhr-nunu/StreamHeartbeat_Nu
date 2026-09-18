@@ -20,6 +20,9 @@ class HeartProfile:
     scale: float = 0.7
     opacity: float = 1.0
     beat_text: str = DEFAULT_BEAT_TEXT
+    show_beat_text: bool = True
+    beat_text_scale: float = 1.0
+    beat_text_opacity: float = 1.0
     show_bpm: bool = True
     show_arrhythmia: bool = True
     oshilog_public_id: str = ""

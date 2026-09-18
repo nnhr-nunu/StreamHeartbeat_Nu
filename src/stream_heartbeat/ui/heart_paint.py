@@ -10,7 +10,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 
 from stream_heartbeat.clock import BeatClock, CardiacCycle
-from stream_heartbeat.overlay import FloatBurst
+from stream_heartbeat.overlay import FloatBurst, burst_font_px, burst_opacity
 from stream_heartbeat.ui.heart_cute import paint_cute
 from stream_heartbeat.ui.heart_ecg import paint_ecg
 from stream_heartbeat.ui.heart_echo import paint_echo
@@ -91,14 +91,21 @@ def paint_heart(
     painter.restore()
 
 
-def paint_bursts(painter: QPainter, rect: QRectF, bursts: list[FloatBurst]) -> None:
+def paint_bursts(
+    painter: QPainter,
+    rect: QRectF,
+    bursts: list[FloatBurst],
+    *,
+    scale: float = 1.0,
+    opacity: float = 1.0,
+) -> None:
     font = QFont()
-    font.setPixelSize(max(22, int(min(rect.width(), rect.height()) * 0.06)))
+    font.setPixelSize(burst_font_px(min(rect.width(), rect.height()), scale))
     font.setBold(True)
     painter.setFont(font)
     painter.setPen(TEXT_COLOR)
     for burst in bursts:
-        painter.setOpacity(burst.alpha)
+        painter.setOpacity(burst_opacity(burst.alpha, opacity))
         x = rect.left() + burst.pos[0] * rect.width()
         y = rect.top() + burst.pos[1] * rect.height()
         painter.drawText(int(x), int(y), burst.text)
