@@ -25,6 +25,7 @@ from stream_heartbeat.ui.heart_paint import (
     paint_bursts,
     paint_heart,
     paint_overlay,
+    paint_ripples,
 )
 from stream_heartbeat.ui.styles import DARK_QSS
 
@@ -144,6 +145,7 @@ class OutputCanvas(QOpenGLWidget):
             scale=profile.beat_text_scale,
             opacity=profile.beat_text_opacity,
         )
+        paint_ripples(painter, rect, self._session.overlay.ripples_at(t))
         if profile.show_bpm and clock.detected:
             paint_bpm(painter, rect, clock.bpm)
         painter.end()
