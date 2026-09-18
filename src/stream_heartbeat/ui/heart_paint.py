@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from stream_heartbeat.clock import BeatClock, CardiacCycle
-from stream_heartbeat.overlay import FloatBurst, burst_font_px, burst_opacity
+from stream_heartbeat.overlay import FloatBurst, Ripple, burst_font_px, burst_opacity
 from stream_heartbeat.ui.heart_cute import paint_cute
 from stream_heartbeat.ui.heart_ecg import paint_ecg
 from stream_heartbeat.ui.heart_echo import paint_echo
@@ -110,6 +110,20 @@ def paint_bursts(
         y = rect.top() + burst.pos[1] * rect.height()
         painter.drawText(int(x), int(y), burst.text)
     painter.setOpacity(1.0)
+
+
+def paint_ripples(painter: QPainter, rect: QRectF, ripples: list[Ripple]) -> None:
+    side = min(rect.width(), rect.height())
+    center = QPointF(rect.center())
+    painter.save()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for ripple in ripples:
+        painter.setOpacity(ripple.alpha)
+        radius = ripple.radius * side
+        painter.setPen(QPen(TEXT_COLOR, max(2.0, side * 0.01)))
+        painter.drawEllipse(center, radius, radius)
+    painter.setOpacity(1.0)
+    painter.restore()
 
 
 def paint_bpm(painter: QPainter, rect: QRectF, bpm: int) -> None:

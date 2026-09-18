@@ -252,11 +252,11 @@ class OperatorWindow(QMainWindow):
         cal_row.addWidget(self._rec_btn)
         cal_row.addWidget(self._keep_cal)
         cal_hint = QLabel(
-            "録音中は操作画面だけに心音が流れます。配信には出ません。\n"
-            "ヘッドホンをつけて、スピーカーからのハウリングを防いでください。\n"
-            "ドクン（心臓が鳴った瞬間）に合わせて「拍」かスペース。少し遅れても大丈夫です。\n"
-            "4回以上そろえると、テンポの取り違え（倍・半分）を覚えます。クリックは任意です。\n"
-            "同じマイクで録るか、wav / mp3 などを足すと、心音の型も精度が上がります。"
+            "目安は 10〜20 秒の録音と、ドクンに合わせた「拍」（またはスペース）4回以上です。\n"
+            "押すたびに心臓へ波紋が出ます。少し遅れても大丈夫です。\n"
+            "何回保存しても大丈夫。足すほど心音の型が安定します。いらない録音は停止で捨てられます。\n"
+            "ヘッドホン推奨。録音は操作画面だけに聞こえ、配信には出ません。\n"
+            "同じマイクで録るか、wav / mp3 を足しても精度が上がります。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
@@ -461,6 +461,7 @@ class OperatorWindow(QMainWindow):
         self._tap_shortcut.setEnabled(on)
         self._keep_cal.setEnabled(on)
         self._rec_btn.setText(REC_STOP if on else REC_START)
+        self._tap_btn.setText("拍")
         if on:
             self._monitor.start()
             self._tap_btn.setFocus()
@@ -486,7 +487,8 @@ class OperatorWindow(QMainWindow):
         self._flash("録音をやめました")
 
     def _tap_now(self) -> None:
-        self._session.tap(self._session.now)
+        if self._session.tap(self._session.now):
+            self._tap_btn.setText(f"拍  {len(self._session.taps)}")
 
     def _commit_cal(self) -> None:
         self._session.commit_calibration()

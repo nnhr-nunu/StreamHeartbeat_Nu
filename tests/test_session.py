@@ -120,5 +120,6 @@ def test_tap_is_ignored_outside_calibration() -> None:
     session.tap(1.1)
     session.tap(1.3)
     assert session.taps == [1.0, 1.3]
-    assert "クリック" in session.tap_label()
+    assert "拍" in session.tap_label()
+    assert session.overlay.ripples_at(1.3)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from stream_heartbeat.bundled import bundled_heart_sessions
 from stream_heartbeat.clock import BeatClock
+from stream_heartbeat.config import TAP_GOAL
 from stream_heartbeat.detect import BUNDLED_CORR_MIN, CalibrationTemplate, HeartSoundDetector
 from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.profile import HeartProfile
@@ -46,22 +47,24 @@ class HeartSession:
         self._cal_sr = 16000.0
         self.taps = []
 
-    def tap(self, t: float) -> None:
+    def tap(self, t: float) -> bool:
         if self.calibrating is None:
-            return
+            return False
         if self.taps and t - self.taps[-1] < 0.2:
-            return
+            return False
         self.taps.append(t)
+        self.overlay.on_ripple(t)
+        return True
 
     def tap_label(self) -> str:
         count = len(self.taps)
         interval = tap_interval(self.taps)
         if count == 0:
-            return "クリックなし（任意）"
+            return f"拍はまだ（{TAP_GOAL}回以上が目安）"
         if interval <= 0:
-            return f"クリック {count} 回"
+            return f"拍 {count} / {TAP_GOAL} 回"
         bpm = int(round(60.0 / interval))
-        return f"クリック {count} 回  約 {bpm} BPM"
+        return f"拍 {count} 回  約 {bpm} BPM（保存してOK）"
 
     def discard_calibration(self) -> None:
         self.calibrating = None

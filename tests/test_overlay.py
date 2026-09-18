@@ -35,3 +35,16 @@ def test_positions_stay_inside_margin() -> None:
     x, y = state.bursts_at(0.0)[0].pos
     assert 0.15 <= x <= 0.85
     assert 0.15 <= y <= 0.85
+
+
+def test_tap_ripple_expands_and_fades() -> None:
+    state = OverlayState()
+    state.on_ripple(1.0)
+    early = state.ripples_at(1.05)
+    late = state.ripples_at(1.4)
+    gone = state.ripples_at(1.7)
+    assert early
+    assert late
+    assert early[0].radius < late[0].radius
+    assert late[0].alpha < early[0].alpha
+    assert gone == []

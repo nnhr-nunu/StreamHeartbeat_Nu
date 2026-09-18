@@ -12,6 +12,10 @@ from stream_heartbeat.config import (
     BURST_HOLD_S,
     INNER_MARGIN,
     MAX_BURSTS,
+    MAX_RIPPLES,
+    RIPPLE_R0,
+    RIPPLE_R1,
+    RIPPLE_S,
 )
 
 HeartStyle = str
@@ -34,10 +38,17 @@ class FloatBurst:
     alpha: float
 
 
+@dataclass
+class Ripple:
+    radius: float
+    alpha: float
+
+
 class OverlayState:
     def __init__(self, rng: RNG | None = None) -> None:
         self._rng = rng if rng is not None else (lambda: 0.5)
         self._items: list[tuple[str, float, float, float]] = []
+        self._ripples: list[float] = []
 
     def _point(self) -> tuple[float, float]:
         span = 1.0 - 2 * INNER_MARGIN
@@ -54,6 +65,10 @@ class OverlayState:
     def on_arrhythmia(self, t: float) -> None:
         self.on_beat(t, ARRHYTHMIA_TEXT)
 
+    def on_ripple(self, t: float) -> None:
+        self._ripples.append(t)
+        self._ripples = self._ripples[-MAX_RIPPLES:]
+
     def bursts_at(self, t: float) -> list[FloatBurst]:
         total = BURST_FADE_IN_S + BURST_HOLD_S + BURST_FADE_OUT_S
         out: list[FloatBurst] = []
@@ -68,4 +83,18 @@ class OverlayState:
             else:
                 alpha = 1.0 - (age - BURST_FADE_IN_S - BURST_HOLD_S) / BURST_FADE_OUT_S
             out.append(FloatBurst(text=text, pos=(x, y), alpha=max(0.0, min(1.0, alpha))))
+        return out
+
+    def ripples_at(self, t: float) -> list[Ripple]:
+        out: list[Ripple] = []
+        for start in self._ripples:
+            for delay in (0.0, 0.12):
+                age = t - start - delay
+                if age < 0 or age > RIPPLE_S:
+                    continue
+                progress = age / RIPPLE_S
+                radius = RIPPLE_R0 + (RIPPLE_R1 - RIPPLE_R0) * progress
+                if delay > 0:
+                    radius *= 0.88
+                out.append(Ripple(radius=radius, alpha=max(0.0, 1.0 - progress)))
         return out

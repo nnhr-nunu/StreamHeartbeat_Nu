@@ -46,6 +46,8 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     guides = " ".join(label.text() for label in operator.findChildren(QLabel))
     assert "ヘッドホン" in guides
     assert "スペース" in guides
+    assert "何回" in guides
+    assert "4回" in guides or "４回" in guides
     start.click()
     assert not tap.isEnabled()
     assert "録音開始" in start.text()
