@@ -18,6 +18,15 @@ HeartStyle = str
 RNG = Callable[[], float]
 
 
+def burst_font_px(min_side: float, scale: float) -> int:
+    base = max(22, int(min_side * 0.06))
+    return max(8, int(base * max(0.25, min(3.0, scale))))
+
+
+def burst_opacity(burst_alpha: float, opacity: float) -> float:
+    return max(0.0, min(1.0, burst_alpha * max(0.0, min(1.0, opacity))))
+
+
 @dataclass
 class FloatBurst:
     text: str

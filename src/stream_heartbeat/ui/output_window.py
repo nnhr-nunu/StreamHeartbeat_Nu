@@ -137,7 +137,13 @@ class OutputCanvas(QOpenGLWidget):
                 now=t,
             )
         paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
-        paint_bursts(painter, rect, self._session.overlay.bursts_at(t))
+        paint_bursts(
+            painter,
+            rect,
+            self._session.overlay.bursts_at(t),
+            scale=profile.beat_text_scale,
+            opacity=profile.beat_text_opacity,
+        )
         if profile.show_bpm:
             paint_bpm(painter, rect, clock.bpm)
         painter.end()

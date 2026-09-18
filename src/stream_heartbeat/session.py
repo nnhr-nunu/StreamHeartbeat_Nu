@@ -10,6 +10,12 @@ from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.tap import chunks_near_taps, tap_interval
 
 
+def audio_origin(now: float, n_samples: int, sample_rate: float) -> float:
+    if n_samples <= 0 or sample_rate <= 0:
+        return now
+    return now - n_samples / sample_rate
+
+
 class HeartSession:
     def __init__(self, profile: HeartProfile | None = None) -> None:
         self.profile = profile if profile is not None else HeartProfile()
@@ -76,12 +82,14 @@ class HeartSession:
         self.taps = []
 
     def tick(self, t: float, samples: list[float], sample_rate: float = 16000.0) -> None:
+        origin = audio_origin(t, len(samples), sample_rate)
         if self.calibrating is not None:
             self.calibrating.extend(samples)
             self._cal_sr = sample_rate
-        for beat_t in self.detector.feed(samples, t, sample_rate):
+        for beat_t in self.detector.feed(samples, origin, sample_rate):
             self.clock.feed_beat(beat_t)
-            self.overlay.on_beat(beat_t, self.profile.beat_text)
+            if self.profile.show_beat_text:
+                self.overlay.on_beat(beat_t, self.profile.beat_text)
         self.clock.lost_if_silent(t)
         if self.clock.pop_arrhythmia(t) and self.profile.show_arrhythmia:
             self.overlay.on_arrhythmia(t)

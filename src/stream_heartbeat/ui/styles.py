@@ -1,3 +1,12 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+_COMBO_ARROW_URL = (
+    "file:///"
+    + (Path(__file__).resolve().parent.parent / "assets" / "combo_down.svg").as_posix()
+)
+
 DARK_QSS = """
 QMainWindow, QDialog {
   background: #121212;
@@ -65,14 +74,19 @@ QComboBox, QLineEdit {
   min-height: 28px;
 }
 QComboBox {
-  padding-right: 26px;
+  padding-right: 28px;
 }
 QComboBox::drop-down {
   subcontrol-origin: border;
   subcontrol-position: center right;
-  width: 22px;
+  width: 24px;
   border: none;
   background: transparent;
+}
+QComboBox::down-arrow {
+  image: url("__COMBO_ARROW__");
+  width: 10px;
+  height: 6px;
 }
 QComboBox QAbstractItemView {
   background: #1b1b1b;
@@ -110,4 +124,4 @@ QLabel#meta {
   color: #9a9a9a;
   font-size: 12px;
 }
-"""
+""".replace("__COMBO_ARROW__", _COMBO_ARROW_URL)

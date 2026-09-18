@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -57,6 +58,34 @@ STYLES = [
 ]
 ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
+REC_START = "⏺️ 録音開始"
+REC_STOP = "■ 録音停止"
+NOTICE_MS = 3500
+
+
+def _make_fold(
+    title: str, inner: QWidget, *, expanded: bool = False
+) -> tuple[QWidget, QToolButton]:
+    toggle = QToolButton()
+    toggle.setObjectName("fold")
+    toggle.setCheckable(True)
+    toggle.setChecked(expanded)
+    toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+    toggle.setArrowType(Qt.ArrowType.NoArrow)
+    inner.setVisible(expanded)
+
+    def _sync(on: bool) -> None:
+        inner.setVisible(on)
+        toggle.setText(f"{'▼' if on else '▶'} {title}")
+
+    toggle.toggled.connect(_sync)
+    _sync(expanded)
+    wrap = QWidget()
+    layout = QVBoxLayout(wrap)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(toggle)
+    layout.addWidget(inner)
+    return wrap, toggle
 
 
 class OperatorWindow(QMainWindow):
@@ -67,7 +96,7 @@ class OperatorWindow(QMainWindow):
         self._mic = MicTap()
         self._monitor = MicMonitor()
         self._data_dir = resolve_data_dir()
-        self._mono = 0.0
+        self._t0 = time.perf_counter()
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
         self.setMinimumSize(440, 420)
         self.resize(500, 760)
@@ -78,6 +107,13 @@ class OperatorWindow(QMainWindow):
         self._status = QLabel(DETECT_LOST_LABEL)
         self._status.setObjectName("status")
         self._status.setWordWrap(True)
+        self._notice = QLabel("")
+        self._notice.setObjectName("status")
+        self._notice.setWordWrap(True)
+        self._notice.hide()
+        self._notice_timer = QTimer(self)
+        self._notice_timer.setSingleShot(True)
+        self._notice_timer.timeout.connect(self._clear_notice)
         self._aux = QLabel("推しログ(ぬ) 補助: —")
         self._aux.setObjectName("meta")
         self._aux.setWordWrap(True)
@@ -112,15 +148,20 @@ class OperatorWindow(QMainWindow):
         self._opacity = QSlider(Qt.Orientation.Horizontal)
         self._opacity.setRange(10, 100)
         self._text = QLineEdit()
+        self._show_beat_text = QCheckBox("同期文字を配信用に出す")
+        self._beat_scale = QSlider(Qt.Orientation.Horizontal)
+        self._beat_scale.setRange(50, 200)
+        self._beat_opacity = QSlider(Qt.Orientation.Horizontal)
+        self._beat_opacity.setRange(10, 100)
         self._show_bpm = QCheckBox("心拍数を配信用に出す")
         self._show_arrhythmia = QCheckBox("不整脈！を配信用に出す")
         self._public_id = QLineEdit()
         self._bpm_url = QLineEdit()
         self._level = QLabel("入力: —")
 
-        start_cal = QPushButton("録音開始")
-        keep_cal = QPushButton("録音を保存")
-        drop_cal = QPushButton("録音をやめる")
+        self._rec_btn = QPushButton(REC_START)
+        self._keep_cal = QPushButton("録音を保存")
+        self._keep_cal.setEnabled(False)
         self._tap_btn = QPushButton("拍")
         self._tap_btn.setObjectName("tap")
         self._tap_btn.setEnabled(False)
@@ -128,9 +169,8 @@ class OperatorWindow(QMainWindow):
         save_btn = QPushButton("上書き保存")
         save_as_btn = QPushButton("名前を付けて保存")
 
-        start_cal.clicked.connect(self._begin_cal)
-        keep_cal.clicked.connect(self._commit_cal)
-        drop_cal.clicked.connect(self._drop_cal)
+        self._rec_btn.clicked.connect(self._toggle_cal)
+        self._keep_cal.clicked.connect(self._commit_cal)
         self._tap_btn.clicked.connect(self._tap_now)
         load_cal.clicked.connect(self._add_audio_sample)
         self._tap_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
@@ -147,6 +187,9 @@ class OperatorWindow(QMainWindow):
         self._scale.valueChanged.connect(self._apply_controls)
         self._opacity.valueChanged.connect(self._apply_controls)
         self._text.textChanged.connect(self._apply_controls)
+        self._show_beat_text.toggled.connect(self._apply_controls)
+        self._beat_scale.valueChanged.connect(self._apply_controls)
+        self._beat_opacity.valueChanged.connect(self._apply_controls)
         self._show_bpm.toggled.connect(self._apply_controls)
         self._show_arrhythmia.toggled.connect(self._apply_controls)
         self._mics.currentIndexChanged.connect(self._restart_mic)
@@ -157,7 +200,15 @@ class OperatorWindow(QMainWindow):
         look.addRow(self._look_label, self._look)
         look.addRow("大きさ", self._scale)
         look.addRow("透明度", self._opacity)
-        look.addRow("同期文字", self._text)
+        beat_inner = QWidget()
+        beat_form = QFormLayout(beat_inner)
+        beat_form.setContentsMargins(8, 0, 0, 0)
+        beat_form.addRow(self._show_beat_text)
+        beat_form.addRow("文言", self._text)
+        beat_form.addRow("大きさ", self._beat_scale)
+        beat_form.addRow("透明度", self._beat_opacity)
+        beat_wrap, _beat_fold = _make_fold("同期文字", beat_inner, expanded=True)
+        look.addRow(beat_wrap)
         look.addRow(self._show_bpm)
         look.addRow(self._show_arrhythmia)
         angle_row = QHBoxLayout()
@@ -190,30 +241,11 @@ class OperatorWindow(QMainWindow):
         oshi.addRow("補助 BPM URL", self._bpm_url)
         oshi_inner = QWidget()
         oshi_inner.setLayout(oshi)
-        oshi_inner.setVisible(False)
-        oshi_toggle = QToolButton()
-        oshi_toggle.setObjectName("fold")
-        oshi_toggle.setCheckable(True)
-        oshi_toggle.setChecked(False)
-        oshi_toggle.setText("推しログ(ぬ)連携")
-        oshi_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        oshi_toggle.setArrowType(Qt.ArrowType.RightArrow)
-
-        def _fold_oshi(on: bool) -> None:
-            oshi_inner.setVisible(on)
-            oshi_toggle.setArrowType(Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow)
-
-        oshi_toggle.toggled.connect(_fold_oshi)
-        oshi_wrap = QWidget()
-        wrap_layout = QVBoxLayout(oshi_wrap)
-        wrap_layout.setContentsMargins(0, 0, 0, 0)
-        wrap_layout.addWidget(oshi_toggle)
-        wrap_layout.addWidget(oshi_inner)
+        oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携", oshi_inner, expanded=False)
 
         cal_row = QHBoxLayout()
-        cal_row.addWidget(start_cal)
-        cal_row.addWidget(keep_cal)
-        cal_row.addWidget(drop_cal)
+        cal_row.addWidget(self._rec_btn)
+        cal_row.addWidget(self._keep_cal)
         cal_hint = QLabel(
             "録音中は操作画面だけに心音が流れます。配信には出ません。\n"
             "ヘッドホンをつけて、スピーカーからのハウリングを防いでください。\n"
@@ -239,6 +271,7 @@ class OperatorWindow(QMainWindow):
         layout.addWidget(cal_box)
         layout.addWidget(oshi_wrap)
         layout.addWidget(self._level)
+        layout.addWidget(self._notice)
         layout.addWidget(self._status)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
@@ -309,6 +342,9 @@ class OperatorWindow(QMainWindow):
         # 全部入れ終わってから一度だけ反映する。
         widgets = (
             self._text,
+            self._show_beat_text,
+            self._beat_scale,
+            self._beat_opacity,
             self._show_bpm,
             self._show_arrhythmia,
             self._scale,
@@ -324,6 +360,9 @@ class OperatorWindow(QMainWindow):
             widget.blockSignals(True)
         try:
             self._text.setText(profile.beat_text)
+            self._show_beat_text.setChecked(profile.show_beat_text)
+            self._beat_scale.setValue(int(profile.beat_text_scale * 100))
+            self._beat_opacity.setValue(int(profile.beat_text_opacity * 100))
             self._show_bpm.setChecked(profile.show_bpm)
             self._show_arrhythmia.setChecked(profile.show_arrhythmia)
             self._scale.setValue(int(profile.scale * 100))
@@ -354,6 +393,9 @@ class OperatorWindow(QMainWindow):
         profile.scale = self._scale.value() / 100.0
         profile.opacity = self._opacity.value() / 100.0
         profile.beat_text = self._text.text() or "ドクン"
+        profile.show_beat_text = self._show_beat_text.isChecked()
+        profile.beat_text_scale = self._beat_scale.value() / 100.0
+        profile.beat_text_opacity = self._beat_opacity.value() / 100.0
         profile.show_bpm = self._show_bpm.isChecked()
         profile.show_arrhythmia = self._show_arrhythmia.isChecked()
         profile.oshilog_public_id = self._public_id.text().strip()
@@ -379,9 +421,23 @@ class OperatorWindow(QMainWindow):
         except Exception:
             self._level.setText("入力: マイクを開けません（OBS と同時なら独占モードをオフ）")
 
+    def _now(self) -> float:
+        return time.perf_counter() - self._t0
+
+    def _flash(self, text: str) -> None:
+        self._notice.setText(text)
+        self._notice.show()
+        self._notice_timer.start(NOTICE_MS)
+
+    def _clear_notice(self) -> None:
+        self._notice.setText("")
+        self._notice.hide()
+
     def _set_calibrating_ui(self, on: bool) -> None:
         self._tap_btn.setEnabled(on)
         self._tap_shortcut.setEnabled(on)
+        self._keep_cal.setEnabled(on)
+        self._rec_btn.setText(REC_STOP if on else REC_START)
         if on:
             self._monitor.start()
             self._tap_btn.setFocus()
@@ -391,21 +447,28 @@ class OperatorWindow(QMainWindow):
             if self._warn.text().startswith("ヘッドホン"):
                 self._warn.setText("")
 
+    def _toggle_cal(self) -> None:
+        if self._session.calibrating is not None:
+            self._drop_cal()
+        else:
+            self._begin_cal()
+
     def _begin_cal(self) -> None:
-        self._session.begin_calibration(self._mono)
+        self._session.begin_calibration(self._now())
         self._set_calibrating_ui(True)
 
     def _drop_cal(self) -> None:
         self._session.discard_calibration()
         self._set_calibrating_ui(False)
+        self._flash("録音をやめました")
 
     def _tap_now(self) -> None:
-        self._session.tap(self._mono)
+        self._session.tap(self._now())
 
     def _commit_cal(self) -> None:
         self._session.commit_calibration()
         self._set_calibrating_ui(False)
-        self._save_current()
+        self._save_current(notice="録音を保存しました")
 
     def _add_audio_sample(self) -> None:
         path, _ok = QFileDialog.getOpenFileName(self, "心音ファイルを追加", "", AUDIO_FILTER)
@@ -414,18 +477,17 @@ class OperatorWindow(QMainWindow):
         try:
             samples = load_audio_mono(Path(path))
         except (OSError, ValueError, RuntimeError):
-            self._warn.setText("この音声ファイルは読めませんでした")
+            self._flash("この音声ファイルは読めませんでした")
             return
         if not samples:
-            self._warn.setText("音声ファイルが空でした")
+            self._flash("音声ファイルが空でした")
             return
         self._session.profile.calibration.append(samples)
         self._session.rebuild_detector()
-        self._save_current()
         count = len(self._session.profile.calibration)
-        self._status.setText(f"心音サンプルを追加しました（{count} 件）")
+        self._save_current(notice=f"心音サンプルを追加しました（{count} 件）")
 
-    def _save_current(self) -> None:
+    def _save_current(self, *, notice: str | None = "プロファイルを保存しました") -> None:
         self._apply_controls()
         name = self._session.profile.name
         save_profile(self._profile_path(name), self._session.profile)
@@ -435,6 +497,8 @@ class OperatorWindow(QMainWindow):
             self._profiles.addItem(name)
             self._profiles.setCurrentText(name)
             self._profiles.blockSignals(False)
+        if notice:
+            self._flash(notice)
 
     def _save_as(self) -> None:
         name, ok = QInputDialog.getText(
@@ -450,7 +514,7 @@ class OperatorWindow(QMainWindow):
         if not name:
             return
         self._session.profile.name = name
-        self._save_current()
+        self._save_current(notice=f"「{name}」として保存しました")
         self._profiles.blockSignals(True)
         self._profiles.setCurrentText(name)
         self._profiles.blockSignals(False)
@@ -472,8 +536,8 @@ class OperatorWindow(QMainWindow):
         recording = self._session.calibrating is not None
         if recording and samples:
             self._monitor.write_mono(samples)
-        self._mono += 0.016
-        self._session.tick(self._mono, samples)
+        now = self._now()
+        self._session.tick(now, samples)
         if recording:
             self._status.setText(f"録音中  {self._session.tap_label()}")
         elif self._session.clock.detected:
@@ -483,14 +547,14 @@ class OperatorWindow(QMainWindow):
         if not recording:
             if self._session.clock.bpm_mismatch():
                 self._warn.setText("時計と数字がズレています（推しログは遅延します）")
-            else:
+            elif self._warn.text().startswith("時計と数字"):
                 self._warn.setText("")
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
-        self._output.canvas.set_now(self._mono)
+        self._output.canvas.set_now(now)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._save_current()
+        self._save_current(notice=None)
         self._monitor.stop()
         self._mic.stop()
         self._output.allow_close()

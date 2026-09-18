@@ -62,12 +62,16 @@ class BeatClock:
         if self._beats:
             interval = t - self._beats[-1]
             if interval > 0:
-                self._update_bpm(interval)
-                median = self._median_interval()
-                if median and abs(interval - median) / median > ARRYTHMIA_DEVIATION:
-                    self._wild += 1
-                else:
+                # 操作画面のもたつきで空いた隙間は心拍数に入れない（下限 20 へ張り付くのを防ぐ）
+                if interval >= self.interval() * LOST_INTERVALS:
                     self._wild = 0
+                else:
+                    self._update_bpm(interval)
+                    median = self._median_interval()
+                    if median and abs(interval - median) / median > ARRYTHMIA_DEVIATION:
+                        self._wild += 1
+                    else:
+                        self._wild = 0
         self._beats.append(t)
         self._beats = self._beats[-24:]
         self.detected = True
