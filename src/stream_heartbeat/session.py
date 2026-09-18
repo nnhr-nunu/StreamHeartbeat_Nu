@@ -10,12 +10,6 @@ from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.tap import chunks_near_taps, tap_interval
 
 
-def audio_origin(now: float, n_samples: int, sample_rate: float) -> float:
-    if n_samples <= 0 or sample_rate <= 0:
-        return now
-    return now - n_samples / sample_rate
-
-
 class HeartSession:
     def __init__(self, profile: HeartProfile | None = None) -> None:
         self.profile = profile if profile is not None else HeartProfile()
@@ -25,7 +19,12 @@ class HeartSession:
         self._cal_t0 = 0.0
         self._cal_sr = 16000.0
         self.taps: list[float] = []
+        self._t = 0.0
         self.rebuild_detector()
+
+    @property
+    def now(self) -> float:
+        return self._t
 
     def rebuild_detector(self) -> None:
         tap = self.profile.tap_interval
@@ -82,7 +81,13 @@ class HeartSession:
         self.taps = []
 
     def tick(self, t: float, samples: list[float], sample_rate: float = 16000.0) -> None:
-        origin = audio_origin(t, len(samples), sample_rate)
+        if samples and sample_rate > 0:
+            origin = self._t
+            self._t += len(samples) / float(sample_rate)
+        else:
+            origin = self._t
+            if t > self._t:
+                self._t = t
         if self.calibrating is not None:
             self.calibrating.extend(samples)
             self._cal_sr = sample_rate
@@ -90,6 +95,9 @@ class HeartSession:
             self.clock.feed_beat(beat_t)
             if self.profile.show_beat_text:
                 self.overlay.on_beat(beat_t, self.profile.beat_text)
-        self.clock.lost_if_silent(t)
-        if self.clock.pop_arrhythmia(t) and self.profile.show_arrhythmia:
-            self.overlay.on_arrhythmia(t)
+        was_live = self.clock.detected
+        self.clock.lost_if_silent(self._t)
+        if was_live and not self.clock.detected:
+            self.detector.unlock()
+        if self.clock.pop_arrhythmia(self._t) and self.profile.show_arrhythmia:
+            self.overlay.on_arrhythmia(self._t)

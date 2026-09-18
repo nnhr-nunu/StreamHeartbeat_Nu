@@ -22,3 +22,7 @@ BURST_HOLD_S = 0.2
 BURST_FADE_OUT_S = 0.35
 DISCLAIMER = "これは医療機器ではありません。診断・治療には使えません。"
 DETECT_LOST_LABEL = "検出できていません"
+LIVE_STATUS = "連動中"
+PREVIEW_IDLE_STATUS = "プレビュー（心音なし）"
+PREVIEW_LOST_STATUS = "プレビュー（検出ロスト）"
+PREVIEW_MOTION = 0.42

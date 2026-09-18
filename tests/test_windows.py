@@ -80,3 +80,22 @@ def test_fold_and_combo_show_pulldown_mark(qapp: QApplication) -> None:
     assert "combo_down" in DARK_QSS
     operator.close()
     output.close()
+
+
+def test_operator_marks_preview_and_live(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    operator._on_tick()
+    assert "プレビュー" in operator._status.text()
+    session.clock.feed_beat(0.0)
+    session.clock.feed_beat(0.5)
+    operator._on_tick()
+    assert "連動中" in operator._status.text()
+    session.clock.lost_if_silent(3.0)
+    operator._on_tick()
+    assert "プレビュー" in operator._status.text()
+    assert "ロスト" in operator._status.text()
+    operator.close()
+    output.close()

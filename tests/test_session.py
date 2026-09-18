@@ -4,7 +4,7 @@ import math
 from unittest.mock import patch
 
 from stream_heartbeat.profile import HeartProfile
-from stream_heartbeat.session import HeartSession, audio_origin
+from stream_heartbeat.session import HeartSession
 
 
 @patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
@@ -58,12 +58,6 @@ def test_commit_calibration_uses_taps(_bundled: object) -> None:
     assert session.detector.tap_interval == session.profile.tap_interval
 
 
-def test_audio_origin_rewinds_by_buffer_duration() -> None:
-    assert audio_origin(1.0, 1600, 16000.0) == 0.9
-    assert audio_origin(1.0, 0, 16000.0) == 1.0
-    assert audio_origin(1.0, 10, 0.0) == 1.0
-
-
 def test_tick_feeds_detector_from_buffer_start() -> None:
     session = HeartSession()
     captured: list[float] = []
@@ -76,7 +70,7 @@ def test_tick_feeds_detector_from_buffer_start() -> None:
 
     session.detector = _Detector()  # type: ignore[assignment]
     session.tick(1.0, [0.0] * 100, sample_rate=1000.0)
-    assert captured == [0.9]
+    assert captured == [0.0]
 
 
 def test_hidden_beat_text_does_not_spawn_burst() -> None:
@@ -90,10 +84,31 @@ def test_hidden_beat_text_does_not_spawn_burst() -> None:
 
     hidden.detector = _Hit()  # type: ignore[assignment]
     shown.detector = _Hit()  # type: ignore[assignment]
-    hidden.tick(1.0, [0.0])
-    shown.tick(1.0, [0.0])
-    assert hidden.overlay.bursts_at(1.0) == []
-    assert shown.overlay.bursts_at(1.0)
+    hidden.tick(0.0, [0.0], sample_rate=1000.0)
+    shown.tick(0.0, [0.0], sample_rate=1000.0)
+    assert hidden.overlay.bursts_at(0.05) == []
+    assert shown.overlay.bursts_at(0.05)
+
+
+def _thud(pos: int, width: int = 40) -> float:
+    if 0 <= pos < width:
+        return 0.7 * math.sin(math.pi * pos / width)
+    return 0.01
+
+
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_chunked_audio_keeps_lock_when_wall_clock_lags(_bundled: object) -> None:
+    session = HeartSession()
+    sr = 1000
+    wall = 0.0
+    audio = [_thud(i % 500) for i in range(20000)]
+    chunk = 80
+    for i in range(0, len(audio), chunk):
+        samples = audio[i : i + chunk]
+        wall += 0.03
+        session.tick(wall, samples, sample_rate=sr)
+    assert session.clock.detected is True
+    assert 100 <= session.clock.bpm <= 140
 
 
 def test_tap_is_ignored_outside_calibration() -> None:

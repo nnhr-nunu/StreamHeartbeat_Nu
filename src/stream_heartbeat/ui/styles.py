@@ -113,6 +113,15 @@ QLabel#status {
   color: #e8e8e8;
   font-size: 15px;
 }
+QLabel#live {
+  color: #8ee0a8;
+  font-size: 16px;
+  font-weight: 600;
+}
+QLabel#preview {
+  color: #e0c07a;
+  font-size: 15px;
+}
 QLabel#warn {
   color: #e8a070;
 }
