@@ -267,3 +267,12 @@ class HeartSoundDetector:
             self._last_onset_env = env
             hits.append(sample_t)
         return hits
+
+    def unlock(self) -> None:
+        """検出ロスト後に、遅い間隔の記憶で次の拍を落とさない。"""
+        self._last_interval = DEFAULT_INTERVAL
+        self._pair_mode = False
+        self._gaps.clear()
+        self._last_beat = -1e9
+        self._last_raw_t = -1e9
+        self._peak = min(self._peak, 0.08)

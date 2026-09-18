@@ -144,7 +144,7 @@ class OutputCanvas(QOpenGLWidget):
             scale=profile.beat_text_scale,
             opacity=profile.beat_text_opacity,
         )
-        if profile.show_bpm:
+        if profile.show_bpm and clock.detected:
             paint_bpm(painter, rect, clock.bpm)
         painter.end()
 

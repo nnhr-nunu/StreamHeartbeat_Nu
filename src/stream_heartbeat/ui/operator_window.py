@@ -29,7 +29,12 @@ from PySide6.QtWidgets import (
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
-from stream_heartbeat.config import DETECT_LOST_LABEL, DISCLAIMER
+from stream_heartbeat.config import (
+    DISCLAIMER,
+    LIVE_STATUS,
+    PREVIEW_IDLE_STATUS,
+    PREVIEW_LOST_STATUS,
+)
 from stream_heartbeat.oshilog import fetch_aux_bpm
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
@@ -104,8 +109,8 @@ class OperatorWindow(QMainWindow):
         self.setStyleSheet(DARK_QSS)
         apply_app_icon(self)
 
-        self._status = QLabel(DETECT_LOST_LABEL)
-        self._status.setObjectName("status")
+        self._status = QLabel(PREVIEW_IDLE_STATUS)
+        self._status.setObjectName("preview")
         self._status.setWordWrap(True)
         self._notice = QLabel("")
         self._notice.setObjectName("status")
@@ -413,6 +418,24 @@ class OperatorWindow(QMainWindow):
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
 
+    def _set_detect_status(self) -> None:
+        clock = self._session.clock
+        if clock.detected:
+            kind = "live"
+            text = f"{LIVE_STATUS}  {clock.bpm} BPM"
+        elif clock.has_beats:
+            kind = "preview"
+            text = f"{PREVIEW_LOST_STATUS}  最後 {clock.bpm} BPM"
+        else:
+            kind = "preview"
+            text = PREVIEW_IDLE_STATUS
+        if self._status.objectName() != kind:
+            self._status.setObjectName(kind)
+            style = self._status.style()
+            style.unpolish(self._status)
+            style.polish(self._status)
+        self._status.setText(text)
+
     def _restart_mic(self) -> None:
         self._apply_controls()
         mic_id = str(self._mics.currentData() or "")
@@ -454,7 +477,7 @@ class OperatorWindow(QMainWindow):
             self._begin_cal()
 
     def _begin_cal(self) -> None:
-        self._session.begin_calibration(self._now())
+        self._session.begin_calibration(self._session.now)
         self._set_calibrating_ui(True)
 
     def _drop_cal(self) -> None:
@@ -463,7 +486,7 @@ class OperatorWindow(QMainWindow):
         self._flash("録音をやめました")
 
     def _tap_now(self) -> None:
-        self._session.tap(self._now())
+        self._session.tap(self._session.now)
 
     def _commit_cal(self) -> None:
         self._session.commit_calibration()
@@ -540,10 +563,8 @@ class OperatorWindow(QMainWindow):
         self._session.tick(now, samples)
         if recording:
             self._status.setText(f"録音中  {self._session.tap_label()}")
-        elif self._session.clock.detected:
-            self._status.setText(f"検出中  {self._session.clock.bpm} BPM")
         else:
-            self._status.setText(DETECT_LOST_LABEL)
+            self._set_detect_status()
         if not recording:
             if self._session.clock.bpm_mismatch():
                 self._warn.setText("時計と数字がズレています（推しログは遅延します）")
@@ -551,7 +572,7 @@ class OperatorWindow(QMainWindow):
                 self._warn.setText("")
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
-        self._output.canvas.set_now(now)
+        self._output.canvas.set_now(self._session.now)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save_current(notice=None)

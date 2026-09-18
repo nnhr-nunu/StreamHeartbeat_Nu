@@ -16,6 +16,7 @@ from stream_heartbeat.config import (
     MAX_BPM,
     MIN_BPM,
     MISMATCH_BPM,
+    PREVIEW_MOTION,
 )
 
 
@@ -59,6 +60,10 @@ class BeatClock:
         return int(round(self._bpm))
 
     def feed_beat(self, t: float) -> None:
+        reacquire = not self.detected
+        if reacquire:
+            self._intervals.clear()
+            self._wild = 0
         if self._beats:
             interval = t - self._beats[-1]
             if interval > 0:
@@ -99,6 +104,10 @@ class BeatClock:
         if t - self._beats[-1] >= self.interval() * LOST_INTERVALS:
             self.detected = False
 
+    @property
+    def has_beats(self) -> bool:
+        return bool(self._beats)
+
     def _pulse_origin(self, t: float) -> float:
         if self.detected and self._beats:
             return self._beats[-1]
@@ -127,13 +136,17 @@ class BeatClock:
         origin = self._pulse_origin(t)
         dt = max(0.0, t - origin)
         interval = self.interval()
+        gain = 1.0 if self.detected else PREVIEW_MOTION
         systole = min(0.34, max(0.20, interval * 0.36))
-        squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78)
-        eject = _envelope(dt, 0.045, 0.11, systole)
-        fill = _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
+        squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78) * gain
+        eject = _envelope(dt, 0.045, 0.11, systole) * gain
+        fill = (
+            _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
+            * gain
+        )
         apex = 1.0 - 0.24 * squeeze
         waist = 1.0 + 0.08 * squeeze
-        sheen = _envelope(dt, 0.02, 0.07, 0.16)
+        sheen = _envelope(dt, 0.02, 0.07, 0.16) * gain
         return CardiacCycle(
             squeeze=squeeze,
             eject=eject,
