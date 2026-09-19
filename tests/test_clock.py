@@ -110,7 +110,7 @@ def test_stall_gap_does_not_clip_bpm_to_minimum() -> None:
     assert clock.detected is True
 
 
-def test_preview_motion_is_weaker_than_live() -> None:
+def test_preview_motion_matches_live_strength() -> None:
     clock = BeatClock()
     clock.feed_beat(0.0)
     clock.feed_beat(0.5)
@@ -118,7 +118,7 @@ def test_preview_motion_is_weaker_than_live() -> None:
     clock.lost_if_silent(2.0)
     assert clock.detected is False
     preview = max(clock.pulse_scale(2.0 + i * 0.02) for i in range(30))
-    assert preview < live * 0.75
+    assert preview >= live * 0.95
 
 
 def test_reacquire_after_lost_follows_new_tempo() -> None:

@@ -6,10 +6,9 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -49,6 +48,8 @@ from stream_heartbeat.render.heart_shaders import REALISTIC_LOOKS
 from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
+from stream_heartbeat.ui.capture_exclude import exclude_from_capture
+from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.styles import DARK_QSS
 
@@ -131,13 +132,13 @@ class OperatorWindow(QMainWindow):
         version = QLabel(display_version())
         version.setObjectName("meta")
 
-        self._profiles = QComboBox()
+        self._profiles = MarkedComboBox()
         self._profiles.setEditable(False)
-        self._mics = QComboBox()
-        self._style = QComboBox()
+        self._mics = MarkedComboBox()
+        self._style = MarkedComboBox()
         for key, label in STYLES:
             self._style.addItem(label, key)
-        self._look = QComboBox()
+        self._look = MarkedComboBox()
         for look in REALISTIC_LOOKS:
             self._look.addItem(look.label, look.key)
         self._angle_locked = QCheckBox("角度を固定（配信用の窓をドラッグしても回さない）")
@@ -254,7 +255,8 @@ class OperatorWindow(QMainWindow):
         cal_hint = QLabel(
             "目安は 10〜20 秒の録音と、ドクンに合わせた「拍」（またはスペース）4回以上です。\n"
             "押すたびに心臓へ波紋が出ます。少し遅れても大丈夫です。\n"
-            "何回保存しても大丈夫。足すほど心音の型が安定します。いらない録音は停止で捨てられます。\n"
+            "「録音を保存」するたびに積み上がります。何回足しても大丈夫です。\n"
+            "いらない途中の録音だけ「録音停止」で捨ててください。保存済みはそのまま残ります。\n"
             "ヘッドホン推奨。録音は操作画面だけに聞こえ、配信には出ません。\n"
             "同じマイクで録るか、wav / mp3 を足しても精度が上がります。"
         )
@@ -268,6 +270,16 @@ class OperatorWindow(QMainWindow):
         cal_inner.addWidget(cal_hint)
         cal_box.setLayout(cal_inner)
 
+        self._banner = QFrame()
+        self._banner.setObjectName("detectBanner")
+        self._banner.setProperty("kind", "preview")
+        banner_layout = QVBoxLayout(self._banner)
+        banner_layout.setContentsMargins(10, 8, 10, 8)
+        banner_layout.setSpacing(4)
+        banner_layout.addWidget(self._status)
+        banner_layout.addWidget(self._notice)
+        banner_layout.addWidget(self._level)
+
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.addWidget(disclaimer)
@@ -275,9 +287,6 @@ class OperatorWindow(QMainWindow):
         layout.addWidget(look_box)
         layout.addWidget(cal_box)
         layout.addWidget(oshi_wrap)
-        layout.addWidget(self._level)
-        layout.addWidget(self._notice)
-        layout.addWidget(self._status)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
         layout.addStretch(1)
@@ -286,7 +295,14 @@ class OperatorWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(root)
-        self.setCentralWidget(scroll)
+
+        shell = QWidget()
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self._banner)
+        shell_layout.addWidget(scroll, 1)
+        self.setCentralWidget(shell)
 
         self._fill_mics()
         self._fill_profiles()
@@ -418,6 +434,19 @@ class OperatorWindow(QMainWindow):
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
 
+    def _set_banner_kind(self, kind: str) -> None:
+        if self._banner.property("kind") != kind:
+            self._banner.setProperty("kind", kind)
+            style = self._banner.style()
+            style.unpolish(self._banner)
+            style.polish(self._banner)
+            self._banner.update()
+        if self._status.objectName() != kind:
+            self._status.setObjectName(kind)
+            style = self._status.style()
+            style.unpolish(self._status)
+            style.polish(self._status)
+
     def _set_detect_status(self) -> None:
         clock = self._session.clock
         if clock.detected:
@@ -429,11 +458,7 @@ class OperatorWindow(QMainWindow):
         else:
             kind = "preview"
             text = PREVIEW_IDLE_STATUS
-        if self._status.objectName() != kind:
-            self._status.setObjectName(kind)
-            style = self._status.style()
-            style.unpolish(self._status)
-            style.polish(self._status)
+        self._set_banner_kind(kind)
         self._status.setText(text)
 
     def _restart_mic(self) -> None:
@@ -564,6 +589,7 @@ class OperatorWindow(QMainWindow):
         now = self._now()
         self._session.tick(now, samples)
         if recording:
+            self._set_banner_kind("record")
             self._status.setText(f"録音中  {self._session.tap_label()}")
         else:
             self._set_detect_status()
@@ -575,6 +601,10 @@ class OperatorWindow(QMainWindow):
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
         self._output.canvas.set_now(self._session.now)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        exclude_from_capture(self)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save_current(notice=None)

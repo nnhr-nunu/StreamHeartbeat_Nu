@@ -68,6 +68,9 @@ def test_tick_feeds_detector_from_buffer_start() -> None:
             captured.append(t)
             return []
 
+        def unlock(self) -> None:
+            return
+
     session.detector = _Detector()  # type: ignore[assignment]
     session.tick(1.0, [0.0] * 100, sample_rate=1000.0)
     assert captured == [0.0]
@@ -82,12 +85,51 @@ def test_hidden_beat_text_does_not_spawn_burst() -> None:
             del samples, sample_rate
             return [t]
 
+        def unlock(self) -> None:
+            return
+
     hidden.detector = _Hit()  # type: ignore[assignment]
     shown.detector = _Hit()  # type: ignore[assignment]
     hidden.tick(0.0, [0.0], sample_rate=1000.0)
     shown.tick(0.0, [0.0], sample_rate=1000.0)
     assert hidden.overlay.bursts_at(0.05) == []
     assert shown.overlay.bursts_at(0.05)
+
+
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_preview_emits_beat_text(_bundled: object) -> None:
+    session = HeartSession(HeartProfile(show_beat_text=True, beat_text="ドクン"))
+
+    class _Silent:
+        def feed(self, samples: list[float], t: float, sample_rate: float = 16000.0) -> list[float]:
+            del samples, t, sample_rate
+            return []
+
+        def unlock(self) -> None:
+            return
+
+    session.detector = _Silent()  # type: ignore[assignment]
+    for i in range(1, 121):
+        session.tick(i * 0.01, [])
+    texts = [burst.text for burst in session.overlay.bursts_at(session.now)]
+    assert "ドクン" in texts
+
+
+def test_discard_drops_only_in_progress_take() -> None:
+    session = HeartSession()
+    session.begin_calibration(0.0)
+    session.tick(0.1, [0.2] * 10, sample_rate=1000.0)
+    session.commit_calibration()
+    saved = len(session.profile.calibration)
+    assert saved >= 1
+    session.begin_calibration(1.0)
+    session.tick(1.1, [0.3] * 10, sample_rate=1000.0)
+    session.discard_calibration()
+    assert len(session.profile.calibration) == saved
+    session.begin_calibration(2.0)
+    session.tick(2.1, [0.4] * 10, sample_rate=1000.0)
+    session.commit_calibration()
+    assert len(session.profile.calibration) > saved
 
 
 def _thud(pos: int, width: int = 40) -> float:

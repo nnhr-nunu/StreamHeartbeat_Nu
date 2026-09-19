@@ -21,6 +21,7 @@ class HeartSession:
         self._cal_sr = 16000.0
         self.taps: list[float] = []
         self._t = 0.0
+        self._preview_origin: float | None = None
         self.rebuild_detector()
 
     @property
@@ -102,5 +103,13 @@ class HeartSession:
         self.clock.lost_if_silent(self._t)
         if was_live and not self.clock.detected:
             self.detector.unlock()
+        if not self.clock.detected:
+            origin = self.clock.origin_before(self._t)
+            if self._preview_origin is None or origin > self._preview_origin + 1e-4:
+                self._preview_origin = origin
+                if self.profile.show_beat_text:
+                    self.overlay.on_beat(origin, self.profile.beat_text)
+        else:
+            self._preview_origin = None
         if self.clock.pop_arrhythmia(self._t) and self.profile.show_arrhythmia:
             self.overlay.on_arrhythmia(self._t)

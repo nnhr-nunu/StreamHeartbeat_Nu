@@ -76,6 +76,12 @@ QComboBox, QLineEdit {
 QComboBox {
   padding-right: 28px;
 }
+QLabel#comboMark {
+  color: #e8e8e8;
+  font-size: 11px;
+  background: transparent;
+  padding: 0px;
+}
 QComboBox::drop-down {
   subcontrol-origin: border;
   subcontrol-position: center right;
@@ -115,12 +121,32 @@ QLabel#status {
 }
 QLabel#live {
   color: #8ee0a8;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
 }
 QLabel#preview {
   color: #e0c07a;
-  font-size: 15px;
+  font-size: 18px;
+  font-weight: 600;
+}
+QLabel#record {
+  color: #d8c4f0;
+  font-size: 18px;
+  font-weight: 600;
+}
+QFrame#detectBanner {
+  background: #2a2414;
+  border: none;
+  border-bottom: 2px solid #e0c07a;
+  padding: 8px 12px;
+}
+QFrame#detectBanner[kind="live"] {
+  background: #142a1c;
+  border-bottom: 2px solid #8ee0a8;
+}
+QFrame#detectBanner[kind="record"] {
+  background: #241428;
+  border-bottom: 2px solid #c9a0ff;
 }
 QLabel#warn {
   color: #e8a070;

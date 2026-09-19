@@ -146,7 +146,7 @@ class OutputCanvas(QOpenGLWidget):
             opacity=profile.beat_text_opacity,
         )
         paint_ripples(painter, rect, self._session.overlay.ripples_at(t))
-        if profile.show_bpm and clock.detected:
+        if profile.show_bpm:
             paint_bpm(painter, rect, clock.bpm)
         painter.end()
 
