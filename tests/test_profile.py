@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from stream_heartbeat.config import DEFAULT_BACKDROP, DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_Y
 from stream_heartbeat.profile import (
     HeartProfile,
@@ -50,6 +52,8 @@ def test_new_profile_uses_heart_default_text() -> None:
     assert DEFAULT_BEAT_TEXT == "❤"
     assert HeartProfile().beat_text_y == DEFAULT_BEAT_TEXT_Y
     assert HeartProfile().beat_text_y < 0.4
+    assert HeartProfile().beat_text_jitter == 0.05
+    assert HeartProfile().beat_text_tilt == pytest.approx(0.7)
     assert HeartProfile().show_arrhythmia is False
     assert HeartProfile().backdrop == DEFAULT_BACKDROP
     assert HeartProfile().bpm_outline == "#000000"

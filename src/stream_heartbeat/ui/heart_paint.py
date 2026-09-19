@@ -145,10 +145,14 @@ def paint_bursts(
     painter.setFont(font)
     painter.setPen(TEXT_COLOR)
     for burst in bursts:
+        painter.save()
         painter.setOpacity(burst_opacity(burst.alpha, opacity))
         x = rect.left() + burst.pos[0] * rect.width()
         y = rect.top() + burst.pos[1] * rect.height()
-        painter.drawText(int(x), int(y), burst.text)
+        painter.translate(x, y)
+        painter.rotate(burst.angle)
+        painter.drawText(0, 0, burst.text)
+        painter.restore()
     painter.setOpacity(1.0)
 
 

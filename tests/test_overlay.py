@@ -31,9 +31,9 @@ def test_burst_font_and_opacity_follow_settings() -> None:
 
 
 def test_positions_stay_inside_margin() -> None:
-    values = iter([0.0, 1.0])
+    values = iter([0.0, 1.0, 0.5])
     state = OverlayState(rng=lambda: next(values))
-    state.on_beat(0.0, "ドクン", origin=(0.5, 0.22))
+    state.on_beat(0.0, "ドクン", origin=(0.5, 0.22), jitter=0.05)
     x, y = state.bursts_at(0.0)[0].pos
     assert 0.08 <= x <= 0.92
     assert 0.08 <= y <= 0.45
@@ -41,11 +41,46 @@ def test_positions_stay_inside_margin() -> None:
 
 def test_beat_text_uses_origin_and_stays_above_heart() -> None:
     state = OverlayState(rng=lambda: 0.5)
-    state.on_beat(0.0, "❤", origin=(0.5, 0.22))
+    state.on_beat(0.0, "❤", origin=(0.5, 0.22), jitter=0.0)
     x, y = state.bursts_at(0.05)[0].pos
     assert x == pytest.approx(0.5, abs=0.01)
     assert y == pytest.approx(0.22, abs=0.01)
     assert y < 0.4
+
+
+def _pos_with_jitter(jitter: float) -> tuple[float, float]:
+    values = iter([0.0, 1.0, 0.5])
+    state = OverlayState(rng=lambda: next(values))
+    state.on_beat(0.0, "❤", origin=(0.5, 0.22), jitter=jitter, tilt=0.0)
+    return state.bursts_at(0.0)[0].pos
+
+
+def test_zero_jitter_stays_at_origin() -> None:
+    x, y = _pos_with_jitter(0.0)
+    assert x == pytest.approx(0.5)
+    assert y == pytest.approx(0.22)
+
+
+def test_larger_jitter_spreads_farther() -> None:
+    near = _pos_with_jitter(0.05)
+    far = _pos_with_jitter(0.30)
+    assert abs(far[0] - 0.5) > abs(near[0] - 0.5)
+    assert abs(far[1] - 0.22) > abs(near[1] - 0.22)
+
+
+def test_tilt_leans_toward_heart_center() -> None:
+    left = OverlayState(rng=lambda: 0.5)
+    left.on_beat(0.0, "❤", origin=(0.32, 0.22), jitter=0.0, tilt=1.0)
+    right = OverlayState(rng=lambda: 0.5)
+    right.on_beat(0.0, "❤", origin=(0.68, 0.22), jitter=0.0, tilt=1.0)
+    assert left.bursts_at(0.0)[0].angle < -8
+    assert right.bursts_at(0.0)[0].angle > 8
+
+
+def test_tilt_zero_stays_upright() -> None:
+    state = OverlayState(rng=lambda: 0.0)
+    state.on_beat(0.0, "❤", origin=(0.32, 0.22), jitter=0.0, tilt=0.0)
+    assert state.bursts_at(0.0)[0].angle == pytest.approx(0.0)
 
 
 def test_tap_ripple_expands_and_fades() -> None:
