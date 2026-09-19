@@ -15,6 +15,7 @@ from stream_heartbeat.profile import (
 )
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
+from stream_heartbeat.ui.capture_exclude import configure_dev_allow_capture_from_env
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import place_side_by_side
@@ -30,6 +31,7 @@ def _initial_session() -> HeartSession:
 
 def run() -> int:
     configure_process_identity()
+    configure_dev_allow_capture_from_env()
     app = QApplication(sys.argv)
     app.setApplicationName("StreamHeartbeat(ぬ)")
     apply_app_icon(app)

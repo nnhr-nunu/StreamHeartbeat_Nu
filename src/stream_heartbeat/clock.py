@@ -16,7 +16,6 @@ from stream_heartbeat.config import (
     MAX_BPM,
     MIN_BPM,
     MISMATCH_BPM,
-    PREVIEW_MOTION,
 )
 
 
@@ -136,17 +135,13 @@ class BeatClock:
         origin = self._pulse_origin(t)
         dt = max(0.0, t - origin)
         interval = self.interval()
-        gain = 1.0 if self.detected else PREVIEW_MOTION
         systole = min(0.34, max(0.20, interval * 0.36))
-        squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78) * gain
-        eject = _envelope(dt, 0.045, 0.11, systole) * gain
-        fill = (
-            _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
-            * gain
-        )
+        squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78)
+        eject = _envelope(dt, 0.045, 0.11, systole)
+        fill = _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
         apex = 1.0 - 0.24 * squeeze
         waist = 1.0 + 0.08 * squeeze
-        sheen = _envelope(dt, 0.02, 0.07, 0.16) * gain
+        sheen = _envelope(dt, 0.02, 0.07, 0.16)
         return CardiacCycle(
             squeeze=squeeze,
             eject=eject,

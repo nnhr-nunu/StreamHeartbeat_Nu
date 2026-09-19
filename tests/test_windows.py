@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QGroupBox, QLabel, QPushButton, QToolButton
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFrame,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QToolButton,
+)
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
-from stream_heartbeat.ui.styles import DARK_QSS
 
 
 def test_two_windows_have_obs_titles(qapp: QApplication) -> None:
@@ -48,6 +55,8 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert "スペース" in guides
     assert "何回" in guides
     assert "4回" in guides or "４回" in guides
+    assert "積み上が" in guides
+    assert "保存済み" in guides
     start.click()
     assert not tap.isEnabled()
     assert "録音開始" in start.text()
@@ -78,8 +87,27 @@ def test_fold_and_combo_show_pulldown_mark(qapp: QApplication) -> None:
     texts = [btn.text() for btn in folds]
     assert any(text.startswith("▶") or text.startswith("▼") for text in texts)
     assert any("同期文字" in text for text in texts)
-    assert "QComboBox::down-arrow" in DARK_QSS
-    assert "combo_down" in DARK_QSS
+    marks = [lab for lab in operator.findChildren(QLabel) if lab.objectName() == "comboMark"]
+    assert len(marks) >= 4
+    assert all(lab.text() == "▼" for lab in marks)
+    assert len(operator.findChildren(QComboBox)) >= 4
+    operator.close()
+    output.close()
+
+
+def test_detect_banner_stays_above_scroll(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    banner = operator.findChild(QFrame, "detectBanner")
+    assert banner is not None
+    shell = operator.centralWidget()
+    assert shell is not None
+    layout = shell.layout()
+    assert layout is not None
+    assert layout.itemAt(0).widget() is banner
+    assert operator._status.parent() is banner
     operator.close()
     output.close()
 

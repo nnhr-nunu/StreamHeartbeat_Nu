@@ -30,4 +30,3 @@ DETECT_LOST_LABEL = "検出できていません"
 LIVE_STATUS = "連動中"
 PREVIEW_IDLE_STATUS = "プレビュー（心音なし）"
 PREVIEW_LOST_STATUS = "プレビュー（検出ロスト）"
-PREVIEW_MOTION = 0.42
