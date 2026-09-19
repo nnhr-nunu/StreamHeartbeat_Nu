@@ -11,6 +11,7 @@ from stream_heartbeat.config import (
     ARRHYTHMIA_COOLDOWN_S,
     ARRHYTHMIA_STREAK,
     ARRYTHMIA_DEVIATION,
+    BPM_DISPLAY_S,
     DEFAULT_BPM,
     LOST_INTERVALS,
     MAX_BPM,
@@ -48,6 +49,8 @@ class BeatClock:
         self._beats: list[float] = []
         self._intervals: list[float] = []
         self._bpm = float(DEFAULT_BPM)
+        self._pending_bpm: float | None = None
+        self._published_at = -1.0
         self.detected = False
         self.oshilog_bpm: int | None = None
         self._wild = 0
@@ -80,12 +83,20 @@ class BeatClock:
         self._beats = self._beats[-24:]
         self.detected = True
         self._last_event = t
+        self.publish_display(t)
 
     def _update_bpm(self, interval: float) -> None:
         self._intervals.append(interval)
-        self._intervals = self._intervals[-8:]
+        self._intervals = self._intervals[-12:]
         med = statistics.median(self._intervals)
-        self._bpm = min(MAX_BPM, max(MIN_BPM, 60.0 / med))
+        self._pending_bpm = min(MAX_BPM, max(MIN_BPM, 60.0 / med))
+
+    def publish_display(self, t: float) -> None:
+        if self._pending_bpm is None:
+            return
+        if self._published_at < 0 or t - self._published_at >= BPM_DISPLAY_S:
+            self._bpm = self._pending_bpm
+            self._published_at = t
 
     def _median_interval(self) -> float | None:
         if len(self._beats) < 3:

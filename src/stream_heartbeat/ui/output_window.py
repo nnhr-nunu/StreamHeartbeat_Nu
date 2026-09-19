@@ -30,6 +30,7 @@ from stream_heartbeat.ui.heart_paint import (
     paint_ripples,
 )
 from stream_heartbeat.ui.styles import DARK_QSS
+from stream_heartbeat.ui.win_present import redraw_hwnd
 
 
 def gl_surface_format() -> QSurfaceFormat:
@@ -69,6 +70,9 @@ class OutputCanvas(QOpenGLWidget):
     def set_now(self, t: float) -> None:
         self._now = t
         self.update()
+        host = self.window()
+        if host is not None:
+            redraw_hwnd(int(host.winId()))
 
     def sync_orbit_from_profile(self) -> None:
         profile = self._session.profile

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from unittest.mock import patch
 
+from stream_heartbeat.detect import BUNDLED_CORR_MIN
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.session import HeartSession
 
@@ -113,6 +114,14 @@ def test_preview_emits_beat_text(_bundled: object) -> None:
         session.tick(i * 0.01, [])
     texts = [burst.text for burst in session.overlay.bursts_at(session.now)]
     assert "ドクン" in texts
+
+
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_user_calibration_keeps_lenient_match(_bundled: object) -> None:
+    session = HeartSession()
+    session.profile.calibration = [[0.3 * math.sin(i * 0.5) for i in range(2000)]]
+    session.rebuild_detector()
+    assert session.detector.corr_min == BUNDLED_CORR_MIN
 
 
 class _SilentDetector:
