@@ -115,6 +115,35 @@ def test_preview_emits_beat_text(_bundled: object) -> None:
     assert "ドクン" in texts
 
 
+class _SilentDetector:
+    def feed(self, samples: list[float], t: float, sample_rate: float = 16000.0) -> list[float]:
+        del samples, t, sample_rate
+        return []
+
+    def unlock(self) -> None:
+        return
+
+
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_preview_jitter_moves_burst_position(_bundled: object) -> None:
+    xs: set[float] = set()
+    for _ in range(10):
+        session = HeartSession(
+            HeartProfile(
+                show_beat_text=True,
+                beat_text="❤",
+                beat_text_jitter=0.35,
+                beat_text_tilt=0.0,
+            )
+        )
+        session.detector = _SilentDetector()  # type: ignore[assignment]
+        session.tick(0.9, [])
+        bursts = session.overlay.bursts_at(session.now)
+        assert bursts
+        xs.add(round(bursts[0].pos[0], 4))
+    assert len(xs) > 1
+
+
 def test_discard_drops_in_progress_not_saved() -> None:
     session = HeartSession()
     session.begin_calibration(0.0)

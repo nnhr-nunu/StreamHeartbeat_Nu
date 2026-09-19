@@ -10,6 +10,8 @@ from stream_heartbeat.config import (
     BEAT_TEXT_JITTER,
     DEFAULT_BACKDROP,
     DEFAULT_BEAT_TEXT,
+    DEFAULT_BEAT_TEXT_COLOR,
+    DEFAULT_BEAT_TEXT_OUTLINE,
     DEFAULT_BEAT_TEXT_TILT,
     DEFAULT_BEAT_TEXT_X,
     DEFAULT_BEAT_TEXT_Y,
@@ -38,6 +40,8 @@ class HeartProfile:
     beat_text_y: float = DEFAULT_BEAT_TEXT_Y
     beat_text_jitter: float = BEAT_TEXT_JITTER
     beat_text_tilt: float = DEFAULT_BEAT_TEXT_TILT
+    beat_text_color: str = DEFAULT_BEAT_TEXT_COLOR
+    beat_text_outline: str = DEFAULT_BEAT_TEXT_OUTLINE
     show_bpm: bool = True
     bpm_scale: float = 1.0
     bpm_x: float = DEFAULT_BPM_X

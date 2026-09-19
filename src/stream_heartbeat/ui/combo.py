@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QResizeEvent, QShowEvent
+from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import QComboBox, QLabel, QWidget
 
 
@@ -21,6 +21,12 @@ class MarkedComboBox(QComboBox):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._place_mark()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if self.view() is not None and self.view().isVisible():
+            super().wheelEvent(event)
+            return
+        event.ignore()
 
     def _place_mark(self) -> None:
         self._mark.adjustSize()

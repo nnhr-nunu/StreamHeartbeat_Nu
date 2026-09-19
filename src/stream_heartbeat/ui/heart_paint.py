@@ -138,12 +138,15 @@ def paint_bursts(
     *,
     scale: float = 1.0,
     opacity: float = 1.0,
+    color: str = "#FFECA0",
+    outline: str = "#000000",
 ) -> None:
     font = QFont()
     font.setPixelSize(burst_font_px(min(rect.width(), rect.height()), scale))
     font.setBold(True)
     painter.setFont(font)
-    painter.setPen(TEXT_COLOR)
+    fill = QColor(color) if QColor(color).isValid() else TEXT_COLOR
+    ring = QColor(outline) if outline and QColor(outline).isValid() else None
     for burst in bursts:
         painter.save()
         painter.setOpacity(burst_opacity(burst.alpha, opacity))
@@ -151,7 +154,7 @@ def paint_bursts(
         y = rect.top() + burst.pos[1] * rect.height()
         painter.translate(x, y)
         painter.rotate(burst.angle)
-        painter.drawText(0, 0, burst.text)
+        _draw_outlined_text(painter, 0, 0, burst.text, fill, ring)
         painter.restore()
     painter.setOpacity(1.0)
 

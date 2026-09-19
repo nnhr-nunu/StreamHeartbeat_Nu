@@ -83,6 +83,15 @@ def test_tilt_zero_stays_upright() -> None:
     assert state.bursts_at(0.0)[0].angle == pytest.approx(0.0)
 
 
+def test_default_rng_spreads_jittered_positions() -> None:
+    xs: set[float] = set()
+    for _ in range(16):
+        state = OverlayState()
+        state.on_beat(0.0, "❤", origin=(0.5, 0.22), jitter=0.35, tilt=0.0)
+        xs.add(round(state.bursts_at(0.0)[0].pos[0], 4))
+    assert len(xs) > 1
+
+
 def test_tap_ripple_expands_and_fades() -> None:
     state = OverlayState()
     state.on_ripple(1.0)
