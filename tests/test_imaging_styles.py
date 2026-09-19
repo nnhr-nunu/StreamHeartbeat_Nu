@@ -69,8 +69,17 @@ def test_operator_lists_all_styles(
         "stream_heartbeat.ui.operator_window.resolve_data_dir",
         lambda: tmp_path,
     )
-    keys = [key for key, _label in STYLES]
-    assert keys == ["realistic", "echo", "mri", "xray", "cute", "mech", "ecg"]
+    keys = [key for key, _look, _label in STYLES]
+    assert keys == [
+        "realistic",
+        "realistic",
+        "echo",
+        "mri",
+        "xray",
+        "cute",
+        "mech",
+        "ecg",
+    ]
     assert GL_STYLES == {"realistic", "mech", "xray", "mri"}
     session = HeartSession()
     output = OutputWindow(session)
@@ -81,9 +90,12 @@ def test_operator_lists_all_styles(
         if any(box.itemText(i) == "心エコー" for i in range(box.count()))
     )
     labels = [style.itemText(i) for i in range(style.count())]
+    assert "リアル1" in labels
+    assert "リアル2" in labels
     assert "心エコー" in labels
     assert "MRI" in labels
     assert "レントゲン" in labels
+    assert "手術寄り" not in labels
     operator.close()
     output.close()
 

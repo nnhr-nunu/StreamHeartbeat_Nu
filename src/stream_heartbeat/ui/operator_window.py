@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
 from stream_heartbeat.config import (
+    DEFAULT_BEAT_TEXT,
     DISCLAIMER,
     LIVE_STATUS,
     PREVIEW_IDLE_STATUS,
@@ -42,26 +43,28 @@ from stream_heartbeat.profile import (
     load_last_profile_name,
     load_profile,
     profiles_dir,
+    save_app_state,
     save_last_profile_name,
     save_profile,
 )
-from stream_heartbeat.render.heart_shaders import REALISTIC_LOOKS
 from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.capture_exclude import exclude_from_capture
 from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.output_window import OutputWindow
+from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.styles import DARK_QSS
 
 STYLES = [
-    ("realistic", "リアル"),
-    ("echo", "心エコー"),
-    ("mri", "MRI"),
-    ("xray", "レントゲン"),
-    ("cute", "かわいい"),
-    ("mech", "機械"),
-    ("ecg", "心電図"),
+    ("realistic", "surgical", "リアル1"),
+    ("realistic", "anatomy", "リアル2"),
+    ("echo", "", "心エコー"),
+    ("mri", "", "MRI"),
+    ("xray", "", "レントゲン"),
+    ("cute", "", "かわいい"),
+    ("mech", "", "機械"),
+    ("ecg", "", "心電図"),
 ]
 ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
@@ -106,6 +109,7 @@ class OperatorWindow(QMainWindow):
         self._monitor = MicMonitor()
         self._data_dir = resolve_data_dir()
         self._t0 = time.perf_counter()
+        self._closing = False
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
         self.setMinimumSize(440, 420)
         self.resize(500, 760)
@@ -139,11 +143,8 @@ class OperatorWindow(QMainWindow):
         self._profiles.setEditable(False)
         self._mics = MarkedComboBox()
         self._style = MarkedComboBox()
-        for key, label in STYLES:
-            self._style.addItem(label, key)
-        self._look = MarkedComboBox()
-        for look in REALISTIC_LOOKS:
-            self._look.addItem(look.label, look.key)
+        for key, look, label in STYLES:
+            self._style.addItem(label, (key, look))
         self._angle_locked = QCheckBox("角度を固定（配信用の窓をドラッグしても回さない）")
         self._reset_angle = QPushButton("角度をリセット")
         self._angle_hint = QLabel("配信用の窓を左ドラッグで回転、ダブルクリックで元の向き。")
@@ -193,7 +194,6 @@ class OperatorWindow(QMainWindow):
         save_as_btn.clicked.connect(self._save_as)
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
-        self._look.currentIndexChanged.connect(self._apply_controls)
         self._angle_locked.toggled.connect(self._apply_controls)
         self._reset_angle.clicked.connect(self._output.canvas.reset_angle)
         self._scale.valueChanged.connect(self._apply_controls)
@@ -206,23 +206,23 @@ class OperatorWindow(QMainWindow):
         self._show_arrhythmia.toggled.connect(self._apply_controls)
         self._mics.currentIndexChanged.connect(self._restart_mic)
 
-        look = QFormLayout()
-        look.addRow("スタイル", self._style)
-        self._look_label = QLabel("質感")
-        look.addRow(self._look_label, self._look)
-        look.addRow("大きさ", self._scale)
-        look.addRow("透明度", self._opacity)
-        beat_inner = QWidget()
-        beat_form = QFormLayout(beat_inner)
-        beat_form.setContentsMargins(8, 0, 0, 0)
-        beat_form.addRow(self._show_beat_text)
-        beat_form.addRow("文言", self._text)
-        beat_form.addRow("大きさ", self._beat_scale)
-        beat_form.addRow("透明度", self._beat_opacity)
-        beat_wrap, _beat_fold = _make_fold("同期文字", beat_inner, expanded=True)
-        look.addRow(beat_wrap)
-        look.addRow(self._show_bpm)
-        look.addRow(self._show_arrhythmia)
+        style_form = QFormLayout()
+        style_form.addRow("スタイル", self._style)
+        style_form.addRow("大きさ", self._scale)
+        style_form.addRow("透明度", self._opacity)
+        style_box = QGroupBox("スタイル")
+        style_box.setLayout(style_form)
+
+        text_form = QFormLayout()
+        text_form.addRow(self._show_beat_text)
+        text_form.addRow("文言", self._text)
+        text_form.addRow("大きさ", self._beat_scale)
+        text_form.addRow("透明度", self._beat_opacity)
+        text_form.addRow(self._show_bpm)
+        text_form.addRow(self._show_arrhythmia)
+        text_box = QGroupBox("文字表示")
+        text_box.setLayout(text_form)
+
         angle_row = QHBoxLayout()
         angle_row.addWidget(self._angle_locked, 1)
         angle_row.addWidget(self._reset_angle)
@@ -231,10 +231,18 @@ class OperatorWindow(QMainWindow):
         angle_col.setContentsMargins(0, 0, 0, 0)
         angle_col.addLayout(angle_row)
         angle_col.addWidget(self._angle_hint)
-        look.addRow(self._angle_wrap)
-        look.addRow(self._gl_note)
+        other_inner = QVBoxLayout()
+        other_inner.addWidget(self._angle_wrap)
+        other_inner.addWidget(self._gl_note)
+        self._other_box = QGroupBox("その他")
+        self._other_box.setLayout(other_inner)
+
         look_box = QGroupBox("配信用の見た目")
-        look_box.setLayout(look)
+        look_col = QVBoxLayout()
+        look_col.addWidget(style_box)
+        look_col.addWidget(text_box)
+        look_col.addWidget(self._other_box)
+        look_box.setLayout(look_col)
 
         profile_wrap = QWidget()
         profile_row = QHBoxLayout(profile_wrap)
@@ -380,7 +388,6 @@ class OperatorWindow(QMainWindow):
             self._public_id,
             self._bpm_url,
             self._style,
-            self._look,
             self._angle_locked,
             self._mics,
         )
@@ -397,10 +404,7 @@ class OperatorWindow(QMainWindow):
             self._opacity.setValue(int(profile.opacity * 100))
             self._public_id.setText(profile.oshilog_public_id)
             self._bpm_url.setText(profile.oshilog_bpm_url)
-            idx = max(0, self._style.findData(profile.style))
-            self._style.setCurrentIndex(idx)
-            look_idx = max(0, self._look.findData(profile.realistic_look))
-            self._look.setCurrentIndex(look_idx)
+            self._select_style(profile.style, profile.realistic_look)
             for i in range(self._mics.count()):
                 if self._mics.itemData(i) == profile.mic_id:
                     self._mics.setCurrentIndex(i)
@@ -412,16 +416,38 @@ class OperatorWindow(QMainWindow):
         self._apply_controls()
         self._sync_cal_ui()
 
+    def _style_choice(self) -> tuple[str, str]:
+        data = self._style.currentData()
+        if isinstance(data, tuple) and len(data) == 2:
+            style = str(data[0] or "realistic")
+            look = str(data[1] or "surgical")
+            return style, look
+        return "realistic", "surgical"
+
+    def _select_style(self, style: str, look: str) -> None:
+        wanted = (style, look if style == "realistic" else "")
+        for i in range(self._style.count()):
+            if self._style.itemData(i) == wanted:
+                self._style.setCurrentIndex(i)
+                return
+        if style == "realistic":
+            for i in range(self._style.count()):
+                if self._style.itemData(i) == ("realistic", "surgical"):
+                    self._style.setCurrentIndex(i)
+                    return
+        self._style.setCurrentIndex(0)
+
     def _apply_controls(self) -> None:
         profile = self._session.profile
         profile.name = self._profiles.currentText().strip() or "default"
-        profile.style = str(self._style.currentData() or "realistic")
-        profile.realistic_look = str(self._look.currentData() or "surgical")
+        style, look = self._style_choice()
+        profile.style = style
+        profile.realistic_look = look
         self._output.canvas.angle_locked = self._angle_locked.isChecked()
         self._refresh_style_controls()
         profile.scale = self._scale.value() / 100.0
         profile.opacity = self._opacity.value() / 100.0
-        profile.beat_text = self._text.text() or "ドクン"
+        profile.beat_text = self._text.text() or DEFAULT_BEAT_TEXT
         profile.show_beat_text = self._show_beat_text.isChecked()
         profile.beat_text_scale = self._beat_scale.value() / 100.0
         profile.beat_text_opacity = self._beat_opacity.value() / 100.0
@@ -433,14 +459,13 @@ class OperatorWindow(QMainWindow):
             profile.mic_id = str(self._mics.currentData())
 
     def _refresh_style_controls(self) -> None:
-        style = str(self._style.currentData() or "realistic")
-        is_realistic = style == "realistic"
-        self._look.setVisible(is_realistic)
-        self._look_label.setVisible(is_realistic)
-        self._angle_wrap.setVisible(style in ROTATABLE_STYLES)
-        failed = style in ROTATABLE_STYLES and self._output.canvas.gl_error is not None
+        style, _look = self._style_choice()
+        rotatable = style in ROTATABLE_STYLES
+        self._angle_wrap.setVisible(rotatable)
+        failed = rotatable and self._output.canvas.gl_error is not None
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
+        self._other_box.setVisible(rotatable or failed)
 
     def _set_banner_kind(self, kind: str) -> None:
         if self._banner.property("kind") != kind:
@@ -636,7 +661,16 @@ class OperatorWindow(QMainWindow):
         exclude_from_capture(self)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._closing:
+            super().closeEvent(event)
+            return
+        self._closing = True
         self._save_current(notice=None)
+        save_app_state(
+            self._data_dir,
+            operator_geom=window_geom(self),
+            output_geom=window_geom(self._output),
+        )
         self._monitor.stop()
         self._mic.stop()
         self._output.allow_close()
