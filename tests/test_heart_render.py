@@ -64,6 +64,14 @@ def test_realistic_has_two_looks_and_style_looks() -> None:
         assert "#version 130" in fragment_source(program)
 
 
+def test_anatomy_look_has_less_fat_and_clearer_coronary() -> None:
+    surgical = realistic_look("surgical")
+    anatomy = realistic_look("anatomy")
+    assert anatomy.fat_amount < surgical.fat_amount
+    assert anatomy.coronary > surgical.coronary
+    assert "uCoronary" in fragment_source("flesh")
+
+
 def test_orbit_drag_and_limits() -> None:
     orbit = Orbit()
     orbit.drag(100.0, -1000.0)

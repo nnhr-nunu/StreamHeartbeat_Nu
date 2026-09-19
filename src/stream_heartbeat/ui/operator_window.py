@@ -115,7 +115,6 @@ class OperatorWindow(QMainWindow):
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
         self.setMinimumSize(440, 420)
         self.resize(500, 760)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setStyleSheet(DARK_QSS)
         apply_app_icon(self)
 
