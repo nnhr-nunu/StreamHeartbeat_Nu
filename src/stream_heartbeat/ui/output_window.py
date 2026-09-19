@@ -144,6 +144,7 @@ class OutputCanvas(QOpenGLWidget):
                 cycle=cycle,
                 clock=clock,
                 now=t,
+                look=profile.realistic_look,
             )
         paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
         paint_bursts(
@@ -215,7 +216,6 @@ class OutputWindow(QMainWindow):
         self.setWindowTitle(OUTPUT_WINDOW_TITLE)
         self.setMinimumSize(480, 480)
         self.resize(720, 720)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setStyleSheet(DARK_QSS)
         apply_app_icon(self)
         self.canvas = OutputCanvas(session)

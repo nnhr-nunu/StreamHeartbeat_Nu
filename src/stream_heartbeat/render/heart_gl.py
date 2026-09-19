@@ -160,6 +160,7 @@ class HeartRenderer:
         program.setUniformValue1f("uFatAmount", float(look.fat_amount))
         program.setUniformValue1f("uGloss", float(look.gloss))
         program.setUniformValue1f("uSaturation", float(look.saturation))
+        program.setUniformValue1f("uCoronary", float(look.coronary))
         if look.program == "scan":
             program.setUniformValue("uTintDense", QVector3D(*look.tint_dense))
             program.setUniformValue("uTintThin", QVector3D(*look.tint_thin))

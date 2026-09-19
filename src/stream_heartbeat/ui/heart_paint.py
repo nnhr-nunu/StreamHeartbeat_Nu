@@ -111,6 +111,7 @@ def paint_heart(
     cycle: CardiacCycle,
     clock: BeatClock | None = None,
     now: float = 0.0,
+    look: str = "surgical",
 ) -> None:
     """2D スタイル、または立体が使えないときの代替を描く。"""
     painter.save()
@@ -127,7 +128,7 @@ def paint_heart(
     elif style == "mri":
         paint_mri_flat_heart(painter, rect, scale, cycle)
     else:
-        paint_realistic(painter, rect, scale=scale, cycle=cycle)
+        paint_realistic(painter, rect, scale=scale, cycle=cycle, look=look)
     painter.restore()
 
 

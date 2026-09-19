@@ -63,12 +63,59 @@ def _aorta(cx: float, cy: float, s: float, swell: float) -> QPainterPath:
     return path
 
 
+def _draw_coronaries(painter: QPainter, cx: float, cy: float, s: float) -> None:
+    """前下行・回旋・右冠が表面を走る。立体が使えないときの代替。"""
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(
+        QPen(
+            QColor(210, 36, 44),
+            max(2.4, s * 0.03),
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        )
+    )
+    lad = QPainterPath()
+    lad.moveTo(cx - 0.06 * s, cy - 0.28 * s)
+    lad.cubicTo(
+        cx + 0.02 * s, cy - 0.02 * s, cx + 0.06 * s, cy + 0.18 * s, cx + 0.04 * s, cy + 0.38 * s
+    )
+    painter.drawPath(lad)
+    rca = QPainterPath()
+    rca.moveTo(cx - 0.16 * s, cy - 0.24 * s)
+    rca.cubicTo(
+        cx - 0.38 * s, cy - 0.06 * s, cx - 0.36 * s, cy + 0.16 * s, cx - 0.18 * s, cy + 0.28 * s
+    )
+    painter.drawPath(rca)
+    lcx = QPainterPath()
+    lcx.moveTo(cx - 0.04 * s, cy - 0.26 * s)
+    lcx.cubicTo(
+        cx + 0.22 * s, cy - 0.18 * s, cx + 0.32 * s, cy + 0.02 * s, cx + 0.24 * s, cy + 0.18 * s
+    )
+    painter.drawPath(lcx)
+    painter.setPen(
+        QPen(
+            QColor(186, 28, 38),
+            max(1.5, s * 0.016),
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+    )
+    diag = QPainterPath()
+    diag.moveTo(cx + 0.0 * s, cy - 0.04 * s)
+    diag.cubicTo(
+        cx + 0.12 * s, cy + 0.02 * s, cx + 0.16 * s, cy + 0.12 * s, cx + 0.14 * s, cy + 0.22 * s
+    )
+    painter.drawPath(diag)
+
+
 def paint_realistic(
     painter: QPainter,
     rect: QRectF,
     *,
     scale: float,
     cycle: CardiacCycle,
+    look: str = "surgical",
 ) -> None:
     cx = rect.center().x()
     cy = rect.center().y() + rect.height() * 0.04
@@ -134,8 +181,11 @@ def paint_realistic(
 
     fat = QPainterPath()
     fat.addEllipse(QPointF(cx + 0.18 * size, cy - 0.08 * size), size * 0.10, size * 0.07)
-    painter.setBrush(QColor(FAT.red(), FAT.green(), FAT.blue(), 70))
+    fat_alpha = 40 if look == "anatomy" else 70
+    painter.setBrush(QColor(FAT.red(), FAT.green(), FAT.blue(), fat_alpha))
     painter.drawPath(fat)
+    if look == "anatomy":
+        _draw_coronaries(painter, cx, cy, size)
 
     aorta = _aorta(cx, cy, size, cycle.eject)
     aorta_grad = QLinearGradient(

@@ -145,6 +145,7 @@ uniform float uFill;
 uniform float uFatAmount;
 uniform float uGloss;
 uniform float uSaturation;
+uniform float uCoronary;
 out vec4 fragColor;
 """
 
@@ -198,17 +199,21 @@ void main() {
     base = mix(base, vec3(0.30, 0.03, 0.08), smoothstep(0.62, 0.78, blotch) * 0.45);
     base = mix(base, base * vec3(0.9, 0.8, 1.15), smoothstep(0.3, 0.5, 1.0 - blotch) * 0.3);
 
-    // 細い血管の網。溝の近くと心尖側で濃い
+    // 細い血管の網。溝の近くと心尖側で濃い。冠動脈を出すときは抑える
     float veinsFine = veinLines(P * 11.0 + vec3(2.0), 0.035) * isBody;
     float veinsMid = veinLines(P * 4.2 + vec3(9.0, 1.0, 4.0), 0.022) * isBody;
-    base = mix(base, vec3(0.32, 0.03, 0.07), veinsFine * 0.35 + veinsMid * 0.7);
+    base = mix(base, vec3(0.32, 0.03, 0.07),
+               (veinsFine * 0.35 + veinsMid * 0.7) * mix(1.0, 0.28, uCoronary));
 
     // 心外膜脂肪。溝に沿って厚く、小葉状にむらがあり、右室前面にも斑に載る
     float fatField = vFat * 1.25 * (0.7 + 0.6 * fbm(P * 3.0 + 5.0));
     fatField += (fbm(P * 7.0 + 17.0) - 0.5) * 0.9 * smoothstep(0.02, 0.3, vFat);
     fatField += (fbm(P * 2.5 + 29.0) - 0.5) * 0.5;
-    fatField += isRv * 0.7 * smoothstep(0.55, 0.72, fbm(P * 2.6 + 21.0)) * (1.0 - vAxial * 0.7);
-    fatField += 0.5 * smoothstep(0.60, 0.78, fbm(P * 1.8 + 44.0)) * (1.0 - vAxial) * isBody;
+    float extraFat = mix(1.0, 0.28, uCoronary);
+    fatField += extraFat * isRv * 0.7
+        * smoothstep(0.55, 0.72, fbm(P * 2.6 + 21.0)) * (1.0 - vAxial * 0.7);
+    fatField += extraFat * 0.5
+        * smoothstep(0.60, 0.78, fbm(P * 1.8 + 44.0)) * (1.0 - vAxial) * isBody;
     float fatMask = smoothstep(0.42, 0.62, fatField * uFatAmount);
     fatMask *= isBody;
     float lobule = fbm(P * 16.0);
@@ -219,16 +224,30 @@ void main() {
                         smoothstep(0.35, 0.65, lobule));
     fatColor *= 0.82 + 0.36 * lobule;
 
-    // 冠動脈は溝の底を蛇行して走り、脂肪の下に透ける
-    float wobble = (fbm(P * 6.0 + 31.0) - 0.5) * 0.10;
-    float coronary = smoothstep(0.86, 0.96, vFat + wobble) * isBody;
-    float branch = smoothstep(0.95, 0.995, ridged(P * 3.2 + vec3(4.0, 8.0, 2.0))) * isBody;
-    branch *= smoothstep(0.35, 0.7, vFat);
-    vec3 coronaryColor = vec3(0.70, 0.12, 0.14);
+    // 冠動脈は溝を幹にして心尖・側面へ枝を出す。脂肪の下にも透ける
+    float wobble = (fbm(P * 6.0 + 31.0) - 0.5) * mix(0.10, 0.055, uCoronary);
+    float groove = vFat + wobble;
+    float trunkLo = mix(0.86, 0.70, uCoronary);
+    float trunkHi = mix(0.96, 0.90, uCoronary);
+    float trunk = smoothstep(trunkLo, trunkHi, groove) * isBody;
+    float trunkShade = smoothstep(trunkLo - 0.10, trunkLo, groove) * isBody - trunk;
+    vec3 q = vec3(P.x * 2.3, P.y * 1.15, P.z * 2.3);
+    float branchA = 1.0 - smoothstep(0.0, mix(0.016, 0.034, uCoronary),
+                                     abs(vnoise(q + vec3(4.0, 8.0, 2.0)) - 0.5));
+    float branchB = 1.0 - smoothstep(0.0, mix(0.012, 0.026, uCoronary),
+                                     abs(vnoise(q * 1.55 + vec3(9.0, 1.0, 7.0)) - 0.47));
+    float branches = (branchA * 0.9 + branchB * 0.6) * isBody;
+    branches *= smoothstep(0.10, 0.52, vFat) * mix(0.22, 1.0, uCoronary);
+    branches *= 0.5 + 0.5 * (1.0 - vAxial * 0.65);
+    vec3 coronaryColor = mix(vec3(0.70, 0.12, 0.14), vec3(0.90, 0.16, 0.18), uCoronary);
+    vec3 coronaryShade = vec3(0.36, 0.04, 0.06);
 
     vec3 albedo = mix(base, fatColor, fatMask);
     albedo = mix(albedo, mix(base, fatColor, 0.5) * vec3(1.05, 0.85, 0.85), fatEdge * 0.5);
-    float coronaryVis = coronary * (1.0 - fatMask * 0.45) + branch * 0.7;
+    float hide = mix(0.45, 0.12, uCoronary);
+    float coronaryVis = (trunk * mix(0.55, 1.0, uCoronary) + branches * mix(0.18, 0.82, uCoronary));
+    coronaryVis *= (1.0 - fatMask * hide);
+    albedo = mix(albedo, coronaryShade, clamp(trunkShade * mix(0.15, 0.7, uCoronary), 0.0, 1.0));
     albedo = mix(albedo, coronaryColor, clamp(coronaryVis, 0.0, 1.0));
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
 
@@ -398,6 +417,7 @@ class Look:
     fat_amount: float = 1.0
     gloss: float = 1.0
     saturation: float = 1.0
+    coronary: float = 0.0
     additive: bool = False
     tint_dense: tuple[float, float, float] = (1.0, 1.0, 1.0)
     tint_thin: tuple[float, float, float] = (1.0, 1.0, 1.0)
@@ -407,8 +427,16 @@ class Look:
 
 
 REALISTIC_LOOKS: list[Look] = [
-    Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0),
-    Look("anatomy", "教科書寄り", "flesh", fat_amount=0.35, gloss=0.45, saturation=0.9),
+    Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0, coronary=0.22),
+    Look(
+        "anatomy",
+        "教科書寄り",
+        "flesh",
+        fat_amount=0.48,
+        gloss=0.62,
+        saturation=0.96,
+        coronary=1.0,
+    ),
 ]
 
 STYLE_LOOKS: dict[str, Look] = {

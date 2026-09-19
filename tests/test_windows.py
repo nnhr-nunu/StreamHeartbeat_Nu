@@ -41,14 +41,14 @@ def test_two_windows_have_obs_titles(qapp: QApplication) -> None:
     output.close()
 
 
-def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
+def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     del qapp
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
     flag = Qt.WindowType.WindowStaysOnTopHint
-    assert operator.windowFlags() & flag
-    assert output.windowFlags() & flag
+    assert not (operator.windowFlags() & flag)
+    assert not (output.windowFlags() & flag)
     titles = [box.title() for box in operator.findChildren(QGroupBox)]
     assert "心拍の補正（配信前調整）" in titles
     assert "スタイル" in titles
