@@ -84,6 +84,8 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     )
     assert any("左右" in lab.text() or "横" in lab.text() for lab in operator.findChildren(QLabel))
     assert any("上下" in lab.text() or "縦" in lab.text() for lab in operator.findChildren(QLabel))
+    assert any("ゆらぎ" in lab.text() for lab in operator.findChildren(QLabel))
+    assert any("傾き" in lab.text() for lab in operator.findChildren(QLabel))
     assert any(
         "緑" in box.itemText(i)
         for box in operator.findChildren(QComboBox)

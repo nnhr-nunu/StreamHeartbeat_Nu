@@ -7,8 +7,10 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from stream_heartbeat.config import (
+    BEAT_TEXT_JITTER,
     DEFAULT_BACKDROP,
     DEFAULT_BEAT_TEXT,
+    DEFAULT_BEAT_TEXT_TILT,
     DEFAULT_BEAT_TEXT_X,
     DEFAULT_BEAT_TEXT_Y,
     DEFAULT_BPM_COLOR,
@@ -34,6 +36,8 @@ class HeartProfile:
     beat_text_opacity: float = 1.0
     beat_text_x: float = DEFAULT_BEAT_TEXT_X
     beat_text_y: float = DEFAULT_BEAT_TEXT_Y
+    beat_text_jitter: float = BEAT_TEXT_JITTER
+    beat_text_tilt: float = DEFAULT_BEAT_TEXT_TILT
     show_bpm: bool = True
     bpm_scale: float = 1.0
     bpm_x: float = DEFAULT_BPM_X

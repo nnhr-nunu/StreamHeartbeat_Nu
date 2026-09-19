@@ -172,6 +172,10 @@ class OperatorWindow(QMainWindow):
         self._beat_opacity.setRange(10, 100)
         self._beat_x = _axis_slider()
         self._beat_y = _axis_slider()
+        self._beat_jitter = QSlider(Qt.Orientation.Horizontal)
+        self._beat_jitter.setRange(0, 40)
+        self._beat_tilt = QSlider(Qt.Orientation.Horizontal)
+        self._beat_tilt.setRange(0, 100)
         self._show_bpm = QCheckBox("心拍数を配信用に出す")
         self._bpm_scale = QSlider(Qt.Orientation.Horizontal)
         self._bpm_scale.setRange(50, 200)
@@ -228,6 +232,8 @@ class OperatorWindow(QMainWindow):
         self._beat_opacity.valueChanged.connect(self._apply_controls)
         self._beat_x.valueChanged.connect(self._apply_controls)
         self._beat_y.valueChanged.connect(self._apply_controls)
+        self._beat_jitter.valueChanged.connect(self._apply_controls)
+        self._beat_tilt.valueChanged.connect(self._apply_controls)
         self._show_bpm.toggled.connect(self._apply_controls)
         self._bpm_scale.valueChanged.connect(self._apply_controls)
         self._bpm_x.valueChanged.connect(self._apply_controls)
@@ -252,6 +258,8 @@ class OperatorWindow(QMainWindow):
         beat_form.addRow("透明度", self._beat_opacity)
         beat_form.addRow("左右", self._beat_x)
         beat_form.addRow("上下", self._beat_y)
+        beat_form.addRow("ゆらぎ", self._beat_jitter)
+        beat_form.addRow("傾き", self._beat_tilt)
         beat_box = QGroupBox("同期文字")
         beat_box.setLayout(beat_form)
 
@@ -431,6 +439,8 @@ class OperatorWindow(QMainWindow):
             self._beat_opacity,
             self._beat_x,
             self._beat_y,
+            self._beat_jitter,
+            self._beat_tilt,
             self._show_bpm,
             self._bpm_scale,
             self._bpm_x,
@@ -455,6 +465,8 @@ class OperatorWindow(QMainWindow):
             self._beat_opacity.setValue(int(profile.beat_text_opacity * 100))
             self._beat_x.setValue(int(round(profile.beat_text_x * 100)))
             self._beat_y.setValue(int(round(profile.beat_text_y * 100)))
+            self._beat_jitter.setValue(int(round(profile.beat_text_jitter * 100)))
+            self._beat_tilt.setValue(int(round(profile.beat_text_tilt * 100)))
             self._show_bpm.setChecked(profile.show_bpm)
             self._bpm_scale.setValue(int(profile.bpm_scale * 100))
             self._bpm_x.setValue(int(round(profile.bpm_x * 100)))
@@ -521,6 +533,8 @@ class OperatorWindow(QMainWindow):
         profile.beat_text_opacity = self._beat_opacity.value() / 100.0
         profile.beat_text_x = self._beat_x.value() / 100.0
         profile.beat_text_y = self._beat_y.value() / 100.0
+        profile.beat_text_jitter = self._beat_jitter.value() / 100.0
+        profile.beat_text_tilt = self._beat_tilt.value() / 100.0
         profile.show_bpm = self._show_bpm.isChecked()
         profile.bpm_scale = self._bpm_scale.value() / 100.0
         profile.bpm_x = self._bpm_x.value() / 100.0
