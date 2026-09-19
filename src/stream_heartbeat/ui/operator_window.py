@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -64,8 +65,10 @@ STYLES = [
 ]
 ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
-REC_START = "⏺️ 録音開始"
-REC_STOP = "■ 録音停止"
+CAL_START = "補正開始"
+CAL_SAVE = "補正を保存"
+CAL_DISCARD = "補正を破棄"
+CAL_RESET = "設定を初期化"
 NOTICE_MS = 3500
 
 
@@ -165,9 +168,11 @@ class OperatorWindow(QMainWindow):
         self._bpm_url = QLineEdit()
         self._level = QLabel("入力: —")
 
-        self._rec_btn = QPushButton(REC_START)
-        self._keep_cal = QPushButton("録音を保存")
-        self._keep_cal.setEnabled(False)
+        self._cal_btn = QPushButton(CAL_START)
+        self._discard_cal = QPushButton(CAL_DISCARD)
+        self._discard_cal.setEnabled(False)
+        self._reset_cal = QPushButton(CAL_RESET)
+        self._reset_cal.setEnabled(False)
         self._tap_btn = QPushButton("拍")
         self._tap_btn.setObjectName("tap")
         self._tap_btn.setEnabled(False)
@@ -175,8 +180,9 @@ class OperatorWindow(QMainWindow):
         save_btn = QPushButton("上書き保存")
         save_as_btn = QPushButton("名前を付けて保存")
 
-        self._rec_btn.clicked.connect(self._toggle_cal)
-        self._keep_cal.clicked.connect(self._commit_cal)
+        self._cal_btn.clicked.connect(self._on_cal_primary)
+        self._discard_cal.clicked.connect(self._discard_current_cal)
+        self._reset_cal.clicked.connect(self._reset_saved_cal)
         self._tap_btn.clicked.connect(self._tap_now)
         load_cal.clicked.connect(self._add_audio_sample)
         self._tap_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
@@ -250,23 +256,24 @@ class OperatorWindow(QMainWindow):
         oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携", oshi_inner, expanded=False)
 
         cal_row = QHBoxLayout()
-        cal_row.addWidget(self._rec_btn)
-        cal_row.addWidget(self._keep_cal)
+        cal_row.addWidget(self._cal_btn)
+        cal_row.addWidget(self._discard_cal)
         cal_hint = QLabel(
-            "目安は 10〜20 秒の録音と、ドクンに合わせた「拍」（またはスペース）4回以上です。\n"
+            "目安は 10〜20 秒と、ドクンに合わせた「拍」（またはスペース）4回以上です。\n"
             "押すたびに心臓へ波紋が出ます。少し遅れても大丈夫です。\n"
-            "「録音を保存」するたびに積み上がります。何回足しても大丈夫です。\n"
-            "いらない途中の録音だけ「録音停止」で捨ててください。保存済みはそのまま残ります。\n"
-            "ヘッドホン推奨。録音は操作画面だけに聞こえ、配信には出ません。\n"
+            "「補正開始」で心音を覚え、「補正を保存」で型に足します。いらない途中は「補正を破棄」です。\n"
+            "間違えて保存したら「設定を初期化」で型を消してやり直せます。\n"
+            "ヘッドホン推奨。補正中の音は操作画面だけに聞こえ、配信には出ません。\n"
             "同じマイクで録るか、wav / mp3 を足しても精度が上がります。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
-        cal_box = QGroupBox("キャリブレーション（配信前調整）")
+        cal_box = QGroupBox("心拍の補正（配信前調整）")
         cal_inner = QVBoxLayout()
         cal_inner.addLayout(cal_row)
         cal_inner.addWidget(self._tap_btn)
         cal_inner.addWidget(load_cal)
+        cal_inner.addWidget(self._reset_cal)
         cal_inner.addWidget(cal_hint)
         cal_box.setLayout(cal_inner)
 
@@ -403,6 +410,7 @@ class OperatorWindow(QMainWindow):
                 widget.blockSignals(False)
         self._output.canvas.sync_orbit_from_profile()
         self._apply_controls()
+        self._sync_cal_ui()
 
     def _apply_controls(self) -> None:
         profile = self._session.profile
@@ -481,35 +489,38 @@ class OperatorWindow(QMainWindow):
         self._notice.setText("")
         self._notice.hide()
 
-    def _set_calibrating_ui(self, on: bool) -> None:
+    def _sync_cal_ui(self) -> None:
+        on = self._session.recording
+        saved = bool(self._session.profile.calibration)
+        self._cal_btn.setText(CAL_SAVE if on else CAL_START)
+        self._discard_cal.setEnabled(on)
         self._tap_btn.setEnabled(on)
         self._tap_shortcut.setEnabled(on)
-        self._keep_cal.setEnabled(on)
-        self._rec_btn.setText(REC_STOP if on else REC_START)
+        self._reset_cal.setEnabled(saved and not on)
         self._tap_btn.setText("拍")
         if on:
             self._monitor.start()
             self._tap_btn.setFocus()
-            self._warn.setText("ヘッドホン推奨。録音は操作画面だけに聞こえます。")
-        else:
-            self._monitor.stop()
-            if self._warn.text().startswith("ヘッドホン"):
-                self._warn.setText("")
+            self._warn.setText("ヘッドホン推奨。補正中の音は操作画面だけに聞こえます。")
+            return
+        self._monitor.stop()
+        if self._warn.text().startswith("ヘッドホン"):
+            self._warn.setText("")
 
-    def _toggle_cal(self) -> None:
-        if self._session.calibrating is not None:
-            self._drop_cal()
+    def _on_cal_primary(self) -> None:
+        if self._session.recording:
+            self._commit_cal()
         else:
             self._begin_cal()
 
     def _begin_cal(self) -> None:
         self._session.begin_calibration(self._session.now)
-        self._set_calibrating_ui(True)
+        self._sync_cal_ui()
 
-    def _drop_cal(self) -> None:
+    def _discard_current_cal(self) -> None:
         self._session.discard_calibration()
-        self._set_calibrating_ui(False)
-        self._flash("録音をやめました")
+        self._sync_cal_ui()
+        self._flash("補正を破棄しました")
 
     def _tap_now(self) -> None:
         if self._session.tap(self._session.now):
@@ -517,8 +528,25 @@ class OperatorWindow(QMainWindow):
 
     def _commit_cal(self) -> None:
         self._session.commit_calibration()
-        self._set_calibrating_ui(False)
-        self._save_current(notice="録音を保存しました")
+        self._sync_cal_ui()
+        self._save_current(notice="補正を保存しました")
+
+    def _confirm_reset(self) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "設定を初期化",
+            "保存した心拍の補正を全部消して、最初からやり直しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _reset_saved_cal(self) -> None:
+        if not self._confirm_reset():
+            return
+        self._session.reset_calibration()
+        self._sync_cal_ui()
+        self._save_current(notice="補正の設定を初期化しました")
 
     def _add_audio_sample(self) -> None:
         path, _ok = QFileDialog.getOpenFileName(self, "心音ファイルを追加", "", AUDIO_FILTER)
@@ -535,6 +563,7 @@ class OperatorWindow(QMainWindow):
         self._session.profile.calibration.append(samples)
         self._session.rebuild_detector()
         count = len(self._session.profile.calibration)
+        self._sync_cal_ui()
         self._save_current(notice=f"心音サンプルを追加しました（{count} 件）")
 
     def _save_current(self, *, notice: str | None = "プロファイルを保存しました") -> None:
@@ -583,14 +612,14 @@ class OperatorWindow(QMainWindow):
         if samples:
             peak = max(abs(x) for x in samples)
             self._level.setText(f"入力: {peak:.2f}")
-        recording = self._session.calibrating is not None
+        recording = self._session.recording
         if recording and samples:
             self._monitor.write_mono(samples)
         now = self._now()
         self._session.tick(now, samples)
         if recording:
             self._set_banner_kind("record")
-            self._status.setText(f"録音中  {self._session.tap_label()}")
+            self._status.setText(f"補正中  {self._session.tap_label()}")
         else:
             self._set_detect_status()
         if not recording:
