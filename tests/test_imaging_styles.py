@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QComboBox
@@ -58,8 +61,14 @@ def test_palettes_avoid_chroma_green() -> None:
         _assert_not_chroma(color)
 
 
-def test_operator_lists_all_styles(qapp: QApplication) -> None:
+def test_operator_lists_all_styles(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     del qapp
+    monkeypatch.setattr(
+        "stream_heartbeat.ui.operator_window.resolve_data_dir",
+        lambda: tmp_path,
+    )
     keys = [key for key, _label in STYLES]
     assert keys == ["realistic", "echo", "mri", "xray", "cute", "mech", "ecg"]
     assert GL_STYLES == {"realistic", "mech", "xray", "mri"}

@@ -42,6 +42,10 @@ class HeartSession:
             tap_interval=tap,
         )
 
+    @property
+    def recording(self) -> bool:
+        return self.calibrating is not None
+
     def begin_calibration(self, t: float = 0.0) -> None:
         self.calibrating = []
         self._cal_t0 = t
@@ -83,6 +87,12 @@ class HeartSession:
             self.rebuild_detector()
         self.calibrating = None
         self.taps = []
+
+    def reset_calibration(self) -> None:
+        self.profile.calibration.clear()
+        self.profile.tap_interval = 0.0
+        self.discard_calibration()
+        self.rebuild_detector()
 
     def tick(self, t: float, samples: list[float], sample_rate: float = 16000.0) -> None:
         if samples and sample_rate > 0:

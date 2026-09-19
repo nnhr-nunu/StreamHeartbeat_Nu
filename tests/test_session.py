@@ -115,7 +115,7 @@ def test_preview_emits_beat_text(_bundled: object) -> None:
     assert "ドクン" in texts
 
 
-def test_discard_drops_only_in_progress_take() -> None:
+def test_discard_drops_in_progress_not_saved() -> None:
     session = HeartSession()
     session.begin_calibration(0.0)
     session.tick(0.1, [0.2] * 10, sample_rate=1000.0)
@@ -124,12 +124,26 @@ def test_discard_drops_only_in_progress_take() -> None:
     assert saved >= 1
     session.begin_calibration(1.0)
     session.tick(1.1, [0.3] * 10, sample_rate=1000.0)
+    assert session.recording is True
     session.discard_calibration()
     assert len(session.profile.calibration) == saved
-    session.begin_calibration(2.0)
-    session.tick(2.1, [0.4] * 10, sample_rate=1000.0)
+    assert session.recording is False
+
+
+def test_reset_clears_saved_calibration() -> None:
+    session = HeartSession()
+    session.begin_calibration(0.0)
+    session.tick(0.1, [0.2] * 10, sample_rate=1000.0)
+    session.tap(0.05)
+    session.tap(0.85)
+    session.tap(1.65)
+    session.tap(2.45)
     session.commit_calibration()
-    assert len(session.profile.calibration) > saved
+    assert session.profile.calibration
+    session.reset_calibration()
+    assert session.profile.calibration == []
+    assert session.profile.tap_interval == 0.0
+    assert session.recording is False
 
 
 def _thud(pos: int, width: int = 40) -> float:
@@ -164,4 +178,7 @@ def test_tap_is_ignored_outside_calibration() -> None:
     assert session.taps == [1.0, 1.3]
     assert "拍" in session.tap_label()
     assert session.overlay.ripples_at(1.3)
+    session.discard_calibration()
+    session.tap(2.0)
+    assert session.taps == []
 

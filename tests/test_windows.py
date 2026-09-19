@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
@@ -15,6 +18,14 @@ from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
+
+
+@pytest.fixture(autouse=True)
+def _isolate_operator_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "stream_heartbeat.ui.operator_window.resolve_data_dir",
+        lambda: tmp_path,
+    )
 
 
 def test_two_windows_have_obs_titles(qapp: QApplication) -> None:
@@ -37,30 +48,37 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert operator.windowFlags() & flag
     assert output.windowFlags() & flag
     titles = [box.title() for box in operator.findChildren(QGroupBox)]
-    assert "キャリブレーション（配信前調整）" in titles
+    assert "心拍の補正（配信前調整）" in titles
     profiles = operator.findChildren(QComboBox)[0]
     assert not profiles.isEditable()
     folds = [btn for btn in operator.findChildren(QToolButton) if "推しログ(ぬ)連携" in btn.text()]
     assert folds and not folds[0].isChecked()
     tap = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "拍")
     assert not tap.isEnabled()
-    start = next(btn for btn in operator.findChildren(QPushButton) if "録音開始" in btn.text())
-    assert start.text().startswith("⏺️")
-    start.click()
+    primary = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正開始")
+    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正を破棄")
+    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "設定を初期化")
+    assert not discard.isEnabled()
+    assert not reset.isEnabled()
+    primary.click()
     assert tap.isEnabled()
-    assert "録音停止" in start.text()
-    assert start.text().startswith("■")
+    assert primary.text() == "補正を保存"
+    assert discard.isEnabled()
     guides = " ".join(label.text() for label in operator.findChildren(QLabel))
     assert "ヘッドホン" in guides
     assert "スペース" in guides
-    assert "何回" in guides
     assert "4回" in guides or "４回" in guides
-    assert "積み上が" in guides
-    assert "保存済み" in guides
-    start.click()
+    assert "補正開始" in guides
+    assert "補正を破棄" in guides
+    assert "設定を初期化" in guides
+    assert "録音停止" not in guides
+    session.tick(session.now + 0.1, [0.2] * 80, sample_rate=1000.0)
+    primary.click()
     assert not tap.isEnabled()
-    assert "録音開始" in start.text()
-    assert any("やめました" in label.text() for label in operator.findChildren(QLabel))
+    assert primary.text() == "補正開始"
+    assert not discard.isEnabled()
+    assert reset.isEnabled()
+    assert any("保存しました" in label.text() for label in operator.findChildren(QLabel))
     operator.close()
     output.close()
 
@@ -127,5 +145,43 @@ def test_operator_marks_preview_and_live(qapp: QApplication) -> None:
     operator._on_tick()
     assert "プレビュー" in operator._status.text()
     assert "ロスト" in operator._status.text()
+    operator.close()
+    output.close()
+
+
+def test_discard_aborts_current_correction(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    primary = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正開始")
+    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正を破棄")
+    saved = [list(chunk) for chunk in session.profile.calibration]
+    primary.click()
+    session.tick(session.now + 0.1, [0.2] * 80, sample_rate=1000.0)
+    discard.click()
+    assert primary.text() == "補正開始"
+    assert not discard.isEnabled()
+    assert session.recording is False
+    assert [list(chunk) for chunk in session.profile.calibration] == saved
+    assert any("破棄" in label.text() for label in operator.findChildren(QLabel))
+    operator.close()
+    output.close()
+
+
+def test_reset_clears_saved_heart_sound(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    operator._confirm_reset = lambda: True  # type: ignore[method-assign]
+    session.profile.calibration.append([0.2] * 20)
+    operator._sync_cal_ui()
+    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "設定を初期化")
+    assert reset.isEnabled()
+    reset.click()
+    assert session.profile.calibration == []
+    assert not reset.isEnabled()
+    assert any("初期化" in label.text() for label in operator.findChildren(QLabel))
     operator.close()
     output.close()
