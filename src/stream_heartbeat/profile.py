@@ -59,19 +59,36 @@ def list_profiles(data_dir: Path | None = None) -> list[Path]:
     return sorted(folder.glob("*.json"))
 
 
-def load_last_profile_name(data_dir: Path | None = None) -> str:
+def load_app_state(data_dir: Path | None = None) -> dict:
     root = data_dir if data_dir is not None else resolve_data_dir()
     state = root / STATE_FILENAME
     if not state.is_file():
-        return "default"
-    raw = json.loads(state.read_text(encoding="utf-8"))
-    return str(raw.get("last_profile", "default"))
+        return {}
+    try:
+        raw = json.loads(state.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def save_app_state(data_dir: Path | None = None, **updates: object) -> None:
+    root = data_dir if data_dir is not None else resolve_data_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    state = load_app_state(root)
+    for key, value in updates.items():
+        if value is None:
+            state.pop(key, None)
+        else:
+            state[key] = value
+    (root / STATE_FILENAME).write_text(
+        json.dumps(state, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_last_profile_name(data_dir: Path | None = None) -> str:
+    return str(load_app_state(data_dir).get("last_profile", "default") or "default")
 
 
 def save_last_profile_name(name: str, data_dir: Path | None = None) -> None:
-    root = data_dir if data_dir is not None else resolve_data_dir()
-    root.mkdir(parents=True, exist_ok=True)
-    (root / STATE_FILENAME).write_text(
-        json.dumps({"last_profile": name}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    save_app_state(data_dir, last_profile=name)

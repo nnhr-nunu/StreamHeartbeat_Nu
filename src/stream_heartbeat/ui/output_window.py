@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QCloseEvent, QColor, QMouseEvent, QPainter, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
@@ -204,12 +206,20 @@ class OutputWindow(QMainWindow):
         self.canvas.setObjectName("outputCanvas")
         self.setCentralWidget(self.canvas)
         self._allow_close = False
+        self._quit_via: Callable[[], None] | None = None
+
+    def set_quit_handler(self, handler: Callable[[], None]) -> None:
+        self._quit_via = handler
 
     def allow_close(self) -> None:
         self._allow_close = True
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self._allow_close:
+        if self._allow_close:
+            super().closeEvent(event)
+            return
+        if self._quit_via is not None:
             event.ignore()
+            self._quit_via()
             return
         super().closeEvent(event)
