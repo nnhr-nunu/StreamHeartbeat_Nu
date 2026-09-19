@@ -123,7 +123,7 @@ def test_displayed_bpm_holds_through_brief_false_beats() -> None:
     clock.feed_beat(t + 0.2)
     clock.feed_beat(t + 0.35)
     assert clock.bpm == 120
-    clock.publish_display(t + 2.5)
+    clock.publish_display(t + BPM_DISPLAY_S * 0.5)
     assert clock.bpm == 120
 
 
