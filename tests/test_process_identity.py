@@ -47,3 +47,14 @@ def test_app_icon_files_exist() -> None:
     folder = Path("src/stream_heartbeat/assets")
     assert (folder / "app_icon.png").is_file()
     assert (folder / "app_icon.ico").is_file()
+
+
+def test_app_icon_is_a_red_heart() -> None:
+    from PySide6.QtGui import QColor, QImage
+
+    img = QImage("src/stream_heartbeat/assets/app_icon.png")
+    assert not img.isNull()
+    pixel = QColor(img.pixel(img.width() // 2, int(img.height() * 0.55)))
+    assert pixel.red() > 80
+    assert pixel.red() > pixel.blue()
+    assert pixel.red() > pixel.green()

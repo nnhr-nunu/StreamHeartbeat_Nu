@@ -153,6 +153,17 @@ class CalibrationTemplate:
         scale = max(len(picked), 1)
         return cls([x / scale for x in acc], picked)
 
+    @classmethod
+    def merge(cls, *templates: CalibrationTemplate | None) -> CalibrationTemplate | None:
+        waves: list[list[float]] = []
+        for tmpl in templates:
+            if tmpl is None:
+                continue
+            waves.extend(tmpl.waves)
+        if not waves:
+            return None
+        return cls(waves[0], waves)
+
     def score(self, window: list[float]) -> float:
         return max(_cosine_demean(window, wave) for wave in self.waves)
 
@@ -257,7 +268,7 @@ class HeartSoundDetector:
                 continue
             if 0.33 < since <= 0.55 and env < self._last_onset_env * 0.55:
                 continue
-            if self.tap_interval >= 0.50 and since < self.tap_interval * 0.72:
+            if 0.45 <= self.tap_interval <= 1.2 and since < min(self.tap_interval * 0.72, 0.55):
                 continue
             if since < self._refractory():
                 continue

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from stream_heartbeat.clock import BeatClock
+from stream_heartbeat.config import BPM_DISPLAY_S
 
 
 def test_bpm_from_intervals() -> None:
@@ -110,6 +111,22 @@ def test_stall_gap_does_not_clip_bpm_to_minimum() -> None:
     assert clock.detected is True
 
 
+def test_displayed_bpm_holds_through_brief_false_beats() -> None:
+    clock = BeatClock()
+    t = 0.0
+    for _ in range(8):
+        clock.feed_beat(t)
+        t += 0.5
+    assert clock.bpm == 120
+    clock.publish_display(t)
+    clock.feed_beat(t)
+    clock.feed_beat(t + 0.2)
+    clock.feed_beat(t + 0.35)
+    assert clock.bpm == 120
+    clock.publish_display(t + 2.5)
+    assert clock.bpm == 120
+
+
 def test_preview_motion_matches_live_strength() -> None:
     clock = BeatClock()
     clock.feed_beat(0.0)
@@ -130,8 +147,9 @@ def test_reacquire_after_lost_follows_new_tempo() -> None:
     clock.lost_if_silent(t + 2.0)
     assert clock.detected is False
     t = t + 2.0
-    for _ in range(3):
+    for _ in range(4):
         clock.feed_beat(t)
         t += 0.8
     assert clock.detected is True
+    clock.publish_display(t + BPM_DISPLAY_S)
     assert 70 <= clock.bpm <= 80

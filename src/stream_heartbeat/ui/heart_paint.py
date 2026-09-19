@@ -138,7 +138,7 @@ def paint_bursts(
     *,
     scale: float = 1.0,
     opacity: float = 1.0,
-    color: str = "#FFECA0",
+    color: str = "#FF4D4D",
     outline: str = "#000000",
 ) -> None:
     font = QFont()

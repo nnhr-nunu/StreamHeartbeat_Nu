@@ -30,12 +30,12 @@ class HeartSession:
 
     def rebuild_detector(self) -> None:
         tap = self.profile.tap_interval
+        bundled = bundled_heart_sessions()
+        bundled_tmpl = CalibrationTemplate.from_sessions(bundled) if bundled else None
+        user_tmpl = None
         if self.profile.calibration:
-            template = CalibrationTemplate.from_sessions(self.profile.calibration)
-            self.detector = HeartSoundDetector(template=template, tap_interval=tap)
-            return
-        sessions = bundled_heart_sessions()
-        template = CalibrationTemplate.from_sessions(sessions) if sessions else None
+            user_tmpl = CalibrationTemplate.from_sessions(self.profile.calibration)
+        template = CalibrationTemplate.merge(user_tmpl, bundled_tmpl)
         self.detector = HeartSoundDetector(
             template=template,
             corr_min=BUNDLED_CORR_MIN,
@@ -121,6 +121,7 @@ class HeartSession:
             self._spawn_beat_text(beat_t)
         was_live = self.clock.detected
         self.clock.lost_if_silent(self._t)
+        self.clock.publish_display(self._t)
         if was_live and not self.clock.detected:
             self.detector.unlock()
         if not self.clock.detected:

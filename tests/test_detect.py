@@ -41,6 +41,17 @@ def test_detector_finds_periodic_peaks() -> None:
     assert all(0.4 < g < 0.6 for g in gaps)
 
 
+def test_slow_tap_interval_does_not_drop_normal_beats() -> None:
+    detector = HeartSoundDetector(tap_interval=1.7)
+    sr = 1000
+    t = 0.0
+    beats: list[float] = []
+    for i in range(4000):
+        beats.extend(detector.feed([_thud(i % 800)], t, sr))
+        t += 1 / sr
+    assert len(beats) >= 3
+
+
 def test_finger_snap_is_not_a_beat() -> None:
     detector = HeartSoundDetector()
     sr = 16000

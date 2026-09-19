@@ -30,6 +30,7 @@ from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
 from stream_heartbeat.config import (
     DEFAULT_BEAT_TEXT,
+    DEFAULT_BEAT_TEXT_COLOR,
     DISCLAIMER,
     LIVE_STATUS,
     PREVIEW_IDLE_STATUS,
@@ -542,7 +543,7 @@ class OperatorWindow(QMainWindow):
         profile.beat_text_y = self._beat_y.value() / 100.0
         profile.beat_text_jitter = self._beat_jitter.value() / 100.0
         profile.beat_text_tilt = self._beat_tilt.value() / 100.0
-        profile.beat_text_color = str(self._beat_color.currentData() or "#FFECA0")
+        profile.beat_text_color = str(self._beat_color.currentData() or DEFAULT_BEAT_TEXT_COLOR)
         profile.beat_text_outline = str(self._beat_outline.currentData() or "")
         profile.show_bpm = self._show_bpm.isChecked()
         profile.bpm_scale = self._bpm_scale.value() / 100.0

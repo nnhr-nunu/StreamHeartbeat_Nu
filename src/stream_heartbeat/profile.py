@@ -12,6 +12,7 @@ from stream_heartbeat.config import (
     DEFAULT_BEAT_TEXT,
     DEFAULT_BEAT_TEXT_COLOR,
     DEFAULT_BEAT_TEXT_OUTLINE,
+    DEFAULT_BEAT_TEXT_SCALE,
     DEFAULT_BEAT_TEXT_TILT,
     DEFAULT_BEAT_TEXT_X,
     DEFAULT_BEAT_TEXT_Y,
@@ -34,7 +35,7 @@ class HeartProfile:
     opacity: float = 1.0
     beat_text: str = DEFAULT_BEAT_TEXT
     show_beat_text: bool = True
-    beat_text_scale: float = 1.0
+    beat_text_scale: float = DEFAULT_BEAT_TEXT_SCALE
     beat_text_opacity: float = 1.0
     beat_text_x: float = DEFAULT_BEAT_TEXT_X
     beat_text_y: float = DEFAULT_BEAT_TEXT_Y

@@ -272,3 +272,19 @@ def test_beat_and_bpm_reset_only_own_group(qapp: QApplication) -> None:
     assert operator._bpm_scale.value() == 100
     operator.close()
     output.close()
+
+
+def test_output_redraws_hwnd_when_time_advances(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del qapp
+    called: list[int] = []
+    monkeypatch.setattr(
+        "stream_heartbeat.ui.output_window.redraw_hwnd",
+        lambda hwnd: called.append(int(hwnd)) or True,
+    )
+    session = HeartSession()
+    output = OutputWindow(session)
+    output.canvas.set_now(1.25)
+    assert called
+    output.close()
