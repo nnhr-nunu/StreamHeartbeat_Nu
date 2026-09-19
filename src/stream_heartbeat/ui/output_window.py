@@ -9,12 +9,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QCloseEvent, QColor, QMouseEvent, QPainter, QSurfaceFormat
+from PySide6.QtGui import QCloseEvent, QMouseEvent, QPainter, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMainWindow
 
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
-from stream_heartbeat.config import CHROMA_HEX
 from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.orbit import Orbit
@@ -22,6 +21,7 @@ from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
+    backdrop_color,
     paint_backdrop,
     paint_bpm,
     paint_bursts,
@@ -31,8 +31,6 @@ from stream_heartbeat.ui.heart_paint import (
 )
 from stream_heartbeat.ui.styles import DARK_QSS
 
-CHROMA = QColor(CHROMA_HEX)
-
 
 def gl_surface_format() -> QSurfaceFormat:
     fmt = QSurfaceFormat()
@@ -40,6 +38,7 @@ def gl_surface_format() -> QSurfaceFormat:
     fmt.setStencilBufferSize(8)
     fmt.setSamples(4)
     fmt.setSwapInterval(1)
+    fmt.setAlphaBufferSize(8)
     return fmt
 
 
@@ -105,8 +104,11 @@ class OutputCanvas(QOpenGLWidget):
     def paintGL(self) -> None:
         painter = QPainter(self)
         rect = QRectF(self.rect())
-        painter.fillRect(rect, CHROMA)
         profile = self._session.profile
+        bg = backdrop_color(profile.backdrop)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(rect, bg)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         clock = self._session.clock
         t = self._now
         cycle = clock.cycle(t)
@@ -149,7 +151,15 @@ class OutputCanvas(QOpenGLWidget):
         )
         paint_ripples(painter, rect, self._session.overlay.ripples_at(t))
         if profile.show_bpm:
-            paint_bpm(painter, rect, clock.bpm)
+            paint_bpm(
+                painter,
+                rect,
+                clock.bpm,
+                scale=profile.bpm_scale,
+                pos=(profile.bpm_x, profile.bpm_y),
+                color=profile.bpm_color,
+                outline=profile.bpm_outline,
+            )
         painter.end()
 
     # ---------------------------------------------------------------- 回転
@@ -207,6 +217,13 @@ class OutputWindow(QMainWindow):
         self.setCentralWidget(self.canvas)
         self._allow_close = False
         self._quit_via: Callable[[], None] | None = None
+        self.apply_backdrop()
+
+    def apply_backdrop(self) -> None:
+        transparent = self.canvas._session.profile.backdrop == "transparent"
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
+        self.canvas.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
+        self.canvas.update()
 
     def set_quit_handler(self, handler: Callable[[], None]) -> None:
         self._quit_via = handler

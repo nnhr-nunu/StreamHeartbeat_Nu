@@ -108,18 +108,29 @@ class HeartSession:
         for beat_t in self.detector.feed(samples, origin, sample_rate):
             self.clock.feed_beat(beat_t)
             if self.profile.show_beat_text:
-                self.overlay.on_beat(beat_t, self.profile.beat_text)
+                self.overlay.on_beat(
+                    beat_t,
+                    self.profile.beat_text,
+                    origin=(self.profile.beat_text_x, self.profile.beat_text_y),
+                )
         was_live = self.clock.detected
         self.clock.lost_if_silent(self._t)
         if was_live and not self.clock.detected:
             self.detector.unlock()
         if not self.clock.detected:
-            origin = self.clock.origin_before(self._t)
-            if self._preview_origin is None or origin > self._preview_origin + 1e-4:
-                self._preview_origin = origin
+            beat_origin = self.clock.origin_before(self._t)
+            if self._preview_origin is None or beat_origin > self._preview_origin + 1e-4:
+                self._preview_origin = beat_origin
                 if self.profile.show_beat_text:
-                    self.overlay.on_beat(origin, self.profile.beat_text)
+                    self.overlay.on_beat(
+                        beat_origin,
+                        self.profile.beat_text,
+                        origin=(self.profile.beat_text_x, self.profile.beat_text_y),
+                    )
         else:
             self._preview_origin = None
-        if self.clock.pop_arrhythmia(self._t) and self.profile.show_arrhythmia:
-            self.overlay.on_arrhythmia(self._t)
+        # 不整脈の視聴者向け表示は、判定が不安定なためいったん出さない。
+        if self.clock.pop_arrhythmia(self._t):
+            pass
+        # if self.profile.show_arrhythmia:
+        #     self.overlay.on_arrhythmia(self._t)

@@ -7,9 +7,12 @@ from dataclasses import dataclass
 
 from stream_heartbeat.config import (
     ARRHYTHMIA_TEXT,
+    BEAT_TEXT_JITTER,
     BURST_FADE_IN_S,
     BURST_FADE_OUT_S,
     BURST_HOLD_S,
+    DEFAULT_BEAT_TEXT_X,
+    DEFAULT_BEAT_TEXT_Y,
     INNER_MARGIN,
     MAX_BURSTS,
     MAX_RIPPLES,
@@ -50,15 +53,18 @@ class OverlayState:
         self._items: list[tuple[str, float, float, float]] = []
         self._ripples: list[float] = []
 
-    def _point(self) -> tuple[float, float]:
-        span = 1.0 - 2 * INNER_MARGIN
-        return (
-            INNER_MARGIN + self._rng() * span,
-            INNER_MARGIN + self._rng() * span,
-        )
+    def _point(self, origin: tuple[float, float] | None = None) -> tuple[float, float]:
+        ox, oy = origin if origin is not None else (DEFAULT_BEAT_TEXT_X, DEFAULT_BEAT_TEXT_Y)
+        jitter = BEAT_TEXT_JITTER
+        x = ox + (self._rng() - 0.5) * 2.0 * jitter
+        y = oy + (self._rng() - 0.5) * 2.0 * jitter
+        lo, hi = INNER_MARGIN * 0.5, 1.0 - INNER_MARGIN * 0.5
+        return (max(lo, min(hi, x)), max(lo, min(hi, y)))
 
-    def on_beat(self, t: float, text: str) -> None:
-        x, y = self._point()
+    def on_beat(
+        self, t: float, text: str, origin: tuple[float, float] | None = None
+    ) -> None:
+        x, y = self._point(origin)
         self._items.append((text, x, y, t))
         self._items = self._items[-MAX_BURSTS:]
 

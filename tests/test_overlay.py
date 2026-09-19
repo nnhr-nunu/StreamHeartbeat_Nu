@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from stream_heartbeat.overlay import OverlayState, burst_font_px, burst_opacity
 
 
@@ -29,12 +31,21 @@ def test_burst_font_and_opacity_follow_settings() -> None:
 
 
 def test_positions_stay_inside_margin() -> None:
-    values = iter([0.0, 1.0, 0.0, 1.0])
+    values = iter([0.0, 1.0])
     state = OverlayState(rng=lambda: next(values))
-    state.on_beat(0.0, "ドクン")
+    state.on_beat(0.0, "ドクン", origin=(0.5, 0.22))
     x, y = state.bursts_at(0.0)[0].pos
-    assert 0.15 <= x <= 0.85
-    assert 0.15 <= y <= 0.85
+    assert 0.08 <= x <= 0.92
+    assert 0.08 <= y <= 0.45
+
+
+def test_beat_text_uses_origin_and_stays_above_heart() -> None:
+    state = OverlayState(rng=lambda: 0.5)
+    state.on_beat(0.0, "❤", origin=(0.5, 0.22))
+    x, y = state.bursts_at(0.05)[0].pos
+    assert x == pytest.approx(0.5, abs=0.01)
+    assert y == pytest.approx(0.22, abs=0.01)
+    assert y < 0.4
 
 
 def test_tap_ripple_expands_and_fades() -> None:

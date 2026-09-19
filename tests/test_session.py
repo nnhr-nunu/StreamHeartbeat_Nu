@@ -35,7 +35,7 @@ def test_arrhythmia_text_respects_toggle() -> None:
     off_texts = [burst.text for burst in off.overlay.bursts_at(t + 0.4)]
     on_texts = [burst.text for burst in on.overlay.bursts_at(t + 0.4)]
     assert "不整脈！" not in off_texts
-    assert "不整脈！" in on_texts
+    assert "不整脈！" not in on_texts
 
 
 @patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
