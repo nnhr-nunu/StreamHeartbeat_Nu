@@ -10,6 +10,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from stream_heartbeat.clock import BeatClock, CardiacCycle
+from stream_heartbeat.config import BACKDROP_COLORS, CHROMA_HEX
 from stream_heartbeat.overlay import FloatBurst, Ripple, burst_font_px, burst_opacity
 from stream_heartbeat.ui.heart_cute import paint_cute
 from stream_heartbeat.ui.heart_ecg import paint_ecg
@@ -29,6 +30,45 @@ BPM_COLOR = QColor(255, 255, 255)
 
 GL_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
 PANEL_STYLES = frozenset({"xray", "mri"})
+BPM_COLORS = (
+    ("#FFFFFF", "白"),
+    ("#FFECA0", "黄"),
+    ("#111111", "黒"),
+    ("#FF4D4D", "赤"),
+)
+BPM_OUTLINES = (
+    ("#000000", "黒縁"),
+    ("#FFFFFF", "白縁"),
+    ("", "なし"),
+)
+BACKDROPS = (
+    ("green", "緑（クロマキー）"),
+    ("white", "白"),
+    ("black", "黒"),
+    ("transparent", "透明"),
+)
+
+
+def backdrop_color(key: str) -> QColor:
+    if key == "transparent":
+        return QColor(0, 0, 0, 0)
+    return QColor(BACKDROP_COLORS.get(key, CHROMA_HEX))
+
+
+def _draw_outlined_text(
+    painter: QPainter,
+    x: int,
+    y: int,
+    text: str,
+    fill: QColor,
+    outline: QColor | None,
+) -> None:
+    if outline is not None and outline.alpha() > 0:
+        painter.setPen(outline)
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, -1), (-1, 1), (1, 1)):
+            painter.drawText(x + dx, y + dy, text)
+    painter.setPen(fill)
+    painter.drawText(x, y, text)
 
 
 def paint_backdrop(
@@ -126,15 +166,25 @@ def paint_ripples(painter: QPainter, rect: QRectF, ripples: list[Ripple]) -> Non
     painter.restore()
 
 
-def paint_bpm(painter: QPainter, rect: QRectF, bpm: int) -> None:
+def paint_bpm(
+    painter: QPainter,
+    rect: QRectF,
+    bpm: int,
+    *,
+    scale: float = 1.0,
+    pos: tuple[float, float] = (0.5, 0.88),
+    color: str = "#FFFFFF",
+    outline: str = "#000000",
+) -> None:
     painter.setOpacity(1.0)
     font = QFont()
-    font.setPixelSize(max(28, int(min(rect.width(), rect.height()) * 0.08)))
+    font.setPixelSize(max(28, int(min(rect.width(), rect.height()) * 0.08 * max(0.4, scale))))
     font.setBold(True)
     painter.setFont(font)
-    painter.setPen(BPM_COLOR)
-    painter.drawText(
-        rect.adjusted(0, 0, 0, -16),
-        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
-        str(bpm),
-    )
+    fill = QColor(color) if QColor(color).isValid() else BPM_COLOR
+    ring = QColor(outline) if outline and QColor(outline).isValid() else None
+    text = str(bpm)
+    metrics = painter.fontMetrics()
+    x = int(rect.left() + pos[0] * rect.width() - metrics.horizontalAdvance(text) / 2)
+    y = int(rect.top() + pos[1] * rect.height() + metrics.ascent() / 2)
+    _draw_outlined_text(painter, x, y, text, fill, ring)

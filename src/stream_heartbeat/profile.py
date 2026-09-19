@@ -6,7 +6,16 @@ import json
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-from stream_heartbeat.config import DEFAULT_BEAT_TEXT
+from stream_heartbeat.config import (
+    DEFAULT_BACKDROP,
+    DEFAULT_BEAT_TEXT,
+    DEFAULT_BEAT_TEXT_X,
+    DEFAULT_BEAT_TEXT_Y,
+    DEFAULT_BPM_COLOR,
+    DEFAULT_BPM_OUTLINE,
+    DEFAULT_BPM_X,
+    DEFAULT_BPM_Y,
+)
 from stream_heartbeat.paths import resolve_data_dir
 
 STATE_FILENAME = "app_state.json"
@@ -23,14 +32,22 @@ class HeartProfile:
     show_beat_text: bool = True
     beat_text_scale: float = 1.0
     beat_text_opacity: float = 1.0
+    beat_text_x: float = DEFAULT_BEAT_TEXT_X
+    beat_text_y: float = DEFAULT_BEAT_TEXT_Y
     show_bpm: bool = True
-    show_arrhythmia: bool = True
+    bpm_scale: float = 1.0
+    bpm_x: float = DEFAULT_BPM_X
+    bpm_y: float = DEFAULT_BPM_Y
+    bpm_color: str = DEFAULT_BPM_COLOR
+    bpm_outline: str = DEFAULT_BPM_OUTLINE
+    show_arrhythmia: bool = False
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
     tap_interval: float = 0.0
     realistic_look: str = "surgical"
     heart_yaw_deg: float = -18.0
     heart_pitch_deg: float = 12.0
+    backdrop: str = DEFAULT_BACKDROP
     calibration: list[list[float]] = field(default_factory=list)
 
 

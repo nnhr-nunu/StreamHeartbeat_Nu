@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from stream_heartbeat.config import DEFAULT_BEAT_TEXT
+from stream_heartbeat.config import DEFAULT_BACKDROP, DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_Y
 from stream_heartbeat.profile import (
     HeartProfile,
     load_app_state,
@@ -48,6 +48,11 @@ def test_unknown_keys_are_ignored(tmp_path: Path) -> None:
 def test_new_profile_uses_heart_default_text() -> None:
     assert HeartProfile().beat_text == "❤"
     assert DEFAULT_BEAT_TEXT == "❤"
+    assert HeartProfile().beat_text_y == DEFAULT_BEAT_TEXT_Y
+    assert HeartProfile().beat_text_y < 0.4
+    assert HeartProfile().show_arrhythmia is False
+    assert HeartProfile().backdrop == DEFAULT_BACKDROP
+    assert HeartProfile().bpm_outline == "#000000"
 
 
 def test_app_state_keeps_last_profile_when_saving_geometry(tmp_path: Path) -> None:

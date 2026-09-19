@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFrame,
     QGroupBox,
@@ -75,6 +76,19 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert "補正開始" in guides
     assert "補正を破棄" in guides
     assert "設定を初期化" in guides
+    assert "wav" not in guides
+    buttons = operator.findChildren(QPushButton)
+    assert not any(btn.text() == "心音ファイルを追加" and btn.isVisible() for btn in buttons)
+    assert not any(
+        "不整脈" in box.text() and box.isVisible() for box in operator.findChildren(QCheckBox)
+    )
+    assert any("左右" in lab.text() or "横" in lab.text() for lab in operator.findChildren(QLabel))
+    assert any("上下" in lab.text() or "縦" in lab.text() for lab in operator.findChildren(QLabel))
+    assert any(
+        "緑" in box.itemText(i)
+        for box in operator.findChildren(QComboBox)
+        for i in range(box.count())
+    )
     assert "録音停止" not in guides
     session.tick(session.now + 0.1, [0.2] * 80, sample_rate=1000.0)
     primary.click()
@@ -111,7 +125,7 @@ def test_fold_and_combo_show_pulldown_mark(qapp: QApplication) -> None:
     marks = [lab for lab in operator.findChildren(QLabel) if lab.objectName() == "comboMark"]
     assert len(marks) >= 3
     assert all(lab.text() == "▼" for lab in marks)
-    assert len(operator.findChildren(QComboBox)) == 3
+    assert len(operator.findChildren(QComboBox)) >= 4
     labels = " ".join(
         box.itemText(i)
         for box in operator.findChildren(QComboBox)
@@ -120,6 +134,7 @@ def test_fold_and_combo_show_pulldown_mark(qapp: QApplication) -> None:
     assert "リアル1" in labels
     assert "リアル2" in labels
     assert "手術" not in labels
+    assert "透明" in labels
     operator.close()
     output.close()
 
