@@ -54,6 +54,7 @@ def test_new_profile_uses_heart_default_text() -> None:
     assert HeartProfile().beat_text_y < 0.4
     assert HeartProfile().beat_text_jitter == 0.05
     assert HeartProfile().beat_text_tilt == pytest.approx(0.7)
+    assert HeartProfile().beat_text_color == "#FFECA0"
     assert HeartProfile().show_arrhythmia is False
     assert HeartProfile().backdrop == DEFAULT_BACKDROP
     assert HeartProfile().bpm_outline == "#000000"

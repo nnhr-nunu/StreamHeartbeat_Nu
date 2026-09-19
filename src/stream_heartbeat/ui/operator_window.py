@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -55,6 +54,7 @@ from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.heart_paint import BACKDROPS, BPM_COLORS, BPM_OUTLINES
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
+from stream_heartbeat.ui.slider import labeled_slider
 from stream_heartbeat.ui.styles import DARK_QSS
 
 STYLES = [
@@ -74,12 +74,6 @@ CAL_SAVE = "補正を保存"
 CAL_DISCARD = "補正を破棄"
 CAL_RESET = "設定を初期化"
 NOTICE_MS = 3500
-
-
-def _axis_slider() -> QSlider:
-    slider = QSlider(Qt.Orientation.Horizontal)
-    slider.setRange(0, 100)
-    return slider
 
 
 def _make_fold(
@@ -160,32 +154,29 @@ class OperatorWindow(QMainWindow):
         self._gl_note = QLabel("")
         self._gl_note.setObjectName("warn")
         self._gl_note.setWordWrap(True)
-        self._scale = QSlider(Qt.Orientation.Horizontal)
-        self._scale.setRange(20, 120)
-        self._opacity = QSlider(Qt.Orientation.Horizontal)
-        self._opacity.setRange(10, 100)
+        self._scale, scale_row = labeled_slider(20, 120, "小", "大")
+        self._opacity, opacity_row = labeled_slider(10, 100, "透明", "不透明")
         self._text = QLineEdit()
         self._show_beat_text = QCheckBox("同期文字を配信用に出す")
-        self._beat_scale = QSlider(Qt.Orientation.Horizontal)
-        self._beat_scale.setRange(50, 200)
-        self._beat_opacity = QSlider(Qt.Orientation.Horizontal)
-        self._beat_opacity.setRange(10, 100)
-        self._beat_x = _axis_slider()
-        self._beat_y = _axis_slider()
-        self._beat_jitter = QSlider(Qt.Orientation.Horizontal)
-        self._beat_jitter.setRange(0, 40)
-        self._beat_tilt = QSlider(Qt.Orientation.Horizontal)
-        self._beat_tilt.setRange(0, 100)
+        self._beat_scale, beat_scale_row = labeled_slider(50, 200, "小", "大")
+        self._beat_opacity, beat_opacity_row = labeled_slider(10, 100, "透明", "不透明")
+        self._beat_x, beat_x_row = labeled_slider(0, 100, "左", "右")
+        self._beat_y, beat_y_row = labeled_slider(0, 100, "上", "下")
+        self._beat_jitter, beat_jitter_row = labeled_slider(0, 40, "なし", "大")
+        self._beat_tilt, beat_tilt_row = labeled_slider(0, 100, "なし", "強")
+        self._beat_color = MarkedComboBox()
+        self._beat_outline = MarkedComboBox()
         self._show_bpm = QCheckBox("心拍数を配信用に出す")
-        self._bpm_scale = QSlider(Qt.Orientation.Horizontal)
-        self._bpm_scale.setRange(50, 200)
-        self._bpm_x = _axis_slider()
-        self._bpm_y = _axis_slider()
+        self._bpm_scale, bpm_scale_row = labeled_slider(50, 200, "小", "大")
+        self._bpm_x, bpm_x_row = labeled_slider(0, 100, "左", "右")
+        self._bpm_y, bpm_y_row = labeled_slider(0, 100, "上", "下")
         self._bpm_color = MarkedComboBox()
-        for hex_color, label in BPM_COLORS:
-            self._bpm_color.addItem(label, hex_color)
         self._bpm_outline = MarkedComboBox()
+        for hex_color, label in BPM_COLORS:
+            self._beat_color.addItem(label, hex_color)
+            self._bpm_color.addItem(label, hex_color)
         for hex_color, label in BPM_OUTLINES:
+            self._beat_outline.addItem(label, hex_color)
             self._bpm_outline.addItem(label, hex_color)
         self._backdrop = MarkedComboBox()
         for key, label in BACKDROPS:
@@ -234,6 +225,8 @@ class OperatorWindow(QMainWindow):
         self._beat_y.valueChanged.connect(self._apply_controls)
         self._beat_jitter.valueChanged.connect(self._apply_controls)
         self._beat_tilt.valueChanged.connect(self._apply_controls)
+        self._beat_color.currentIndexChanged.connect(self._apply_controls)
+        self._beat_outline.currentIndexChanged.connect(self._apply_controls)
         self._show_bpm.toggled.connect(self._apply_controls)
         self._bpm_scale.valueChanged.connect(self._apply_controls)
         self._bpm_x.valueChanged.connect(self._apply_controls)
@@ -244,32 +237,41 @@ class OperatorWindow(QMainWindow):
         # self._show_arrhythmia.toggled.connect(self._apply_controls)
         self._mics.currentIndexChanged.connect(self._restart_mic)
 
+        self._reset_beat = QPushButton("設定をリセット")
+        self._reset_bpm = QPushButton("設定をリセット")
+        self._reset_beat.clicked.connect(self._reset_beat_look)
+        self._reset_bpm.clicked.connect(self._reset_bpm_look)
+
         style_form = QFormLayout()
         style_form.addRow("スタイル", self._style)
-        style_form.addRow("大きさ", self._scale)
-        style_form.addRow("透明度", self._opacity)
+        style_form.addRow("大きさ", scale_row)
+        style_form.addRow("透明度", opacity_row)
         style_box = QGroupBox("スタイル")
         style_box.setLayout(style_form)
 
         beat_form = QFormLayout()
         beat_form.addRow(self._show_beat_text)
         beat_form.addRow("文言", self._text)
-        beat_form.addRow("大きさ", self._beat_scale)
-        beat_form.addRow("透明度", self._beat_opacity)
-        beat_form.addRow("左右", self._beat_x)
-        beat_form.addRow("上下", self._beat_y)
-        beat_form.addRow("ゆらぎ", self._beat_jitter)
-        beat_form.addRow("傾き", self._beat_tilt)
+        beat_form.addRow("大きさ", beat_scale_row)
+        beat_form.addRow("透明度", beat_opacity_row)
+        beat_form.addRow("左右", beat_x_row)
+        beat_form.addRow("上下", beat_y_row)
+        beat_form.addRow("ゆらぎ", beat_jitter_row)
+        beat_form.addRow("傾き", beat_tilt_row)
+        beat_form.addRow("文字色", self._beat_color)
+        beat_form.addRow("縁取り", self._beat_outline)
+        beat_form.addRow(self._reset_beat)
         beat_box = QGroupBox("同期文字")
         beat_box.setLayout(beat_form)
 
         bpm_form = QFormLayout()
         bpm_form.addRow(self._show_bpm)
-        bpm_form.addRow("大きさ", self._bpm_scale)
-        bpm_form.addRow("左右", self._bpm_x)
-        bpm_form.addRow("上下", self._bpm_y)
+        bpm_form.addRow("大きさ", bpm_scale_row)
+        bpm_form.addRow("左右", bpm_x_row)
+        bpm_form.addRow("上下", bpm_y_row)
         bpm_form.addRow("文字色", self._bpm_color)
         bpm_form.addRow("縁取り", self._bpm_outline)
+        bpm_form.addRow(self._reset_bpm)
         bpm_box = QGroupBox("心拍数")
         bpm_box.setLayout(bpm_form)
 
@@ -326,9 +328,10 @@ class OperatorWindow(QMainWindow):
         cal_row.addWidget(self._cal_btn)
         cal_row.addWidget(self._discard_cal)
         cal_hint = QLabel(
-            "10〜20 秒、心音をとりながらドクンに合わせて「拍」（スペース）を 4回以上押します。\n"
-            "「補正開始」→「補正を保存」。今のを捨てるなら「補正を破棄」。全部消すなら「設定を初期化」。\n"
-            "ヘッドホン推奨。この音は配信に出ません。"
+            "・配信前に一度、配信で使うマイクを使用して補正作業を行うのをおすすめします。\n"
+            "・補正開始ボタンを押下後、マイクが拾った自分の心音が再生されるので、"
+            "その鼓動を聴きながら拍動に合わせて「拍」ボタン（またはスペース）を10回程度押して下さい。\n"
+            "・補正を破棄ボタンで補正を中断することができます。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
@@ -441,6 +444,8 @@ class OperatorWindow(QMainWindow):
             self._beat_y,
             self._beat_jitter,
             self._beat_tilt,
+            self._beat_color,
+            self._beat_outline,
             self._show_bpm,
             self._bpm_scale,
             self._bpm_x,
@@ -467,6 +472,8 @@ class OperatorWindow(QMainWindow):
             self._beat_y.setValue(int(round(profile.beat_text_y * 100)))
             self._beat_jitter.setValue(int(round(profile.beat_text_jitter * 100)))
             self._beat_tilt.setValue(int(round(profile.beat_text_tilt * 100)))
+            self._select_combo(self._beat_color, profile.beat_text_color)
+            self._select_combo(self._beat_outline, profile.beat_text_outline)
             self._show_bpm.setChecked(profile.show_bpm)
             self._bpm_scale.setValue(int(profile.bpm_scale * 100))
             self._bpm_x.setValue(int(round(profile.bpm_x * 100)))
@@ -535,6 +542,8 @@ class OperatorWindow(QMainWindow):
         profile.beat_text_y = self._beat_y.value() / 100.0
         profile.beat_text_jitter = self._beat_jitter.value() / 100.0
         profile.beat_text_tilt = self._beat_tilt.value() / 100.0
+        profile.beat_text_color = str(self._beat_color.currentData() or "#FFECA0")
+        profile.beat_text_outline = str(self._beat_outline.currentData() or "")
         profile.show_bpm = self._show_bpm.isChecked()
         profile.bpm_scale = self._bpm_scale.value() / 100.0
         profile.bpm_x = self._bpm_x.value() / 100.0
@@ -548,6 +557,32 @@ class OperatorWindow(QMainWindow):
         if self._mics.currentData():
             profile.mic_id = str(self._mics.currentData())
         self._output.apply_backdrop()
+
+    def _reset_beat_look(self) -> None:
+        blank = HeartProfile()
+        profile = self._session.profile
+        profile.beat_text = blank.beat_text
+        profile.show_beat_text = blank.show_beat_text
+        profile.beat_text_scale = blank.beat_text_scale
+        profile.beat_text_opacity = blank.beat_text_opacity
+        profile.beat_text_x = blank.beat_text_x
+        profile.beat_text_y = blank.beat_text_y
+        profile.beat_text_jitter = blank.beat_text_jitter
+        profile.beat_text_tilt = blank.beat_text_tilt
+        profile.beat_text_color = blank.beat_text_color
+        profile.beat_text_outline = blank.beat_text_outline
+        self._load_into_controls(profile)
+
+    def _reset_bpm_look(self) -> None:
+        blank = HeartProfile()
+        profile = self._session.profile
+        profile.show_bpm = blank.show_bpm
+        profile.bpm_scale = blank.bpm_scale
+        profile.bpm_x = blank.bpm_x
+        profile.bpm_y = blank.bpm_y
+        profile.bpm_color = blank.bpm_color
+        profile.bpm_outline = blank.bpm_outline
+        self._load_into_controls(profile)
 
     def _refresh_style_controls(self) -> None:
         style, _look = self._style_choice()

@@ -70,12 +70,13 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert primary.text() == "補正を保存"
     assert discard.isEnabled()
     guides = " ".join(label.text() for label in operator.findChildren(QLabel))
-    assert "ヘッドホン" in guides
+    assert "マイク" in guides
     assert "スペース" in guides
-    assert "4回" in guides or "４回" in guides
+    assert "10回" in guides
+    assert "拍" in guides
     assert "補正開始" in guides
     assert "補正を破棄" in guides
-    assert "設定を初期化" in guides
+    assert any(btn.text() == "設定を初期化" for btn in operator.findChildren(QPushButton))
     assert "wav" not in guides
     buttons = operator.findChildren(QPushButton)
     assert not any(btn.text() == "心音ファイルを追加" and btn.isVisible() for btn in buttons)
@@ -86,6 +87,17 @@ def test_operator_stays_on_top_and_labels(qapp: QApplication) -> None:
     assert any("上下" in lab.text() or "縦" in lab.text() for lab in operator.findChildren(QLabel))
     assert any("ゆらぎ" in lab.text() for lab in operator.findChildren(QLabel))
     assert any("傾き" in lab.text() for lab in operator.findChildren(QLabel))
+    assert any(lab.text() == "透明" for lab in operator.findChildren(QLabel))
+    assert any(lab.text() == "不透明" for lab in operator.findChildren(QLabel))
+    assert sum(1 for lab in operator.findChildren(QLabel) if lab.text() == "文字色") >= 2
+    reset_btns = [
+        btn
+        for box in operator.findChildren(QGroupBox)
+        if box.title() in ("同期文字", "心拍数")
+        for btn in box.findChildren(QPushButton)
+        if btn.text() == "設定をリセット"
+    ]
+    assert len(reset_btns) == 2
     assert any(
         "緑" in box.itemText(i)
         for box in operator.findChildren(QComboBox)
@@ -239,3 +251,24 @@ def test_close_saves_window_positions(qapp: QApplication) -> None:
     state = load_app_state(operator._data_dir)
     assert state["operator_geom"]["x"] == 120
     assert state["output_geom"]["x"] == 640
+
+
+def _group_reset(operator: OperatorWindow, title: str) -> QPushButton:
+    box = next(item for item in operator.findChildren(QGroupBox) if item.title() == title)
+    return next(btn for btn in box.findChildren(QPushButton) if btn.text() == "設定をリセット")
+
+
+def test_beat_and_bpm_reset_only_own_group(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    operator._beat_x.setValue(8)
+    operator._bpm_scale.setValue(180)
+    _group_reset(operator, "同期文字").click()
+    assert operator._beat_x.value() == 50
+    assert operator._bpm_scale.value() == 180
+    _group_reset(operator, "心拍数").click()
+    assert operator._bpm_scale.value() == 100
+    operator.close()
+    output.close()

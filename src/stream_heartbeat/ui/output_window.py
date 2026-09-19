@@ -148,6 +148,8 @@ class OutputCanvas(QOpenGLWidget):
             self._session.overlay.bursts_at(t),
             scale=profile.beat_text_scale,
             opacity=profile.beat_text_opacity,
+            color=profile.beat_text_color,
+            outline=profile.beat_text_outline,
         )
         paint_ripples(painter, rect, self._session.overlay.ripples_at(t))
         if profile.show_bpm:

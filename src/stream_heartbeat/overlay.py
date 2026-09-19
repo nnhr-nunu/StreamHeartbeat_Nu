@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -70,7 +71,7 @@ class Ripple:
 
 class OverlayState:
     def __init__(self, rng: RNG | None = None) -> None:
-        self._rng = rng if rng is not None else (lambda: 0.5)
+        self._rng = rng if rng is not None else random.random
         self._items: list[tuple[str, float, float, float, float]] = []
         self._ripples: list[float] = []
 

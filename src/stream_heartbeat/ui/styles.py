@@ -82,6 +82,11 @@ QLabel#comboMark {
   background: transparent;
   padding: 0px;
 }
+QLabel#sliderEnd {
+  color: #9a9a9a;
+  font-size: 11px;
+  min-width: 2.8em;
+}
 QComboBox::drop-down {
   subcontrol-origin: border;
   subcontrol-position: center right;
