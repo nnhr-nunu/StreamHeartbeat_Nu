@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-VERTEX = """
+from stream_heartbeat.render.heart_mesh import PATH_SCALE
+from stream_heartbeat.render.heart_section import SECTION_AXES_GLSL, SECTION_GLSL
+
+VERTEX = (
+    """
 #version 130
 in vec3 aPos;
 in vec3 aNormal;
@@ -12,6 +16,7 @@ in float aRegion;
 in float aFat;
 in float aAxial;
 in vec2 aUv;
+in vec2 aSection;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -20,6 +25,7 @@ uniform float uSqueeze;
 uniform float uEject;
 uniform float uFill;
 uniform float uTime;
+uniform float uAge;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -27,8 +33,35 @@ out float vRegion;
 out float vFat;
 out float vAxial;
 out vec2 vUv;
-
+out float vCap;
+out float vSide;
+out vec3 vSecS;
+out vec3 vSecT;
+"""
+    + SECTION_AXES_GLSL
+    + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
+    + """
 const float TWIST_DEG = 18.0;
+// 拍の波が大動脈を伝わる速さ（道のり/秒）と、波の長さ
+const float PULSE_SPEED = 5.5;
+const float PULSE_WIDTH = 0.42;
+
+float vhash(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise3(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(mix(vhash(i + vec3(0, 0, 0)), vhash(i + vec3(1, 0, 0)), f.x),
+            mix(vhash(i + vec3(0, 1, 0)), vhash(i + vec3(1, 1, 0)), f.x), f.y),
+        mix(mix(vhash(i + vec3(0, 0, 1)), vhash(i + vec3(1, 0, 1)), f.x),
+            mix(vhash(i + vec3(0, 1, 1)), vhash(i + vec3(1, 1, 1)), f.x), f.y),
+        f.z);
+}
 
 void main() {
     float lv = 1.0 - smoothstep(0.4, 0.6, aRegion);
@@ -37,20 +70,23 @@ void main() {
     float atrium = smoothstep(1.4, 1.6, aRegion) * (1.0 - smoothstep(3.4, 3.6, aRegion));
     float artery = smoothstep(3.4, 3.6, aRegion) * (1.0 - smoothstep(4.4, 4.6, aRegion));
     float vein = smoothstep(4.4, 4.6, aRegion) * (1.0 - smoothstep(5.4, 5.6, aRegion));
+    float tube = smoothstep(3.4, 3.6, aRegion);
 
-    float ax = aAxial;
+    float ax = mix(aAxial, 0.0, tube);
     float wall = lv * 1.0 + rv * 0.62;
 
+    // 縮み方は場所ごとにむらがあり、心尖側が先に強く縮む
+    float patchy = 0.75 + 0.5 * vnoise3(aPos * 2.3 + vec3(3.0, 1.0, 7.0));
+    float sq = min(pow(uSqueeze, mix(1.15, 0.75, ax)) * patchy, 1.3);
+
     // 室は長軸へ向かって縮む。基部側は固定、心尖に近いほどよく縮む
-    float radial = 1.0 - uSqueeze * 0.17 * wall * smoothstep(0.05, 0.55, ax);
+    float radial = 1.0 - sq * 0.17 * wall * smoothstep(0.05, 0.55, ax);
     // 房は室が縮むあいだ血を溜めて少し膨らみ、充満で戻る
-    float atr = 1.0 + atrium * (0.07 * uSqueeze - 0.05 * uFill);
-    // 太い動脈は送り出しで太る。静脈は充満でわずかに
-    float ves = 1.0 + artery * 0.12 * uEject + vein * 0.03 * uFill;
+    float atr = 1.0 + atrium * (0.07 * uSqueeze - 0.05 * uFill) * patchy;
 
     vec3 p = aPos;
     vec3 n = aNormal;
-    float s = radial * atr * ves;
+    float s = radial * atr;
     p.xz *= s;
     n.xz /= max(s, 1e-3);
 
@@ -63,11 +99,28 @@ void main() {
     p.z += uSqueeze * 0.035 * ventricle * ax;
 
     // 長軸まわりの捩れ。心尖で最大
-    float twist = radians(TWIST_DEG) * uSqueeze * ventricle * ax;
+    float twist = radians(TWIST_DEG) * sq * ventricle * ax;
     float c = cos(twist);
     float sn = sin(twist);
     p.xz = mat2(c, -sn, sn, c) * p.xz;
     n.xz = mat2(c, -sn, sn, c) * n.xz;
+
+    // 動脈は拍の波が根元から先へ伝わって膨らみ、静脈は充満でわずかに太る
+    float dist = aAxial * PATH_SCALE;
+    float front = (uAge - 0.05) * PULSE_SPEED;
+    float wave = exp(-pow((dist - front) / PULSE_WIDTH, 2.0)) * step(0.05, uAge);
+    wave *= 1.0 - 0.45 * aAxial;
+    p += n * artery * (0.024 * wave + 0.008 * uEject);
+    p += n * vein * 0.007 * uFill;
+
+    // 心臓全体が拍ごとに少し揺れる。血管は根元だけ付いてきて、先は動かない
+    float anchored = mix(1.0, 1.0 - smoothstep(0.1, 0.9, dist), tube);
+    float rock = radians(-3.0) * uSqueeze * anchored;
+    float cr = cos(rock);
+    float sr = sin(rock);
+    p.xy = mat2(cr, -sr, sr, cr) * p.xy;
+    n.xy = mat2(cr, -sr, sr, cr) * n.xy;
+    p += vec3(-0.012, 0.012, 0.028) * uSqueeze * anchored;
 
     // 表面のごく弱い揺れ
     p += n * 0.003 * sin(uTime * 5.0 + aPos.x * 17.0 + aPos.y * 11.0);
@@ -77,11 +130,16 @@ void main() {
     vNormal = normalize(mat3(uModel) * normalize(n));
     vRegion = aRegion;
     vFat = aFat;
-    vAxial = ax;
+    vAxial = aAxial;
     vUv = aUv;
+    vCap = aSection.x;
+    vSide = aSection.y;
+    vSecS = normalize(mat3(uModel) * SEC_S);
+    vSecT = normalize(mat3(uModel) * SEC_T);
     gl_Position = uProj * uView * world;
 }
 """
+)
 
 _NOISE = """
 float hash3(vec3 p) {
@@ -136,6 +194,10 @@ in float vRegion;
 in float vFat;
 in float vAxial;
 in vec2 vUv;
+in float vCap;
+in float vSide;
+in vec3 vSecS;
+in vec3 vSecT;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -146,12 +208,14 @@ uniform float uFatAmount;
 uniform float uGloss;
 uniform float uSaturation;
 uniform float uCoronary;
+uniform float uSection;
 out vec4 fragColor;
 """
 
 FLESH_FRAGMENT = (
     _HEADER
     + _NOISE
+    + SECTION_GLSL
     + """
 vec3 regionBase(float r, vec3 p) {
     vec3 lv = vec3(0.58, 0.10, 0.17);
@@ -171,6 +235,44 @@ vec3 regionBase(float r, vec3 p) {
     return c;
 }
 
+// 照明。無影灯のように上前から強く、補助は右下、縁は後ろ
+vec3 lightFlesh(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float fatMask, float isVessel) {
+    vec3 L1 = KEY_LIGHT;
+    vec3 L2 = normalize(vec3(0.75, -0.25, 0.55));
+    vec3 L3 = normalize(vec3(0.2, 0.3, -1.0));
+    float nl1 = dot(N, L1);
+    float wrap = clamp((nl1 + 0.4) / 1.4, 0.0, 1.0);
+    float d1 = wrap * wrap;
+    float d2 = max(dot(N, L2), 0.0) * 0.32;
+    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * max(dot(N, L3) * 0.5 + 0.5, 0.0) * 0.35;
+
+    // 薄いところで赤く透ける
+    float sss = pow(1.0 - max(dot(N, V), 0.0), 2.0) * 0.30 * (1.0 - fatMask);
+    vec3 sssColor = vec3(0.85, 0.12, 0.12) * sss;
+
+    float g = uGloss * gloss;
+    vec3 H1 = normalize(L1 + V);
+    float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+    float wetBumps = 0.85 + 0.3 * fbm(P * 30.0);
+    float specTight = pow(max(dot(N, H1), 0.0), 260.0) * (0.6 + 0.4 * fresnel) * 2.6 * g;
+    float specMid = pow(max(dot(N, H1), 0.0), 48.0) * 0.45 * g * wetBumps;
+    float specBroad = pow(max(dot(N, H1), 0.0), 10.0) * 0.14 * g;
+    vec3 H2 = normalize(L2 + V);
+    float spec2 = pow(max(dot(N, H2), 0.0), 90.0) * 0.35 * g;
+    // 脂肪は濡れ光が弱く、動脈は強い
+    float specScale = mix(1.0, 0.7, fatMask) * mix(1.0, 1.3, isVessel);
+    float spec = (specTight + specMid + specBroad + spec2) * specScale;
+
+    vec3 light = vec3(1.0, 0.96, 0.92) * d1 + vec3(0.55, 0.62, 0.78) * d2
+        + vec3(0.9, 0.7, 0.7) * rim;
+    return albedo * (light + 0.10) + sssColor + spec * vec3(1.0, 0.97, 0.95);
+}
+
+vec3 desaturate(vec3 c) {
+    float gray = dot(c, vec3(0.3, 0.59, 0.11));
+    return mix(vec3(gray), c, uSaturation);
+}
+
 void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);
@@ -178,6 +280,34 @@ void main() {
     float isVessel = smoothstep(3.4, 3.6, vRegion) * (1.0 - smoothstep(5.4, 5.6, vRegion));
     float isLumen = smoothstep(5.4, 5.6, vRegion);
     float isBody = 1.0 - smoothstep(3.4, 3.6, vRegion);
+
+    // 断面: 切り口は模様を描き、面より手前の外皮と血管は捨てる
+    if (vCap > 0.5) {
+        if (uSection < 0.5 || vFat < -0.004) {
+            discard;
+        }
+        vec3 capAlbedo;
+        vec3 capNormal;
+        float capGloss;
+        sectionSurface(vUv, vFat, N, normalize(vSecS), normalize(vSecT),
+                       capAlbedo, capNormal, capGloss);
+        vec3 capColor = lightFlesh(desaturate(capAlbedo), capNormal, V, P, capGloss, 0.0, 0.0);
+        fragColor = vec4(pow(capColor, vec3(0.92)), uOpacity);
+        return;
+    }
+    if (uSection > 0.5 && vSide > 0.0) {
+        discard;
+    }
+    // 切って開いた管の内側。内膜は白っぽく濡れている
+    if (!gl_FrontFacing) {
+        vec3 Ni = -N;
+        float streaks = fbm(vec3(P.x * 20.0, P.y * 6.0, P.z * 20.0));
+        vec3 intima = mix(vec3(0.78, 0.46, 0.44), vec3(0.95, 0.78, 0.74), streaks);
+        vec3 inner = mix(vec3(0.34, 0.05, 0.07), intima, isVessel + isLumen);
+        vec3 innerColor = lightFlesh(desaturate(inner), Ni, V, P, 1.1, 0.0, isVessel) * 0.8;
+        fragColor = vec4(pow(innerColor, vec3(0.92)), uOpacity);
+        return;
+    }
 
     vec3 base = regionBase(vRegion, P);
     float isRv = smoothstep(0.4, 0.6, vRegion) * (1.0 - smoothstep(1.4, 1.6, vRegion));
@@ -251,38 +381,8 @@ void main() {
     albedo = mix(albedo, coronaryColor, clamp(coronaryVis, 0.0, 1.0));
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
 
-    float gray = dot(albedo, vec3(0.3, 0.59, 0.11));
-    albedo = mix(vec3(gray), albedo, uSaturation);
-
-    // 照明。無影灯のように上前から強く、補助は右下、縁は後ろ
-    vec3 L1 = normalize(vec3(-0.35, 0.85, 0.65));
-    vec3 L2 = normalize(vec3(0.75, -0.25, 0.55));
-    vec3 L3 = normalize(vec3(0.2, 0.3, -1.0));
-    float nl1 = dot(N, L1);
-    float wrap = clamp((nl1 + 0.4) / 1.4, 0.0, 1.0);
-    float d1 = wrap * wrap;
-    float d2 = max(dot(N, L2), 0.0) * 0.32;
-    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * max(dot(N, L3) * 0.5 + 0.5, 0.0) * 0.35;
-
-    // 薄いところで赤く透ける
-    float sss = pow(1.0 - max(dot(N, V), 0.0), 2.0) * 0.30 * (1.0 - fatMask);
-    vec3 sssColor = vec3(0.85, 0.12, 0.12) * sss;
-
-    vec3 H1 = normalize(L1 + V);
-    float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-    float wetBumps = 0.85 + 0.3 * fbm(P * 30.0);
-    float specTight = pow(max(dot(N, H1), 0.0), 260.0) * (0.6 + 0.4 * fresnel) * 2.6 * uGloss;
-    float specMid = pow(max(dot(N, H1), 0.0), 48.0) * 0.45 * uGloss * wetBumps;
-    float specBroad = pow(max(dot(N, H1), 0.0), 10.0) * 0.14 * uGloss;
-    vec3 H2 = normalize(L2 + V);
-    float spec2 = pow(max(dot(N, H2), 0.0), 90.0) * 0.35 * uGloss;
-    // 脂肪は濡れ光が弱く、動脈は強い
-    float specScale = mix(1.0, 0.7, fatMask) * mix(1.0, 1.3, isVessel);
-    float spec = (specTight + specMid + specBroad + spec2) * specScale;
-
-    vec3 light = vec3(1.0, 0.96, 0.92) * d1 + vec3(0.55, 0.62, 0.78) * d2
-        + vec3(0.9, 0.7, 0.7) * rim;
-    vec3 color = albedo * (light + 0.10) + sssColor + spec * vec3(1.0, 0.97, 0.95);
+    albedo = desaturate(albedo);
+    vec3 color = lightFlesh(albedo, N, V, P, 1.0, fatMask, isVessel);
 
     // 断面の内腔は暗く沈める
     color = mix(color, color * 0.35, isLumen);
@@ -424,18 +524,25 @@ class Look:
     grain: float = 0.0
     density: float = 1.0
     size_factor: float = 1.0
+    # 四腔断面で切って見せる。切り口がカメラへ向くよう向きを足す
+    section: bool = False
+    yaw_offset_deg: float = 0.0
+    pitch_offset_deg: float = 0.0
 
 
 REALISTIC_LOOKS: list[Look] = [
     Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0, coronary=0.22),
     Look(
         "anatomy",
-        "教科書寄り",
+        "断面",
         "flesh",
         fat_amount=0.48,
-        gloss=0.62,
-        saturation=0.96,
+        gloss=0.8,
+        saturation=1.0,
         coronary=1.0,
+        section=True,
+        yaw_offset_deg=12.0,
+        pitch_offset_deg=-10.0,
     ),
 ]
 

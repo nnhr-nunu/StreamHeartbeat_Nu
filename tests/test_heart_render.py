@@ -109,3 +109,45 @@ def test_offscreen_render_puts_heart_over_chroma(qapp: QApplication) -> None:
         assert corner == QColor(0, 255, 0), look.key
         assert center != QColor(0, 255, 0), look.key
         assert not (center.green() > 200 and center.red() < 60), look.key
+
+
+def test_section_cavities_leave_wall_inside_outline() -> None:
+    from stream_heartbeat.render.heart_section import CAVITIES, inside_depth, plane_point
+
+    for name, ((cx, cy), (rx, ry), tilt, taper) in CAVITIES.items():
+        a = math.radians(tilt)
+        for k in range(48):
+            th = 2.0 * math.pi * k / 48
+            qy = ry * math.sin(th)
+            qx = rx * (1.0 + taper * math.sin(th)) * math.cos(th)
+            s = cx + math.cos(a) * qx - math.sin(a) * qy
+            t = cy + math.sin(a) * qx + math.cos(a) * qy
+            depth, _region = inside_depth(plane_point(s, t))
+            assert depth > 0.03, (name, round(s, 2), round(t, 2), round(depth, 3))
+
+
+def test_neck_branches_rise_from_arch() -> None:
+    from stream_heartbeat.render.heart_mesh import BODY_UP, dot, great_vessels
+
+    vessels = great_vessels()
+    aorta = vessels[0]
+    arch_height = max(dot(p, BODY_UP) for p in aorta.points)
+    branches = vessels[1:4]
+    for branch in branches:
+        assert not branch.cut
+        assert dot(branch.points[-1], BODY_UP) > arch_height + 0.3
+    # 大動脈は弓のあと背中側を心臓より下まで降りる
+    assert dot(aorta.points[-1], BODY_UP) < dot(aorta.points[0], BODY_UP)
+
+
+def test_section_cap_is_tail_of_mesh_and_only_anatomy_uses_it() -> None:
+    mesh = build_heart_mesh(rows=24, cols=36, section_step=0.08)
+    stride = FLOATS_PER_VERTEX
+    assert 0 < mesh.section_start < mesh.vertex_count
+    assert mesh.body_vertex_count == mesh.section_start
+    for v in range(0, mesh.vertex_count, 97):
+        cap = mesh.data[v * stride + 11]
+        assert cap == (1.0 if v >= mesh.section_start else 0.0)
+    assert realistic_look("anatomy").section
+    assert not realistic_look("surgical").section
+    assert not any(look.section for look in STYLE_LOOKS.values())
