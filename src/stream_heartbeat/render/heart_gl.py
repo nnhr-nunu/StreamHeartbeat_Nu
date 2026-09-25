@@ -22,7 +22,12 @@ from PySide6.QtOpenGL import (
 )
 
 from stream_heartbeat.clock import CardiacCycle
-from stream_heartbeat.render.heart_mesh import FLOATS_PER_VERTEX, HeartMesh, build_heart_mesh
+from stream_heartbeat.render.heart_mesh import (
+    ANATOMY_ROLL_DEG,
+    FLOATS_PER_VERTEX,
+    HeartMesh,
+    build_heart_mesh,
+)
 from stream_heartbeat.render.heart_shaders import VERTEX, Look, fragment_source
 
 GL_TRIANGLES = 0x0004
@@ -39,11 +44,12 @@ GL_COLOR_BUFFER_BIT = 0x4000
 GL_LEQUAL = 0x0203
 GL_MULTISAMPLE = 0x809D
 
-ANATOMY_ROLL_DEG = 34.0
 ANATOMY_YAW_DEG = -22.0
 CAMERA_DISTANCE = 4.6
 FOV_DEG = 30.0
-BASE_SCALE = 1.05
+BASE_SCALE = 1.0
+# 首へ昇る血管の先まで収まるよう、少し上を見る
+CAMERA_TARGET_Y = 0.16
 
 _ATTRIBUTES = (
     ("aPos", 0, 3),
@@ -52,6 +58,7 @@ _ATTRIBUTES = (
     ("aFat", 7, 1),
     ("aAxial", 8, 1),
     ("aUv", 9, 2),
+    ("aSection", 11, 2),
 )
 
 
@@ -118,13 +125,13 @@ class HeartRenderer:
         program = self._programs[look.program]
         model = QMatrix4x4()
         model.scale(BASE_SCALE * max(0.05, scale) * look.size_factor)
-        model.rotate(pitch_deg, 1.0, 0.0, 0.0)
-        model.rotate(yaw_deg, 0.0, 1.0, 0.0)
+        model.rotate(pitch_deg + look.pitch_offset_deg, 1.0, 0.0, 0.0)
+        model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)
         model.rotate(ANATOMY_YAW_DEG, 0.0, 1.0, 0.0)
         model.rotate(ANATOMY_ROLL_DEG, 0.0, 0.0, 1.0)
         view = QMatrix4x4()
-        cam = QVector3D(0.0, 0.05, CAMERA_DISTANCE)
-        view.lookAt(cam, QVector3D(0.0, 0.05, 0.0), QVector3D(0.0, 1.0, 0.0))
+        cam = QVector3D(0.0, CAMERA_TARGET_Y, CAMERA_DISTANCE)
+        view.lookAt(cam, QVector3D(0.0, CAMERA_TARGET_Y, 0.0), QVector3D(0.0, 1.0, 0.0))
         proj = QMatrix4x4()
         aspect = width / max(1, height)
         proj.perspective(FOV_DEG, aspect, 0.5, 20.0)
@@ -141,8 +148,12 @@ class HeartRenderer:
             gl.glEnable(GL_DEPTH_TEST)
             gl.glDepthFunc(GL_LEQUAL)
             gl.glDepthMask(True)
-            gl.glEnable(GL_CULL_FACE)
-            gl.glCullFace(GL_BACK)
+            # 断面は切って開いた管の内側も見せるので裏面も描く
+            if look.section:
+                gl.glDisable(GL_CULL_FACE)
+            else:
+                gl.glEnable(GL_CULL_FACE)
+                gl.glCullFace(GL_BACK)
             gl.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
         self._vao.bind()
@@ -156,17 +167,21 @@ class HeartRenderer:
         program.setUniformValue1f("uEject", float(cycle.eject))
         program.setUniformValue1f("uFill", float(cycle.fill))
         program.setUniformValue1f("uTime", float(time_s))
+        program.setUniformValue1f("uAge", float(cycle.age))
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uFatAmount", float(look.fat_amount))
         program.setUniformValue1f("uGloss", float(look.gloss))
         program.setUniformValue1f("uSaturation", float(look.saturation))
         program.setUniformValue1f("uCoronary", float(look.coronary))
+        if look.program == "flesh":
+            program.setUniformValue1f("uSection", 1.0 if look.section else 0.0)
         if look.program == "scan":
             program.setUniformValue("uTintDense", QVector3D(*look.tint_dense))
             program.setUniformValue("uTintThin", QVector3D(*look.tint_thin))
             program.setUniformValue1f("uGrain", float(look.grain))
             program.setUniformValue1f("uDensity", float(look.density))
-        gl.glDrawArrays(GL_TRIANGLES, 0, self._mesh.vertex_count)
+        count = self._mesh.vertex_count if look.section else self._mesh.body_vertex_count
+        gl.glDrawArrays(GL_TRIANGLES, 0, count)
         program.release()
         self._vao.release()
         gl.glDisable(GL_CULL_FACE)
