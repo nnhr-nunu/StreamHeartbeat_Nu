@@ -23,13 +23,17 @@ REGION_ARTERY = 4.0
 REGION_VEIN = 5.0
 REGION_LUMEN = 6.0
 
-FLOATS_PER_VERTEX = 13
+FLOATS_PER_VERTEX = 15
 BASE_Y = 0.36
 APEX_Y = -1.12
 # 画面上で体の上下に合わせる傾き。心臓の長軸は体の縦から左下へ倒れている
 ANATOMY_ROLL_DEG = 34.0
 # 管の aAxial は心臓からの道のり ÷ この長さ（拍の波が伝わる位置）
 PATH_SCALE = 3.2
+# 血管の付け根をなじませる幅（本体側・管側）と、開いた先を透かして消す長さ
+JOINT_REACH = 0.12
+JOINT_ROOT = 0.24
+TIP_FADE = 0.34
 
 Vec3 = tuple[float, float, float]
 SideFn = Callable[[Vec3], float]
@@ -79,6 +83,8 @@ class HeartMesh:
     vertex_count: int
     # これより後ろの頂点は断面の切り口。断面の見た目のときだけ描く
     section_start: int = -1
+    # 血管の頂点の始まり。先を透かすので、不透明の後にもう一度描く
+    tube_start: int = 0
 
     @property
     def triangle_count(self) -> int:
@@ -265,6 +271,8 @@ def _vertex(
     v: float,
     side: float,
     cap: float = 0.0,
+    joint: float = 0.0,
+    fade: float = 1.0,
 ) -> None:
     out.extend(pos)
     out.extend(normal)
@@ -275,9 +283,15 @@ def _vertex(
     out.append(v)
     out.append(cap)
     out.append(side)
+    out.append(joint)
+    out.append(fade)
 
 
-def _body(rows: int, cols: int, side: SideFn) -> list[float]:
+def _no_contact(_p: Vec3) -> float:
+    return 0.0
+
+
+def _body(rows: int, cols: int, side: SideFn, contact: SideFn = _no_contact) -> list[float]:
     grid: list[list[tuple[Vec3, float, float, float]]] = []
     for i in range(rows + 1):
         theta = math.pi * i / rows
@@ -311,11 +325,23 @@ def _body(rows: int, cols: int, side: SideFn) -> list[float]:
             row_n.append(n)
         normals.append(row_n)
 
+    joints = [[contact(grid[i][j][0]) for j in range(cols)] for i in range(rows + 1)]
     out: list[float] = []
 
     def emit(i: int, j: int) -> None:
         pos, region, fat, cut = grid[i][j % cols]
-        _vertex(out, pos, normals[i][j % cols], region, fat, axial(pos[1]), j / cols, i / rows, cut)
+        _vertex(
+            out,
+            pos,
+            normals[i][j % cols],
+            region,
+            fat,
+            axial(pos[1]),
+            j / cols,
+            i / rows,
+            cut,
+            joint=joints[i][j % cols],
+        )
 
     for i in range(rows):
         for j in range(cols):
@@ -407,11 +433,22 @@ def _tube(vessel: Vessel, side: SideFn) -> list[float]:
         n_prev = n
 
     r_end = vessel.end_radius if vessel.end_radius is not None else vessel.radius * 0.88
+    fade_len = min(TIP_FADE, total * 0.6)
+
+    def fade_at(k: int) -> float:
+        # 開いた先は途切れさせず、細りながら透けて消える
+        if not vessel.open_end:
+            return 1.0
+        return _smooth01((total - lengths[k]) / fade_len)
+
+    def joint_at(k: int) -> float:
+        return 1.0 - _smooth01(lengths[k] / JOINT_ROOT)
 
     def radius_at(k: int) -> float:
         u = lengths[k] / total
         flare = 1.0 + vessel.root_flare * math.exp(-lengths[k] / 0.14)
-        return (vessel.radius + (r_end - vessel.radius) * u) * flare
+        thin = 0.78 + 0.22 * fade_at(k)
+        return (vessel.radius + (r_end - vessel.radius) * u) * flare * thin
 
     def path(k: int) -> float:
         return min(1.0, (vessel.path_start + lengths[k]) / PATH_SCALE)
@@ -427,8 +464,12 @@ def _tube(vessel: Vessel, side: SideFn) -> list[float]:
     out: list[float] = []
     region = vessel.region
 
-    def put(pos: Vec3, normal: Vec3, reg: float, ax: float, u: float, v: float) -> None:
-        _vertex(out, pos, normal, reg, 0.0, ax, u, v, side(pos))
+    def put(
+        pos: Vec3, normal: Vec3, reg: float, ax: float, u: float, v: float, k: int
+    ) -> None:
+        _vertex(
+            out, pos, normal, reg, 0.0, ax, u, v, side(pos), joint=joint_at(k), fade=fade_at(k)
+        )
 
     for k in range(count - 1):
         u0 = lengths[k] / total
@@ -440,12 +481,12 @@ def _tube(vessel: Vessel, side: SideFn) -> list[float]:
             p11, n11 = vertex(k + 1, r + 1)
             v0 = r / ring
             v1 = (r + 1) / ring
-            put(p00, n00, region, path(k), u0, v0)
-            put(p10, n10, region, path(k + 1), u1, v0)
-            put(p11, n11, region, path(k + 1), u1, v1)
-            put(p00, n00, region, path(k), u0, v0)
-            put(p11, n11, region, path(k + 1), u1, v1)
-            put(p01, n01, region, path(k), u0, v1)
+            put(p00, n00, region, path(k), u0, v0, k)
+            put(p10, n10, region, path(k + 1), u1, v0, k + 1)
+            put(p11, n11, region, path(k + 1), u1, v1, k + 1)
+            put(p00, n00, region, path(k), u0, v0, k)
+            put(p11, n11, region, path(k + 1), u1, v1, k + 1)
+            put(p01, n01, region, path(k), u0, v1, k)
 
     last = count - 1
     if not vessel.open_end:
@@ -468,12 +509,12 @@ def _tube(vessel: Vessel, side: SideFn) -> list[float]:
                 p01, n01 = dome(level, r + 1)
                 p10, n10 = dome(level + 1, r)
                 p11, n11 = dome(level + 1, r + 1)
-                put(p00, n00, region, tip, 1.0, 0.0)
-                put(p10, n10, region, tip, 1.0, 0.0)
-                put(p11, n11, region, tip, 1.0, 1.0)
-                put(p00, n00, region, tip, 1.0, 0.0)
-                put(p11, n11, region, tip, 1.0, 1.0)
-                put(p01, n01, region, tip, 1.0, 1.0)
+                put(p00, n00, region, tip, 1.0, 0.0, last)
+                put(p10, n10, region, tip, 1.0, 0.0, last)
+                put(p11, n11, region, tip, 1.0, 1.0, last)
+                put(p00, n00, region, tip, 1.0, 0.0, last)
+                put(p11, n11, region, tip, 1.0, 1.0, last)
+                put(p01, n01, region, tip, 1.0, 1.0, last)
         return out
     end_center = centers[last]
     end_t = tangents[last]
@@ -490,16 +531,16 @@ def _tube(vessel: Vessel, side: SideFn) -> list[float]:
         o1 = add(end_center, mul(d1, outer))
         i0 = add(end_center, mul(d0, inner))
         i1 = add(end_center, mul(d1, inner))
-        put(o0, end_t, region, tip, 1.0, 0.0)
-        put(o1, end_t, region, tip, 1.0, 1.0)
-        put(i1, end_t, region, tip, 1.0, 1.0)
-        put(o0, end_t, region, tip, 1.0, 0.0)
-        put(i1, end_t, region, tip, 1.0, 1.0)
-        put(i0, end_t, region, tip, 1.0, 0.0)
+        put(o0, end_t, region, tip, 1.0, 0.0, last)
+        put(o1, end_t, region, tip, 1.0, 1.0, last)
+        put(i1, end_t, region, tip, 1.0, 1.0, last)
+        put(o0, end_t, region, tip, 1.0, 0.0, last)
+        put(i1, end_t, region, tip, 1.0, 1.0, last)
+        put(i0, end_t, region, tip, 1.0, 0.0, last)
         sunk = sub(end_center, mul(end_t, inner * 0.35))
-        put(i0, end_t, REGION_LUMEN, tip, 0.0, 0.0)
-        put(i1, end_t, REGION_LUMEN, tip, 1.0, 1.0)
-        put(sunk, end_t, REGION_LUMEN, tip, 0.5, 0.5)
+        put(i0, end_t, REGION_LUMEN, tip, 0.0, 0.0, last)
+        put(i1, end_t, REGION_LUMEN, tip, 1.0, 1.0, last)
+        put(sunk, end_t, REGION_LUMEN, tip, 0.5, 0.5, last)
     return out
 
 
@@ -622,6 +663,26 @@ def great_vessels() -> list[Vessel]:
     return [aorta, *branches, trunk, left_pa, right_pa, svc, ivc, *pulmonary_veins]
 
 
+def body_contact(vessels: list[Vessel]) -> SideFn:
+    """本体の点が、心臓から生える血管の付け根にどれだけ近いか（0〜1）。"""
+    samples: list[tuple[Vec3, float]] = []
+    for vessel in vessels:
+        if vessel.path_start > 0.0:
+            continue
+        centers, lengths = centerline(vessel.points)
+        for c, length in zip(centers, lengths):
+            if length > JOINT_ROOT:
+                break
+            flare = 1.0 + vessel.root_flare * math.exp(-length / 0.14)
+            samples.append((c, vessel.radius * flare))
+
+    def contact(p: Vec3) -> float:
+        gap = min(math.sqrt(dot(sub(p, c), sub(p, c))) - r for c, r in samples)
+        return math.exp(-((max(0.0, gap) / JOINT_REACH) ** 2))
+
+    return contact
+
+
 def fix_winding(data: list[float], start_vertex: int = 0) -> None:
     """三角形の表が法線側を向くように頂点順を揃える。"""
     stride = FLOATS_PER_VERTEX
@@ -656,8 +717,10 @@ def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0
     for chamber in CHAMBERS:
         if origin_inside(chamber) >= 0.0:
             raise ValueError(f"原点が腔の外: {chamber.region}")
-    data = _body(rows, cols, plane_side)
-    for vessel in great_vessels():
+    vessels = great_vessels()
+    data = _body(rows, cols, plane_side, body_contact(vessels))
+    tube_start = len(data) // FLOATS_PER_VERTEX
+    for vessel in vessels:
         data += _tube(vessel, plane_side)
     section_start = len(data) // FLOATS_PER_VERTEX
     data += build_section_cap(section_step)
@@ -666,4 +729,5 @@ def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0
         data=array("f", data),
         vertex_count=len(data) // FLOATS_PER_VERTEX,
         section_start=section_start,
+        tube_start=tube_start,
     )

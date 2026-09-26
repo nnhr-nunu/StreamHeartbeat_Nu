@@ -59,6 +59,7 @@ _ATTRIBUTES = (
     ("aAxial", 8, 1),
     ("aUv", 9, 2),
     ("aSection", 11, 2),
+    ("aMerge", 13, 2),
 )
 
 
@@ -154,7 +155,10 @@ class HeartRenderer:
             else:
                 gl.glEnable(GL_CULL_FACE)
                 gl.glCullFace(GL_BACK)
-            gl.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            # 透明な窓でも縁が明るく浮かないよう、アルファは別の式で重ねる
+            gl.glBlendFuncSeparate(
+                GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+            )
 
         self._vao.bind()
         program.bind()
@@ -181,7 +185,20 @@ class HeartRenderer:
             program.setUniformValue1f("uGrain", float(look.grain))
             program.setUniformValue1f("uDensity", float(look.density))
         count = self._mesh.vertex_count if look.section else self._mesh.body_vertex_count
-        gl.glDrawArrays(GL_TRIANGLES, 0, count)
+        if look.additive:
+            gl.glDrawArrays(GL_TRIANGLES, 0, count)
+        else:
+            # 不透明な所を先に描き、透けて消えていく血管の先は奥行きを書かずに重ねる
+            program.setUniformValue1i("uPass", 0)
+            gl.glDrawArrays(GL_TRIANGLES, 0, count)
+            gl.glDepthMask(False)
+            # 透ける先では管の内側を見せない（断面でも切るのは根元だけ）
+            gl.glEnable(GL_CULL_FACE)
+            gl.glCullFace(GL_BACK)
+            program.setUniformValue1i("uPass", 1)
+            tubes = self._mesh.tube_start
+            gl.glDrawArrays(GL_TRIANGLES, tubes, self._mesh.body_vertex_count - tubes)
+            gl.glDepthMask(True)
         program.release()
         self._vao.release()
         gl.glDisable(GL_CULL_FACE)

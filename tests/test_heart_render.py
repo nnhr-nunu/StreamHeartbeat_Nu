@@ -151,3 +151,21 @@ def test_section_cap_is_tail_of_mesh_and_only_anatomy_uses_it() -> None:
     assert realistic_look("anatomy").section
     assert not realistic_look("surgical").section
     assert not any(look.section for look in STYLE_LOOKS.values())
+
+
+def test_vessel_tips_fade_out_and_roots_blend_into_body() -> None:
+    mesh = build_heart_mesh(rows=24, cols=36, section_step=0.08)
+    stride = FLOATS_PER_VERTEX
+    body = range(0, mesh.tube_start)
+    tubes = range(mesh.tube_start, mesh.section_start)
+    joint = [mesh.data[v * stride + 13] for v in range(mesh.vertex_count)]
+    fade = [mesh.data[v * stride + 14] for v in range(mesh.vertex_count)]
+    # 本体と断面は透けない。血管の開いた先は透明まで消える
+    assert all(fade[v] == 1.0 for v in body)
+    assert all(fade[v] == 1.0 for v in range(mesh.section_start, mesh.vertex_count))
+    assert min(fade[v] for v in tubes) == pytest.approx(0.0, abs=1e-6)
+    # 付け根の近くだけ本体側もなじませる
+    assert max(joint[v] for v in body) > 0.8
+    apex = [v for v in body if mesh.data[v * stride + 8] > 0.6]
+    assert apex and max(joint[v] for v in apex) < 0.05
+    assert max(joint[v] for v in tubes) == pytest.approx(1.0)

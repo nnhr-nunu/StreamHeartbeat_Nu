@@ -17,6 +17,7 @@ in float aFat;
 in float aAxial;
 in vec2 aUv;
 in vec2 aSection;
+in vec2 aMerge;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -37,6 +38,8 @@ out float vCap;
 out float vSide;
 out vec3 vSecS;
 out vec3 vSecT;
+out float vJoint;
+out float vFade;
 """
     + SECTION_AXES_GLSL
     + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
@@ -136,6 +139,8 @@ void main() {
     vSide = aSection.y;
     vSecS = normalize(mat3(uModel) * SEC_S);
     vSecT = normalize(mat3(uModel) * SEC_T);
+    vJoint = aMerge.x;
+    vFade = aMerge.y;
     gl_Position = uProj * uView * world;
 }
 """
@@ -198,6 +203,8 @@ in float vCap;
 in float vSide;
 in vec3 vSecS;
 in vec3 vSecT;
+in float vJoint;
+in float vFade;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -209,7 +216,16 @@ uniform float uGloss;
 uniform float uSaturation;
 uniform float uCoronary;
 uniform float uSection;
+// 0: 不透明な所だけ描く / 1: 透けて消えていく血管の先だけ描く
+uniform int uPass;
 out vec4 fragColor;
+
+void passGate() {
+    bool faded = vFade < 0.995;
+    if ((uPass == 0 && faded) || (uPass == 1 && !faded)) {
+        discard;
+    }
+}
 """
 
 FLESH_FRAGMENT = (
@@ -222,8 +238,9 @@ vec3 regionBase(float r, vec3 p) {
     vec3 rv = vec3(0.66, 0.17, 0.21);
     vec3 la = vec3(0.50, 0.12, 0.26);
     vec3 ra = vec3(0.55, 0.15, 0.27);
-    vec3 artery = vec3(0.80, 0.42, 0.40);
-    vec3 vein = vec3(0.46, 0.22, 0.38);
+    // 血管は本体と同じ赤の系統に寄せ、明るさと彩度だけ少し変える
+    vec3 artery = vec3(0.64, 0.25, 0.25);
+    vec3 vein = vec3(0.42, 0.13, 0.22);
     vec3 lumen = vec3(0.14, 0.02, 0.03);
     vec3 c = lv;
     c = mix(c, rv, smoothstep(0.4, 0.6, r));
@@ -260,7 +277,7 @@ vec3 lightFlesh(vec3 albedo, vec3 N, vec3 V, vec3 P, float gloss, float fatMask,
     vec3 H2 = normalize(L2 + V);
     float spec2 = pow(max(dot(N, H2), 0.0), 90.0) * 0.35 * g;
     // 脂肪は濡れ光が弱く、動脈は強い
-    float specScale = mix(1.0, 0.7, fatMask) * mix(1.0, 1.3, isVessel);
+    float specScale = mix(1.0, 0.7, fatMask) * mix(1.0, 1.1, isVessel);
     float spec = (specTight + specMid + specBroad + spec2) * specScale;
 
     vec3 light = vec3(1.0, 0.96, 0.92) * d1 + vec3(0.55, 0.62, 0.78) * d2
@@ -277,9 +294,13 @@ void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);
     vec3 P = vWorldPos;
+    passGate();
     float isVessel = smoothstep(3.4, 3.6, vRegion) * (1.0 - smoothstep(5.4, 5.6, vRegion));
     float isLumen = smoothstep(5.4, 5.6, vRegion);
     float isBody = 1.0 - smoothstep(3.4, 3.6, vRegion);
+    // 先へ行くほど奥へ沈むように暗くし、透かして消す
+    float tipDark = mix(0.72, 1.0, vFade);
+    float alpha = uOpacity * vFade;
 
     // 断面: 切り口は模様を描き、面より手前の外皮と血管は捨てる
     if (vCap > 0.5) {
@@ -298,14 +319,14 @@ void main() {
     if (uSection > 0.5 && vSide > 0.0) {
         discard;
     }
-    // 切って開いた管の内側。内膜は白っぽく濡れている
+    // 切って開いた管の内側。内膜は淡く濡れているが、外の赤から浮かない明るさに抑える
     if (!gl_FrontFacing) {
         vec3 Ni = -N;
         float streaks = fbm(vec3(P.x * 20.0, P.y * 6.0, P.z * 20.0));
-        vec3 intima = mix(vec3(0.78, 0.46, 0.44), vec3(0.95, 0.78, 0.74), streaks);
+        vec3 intima = mix(vec3(0.62, 0.28, 0.28), vec3(0.82, 0.56, 0.52), streaks);
         vec3 inner = mix(vec3(0.34, 0.05, 0.07), intima, isVessel + isLumen);
         vec3 innerColor = lightFlesh(desaturate(inner), Ni, V, P, 1.1, 0.0, isVessel) * 0.8;
-        fragColor = vec4(pow(innerColor, vec3(0.92)), uOpacity);
+        fragColor = vec4(pow(innerColor * tipDark, vec3(0.92)), alpha);
         return;
     }
 
@@ -320,8 +341,8 @@ void main() {
     base *= 0.88 + 0.22 * fiber + 0.06 * (pores - 0.5);
     // 動脈の外膜は薄く白っぽい膜が乗り、細い栄養血管が走る
     float sheath = fbm(P * 12.0 + 40.0);
-    vec3 sheathColor = vec3(0.92, 0.78, 0.74);
-    base = mix(base, sheathColor, isVessel * smoothstep(0.45, 0.75, sheath) * 0.55);
+    vec3 sheathColor = vec3(0.84, 0.60, 0.54);
+    base = mix(base, sheathColor, isVessel * smoothstep(0.50, 0.80, sheath) * 0.32);
     float vasa = smoothstep(0.90, 0.985, ridged(P * 14.0 + vec3(6.0, 2.0, 9.0)));
     base = mix(base, vec3(0.55, 0.10, 0.12), isVessel * vasa * 0.6);
     base = mix(base, base * vec3(1.22, 0.90, 0.92), (mottle - 0.5) * 1.1);
@@ -381,14 +402,22 @@ void main() {
     albedo = mix(albedo, coronaryColor, clamp(coronaryVis, 0.0, 1.0));
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
 
+    // 血管の付け根: 本体と管の両側を脂肪混じりの外膜の色へ寄せ、接する所を影で沈める
+    float jointNoise = 0.55 + 0.45 * fbm(P * 5.0 + 50.0);
+    float joint = clamp(vJoint * jointNoise, 0.0, 1.0);
+    vec3 jointTone = mix(vec3(0.56, 0.20, 0.20), fatColor * 0.72, 0.30 * uFatAmount);
+    albedo = mix(albedo, jointTone, joint * 0.55 * (1.0 - isLumen));
+    albedo *= 1.0 - 0.30 * vJoint;
+    albedo *= tipDark;
+
     albedo = desaturate(albedo);
-    vec3 color = lightFlesh(albedo, N, V, P, 1.0, fatMask, isVessel);
+    vec3 color = lightFlesh(albedo, N, V, P, mix(1.0, 0.55, vJoint), fatMask, isVessel);
 
     // 断面の内腔は暗く沈める
     color = mix(color, color * 0.35, isLumen);
 
     color = pow(color, vec3(0.92));
-    fragColor = vec4(color, uOpacity);
+    fragColor = vec4(color, alpha);
 }
 """
 )
@@ -401,6 +430,7 @@ void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);
     vec3 P = vWorldPos;
+    passGate();
     float isVessel = smoothstep(3.4, 3.6, vRegion) * (1.0 - smoothstep(5.4, 5.6, vRegion));
     float isLumen = smoothstep(5.4, 5.6, vRegion);
     float isBody = 1.0 - smoothstep(3.4, 3.6, vRegion);
@@ -473,7 +503,7 @@ void main() {
     color += pulseColor * isLumen * (0.5 + 1.2 * pulse);
     color += glow * groove * 0.20 * pulse;
 
-    fragColor = vec4(color, uOpacity);
+    fragColor = vec4(color * mix(0.6, 1.0, vFade), uOpacity * vFade);
 }
 """
 )
@@ -496,7 +526,7 @@ void main() {
     density *= (1.0 - isLumen * 0.7);
     // 管は壁が薄いので淡く、根元は体の中に埋まっているのでさらに薄く
     float isTube = smoothstep(3.4, 3.6, vRegion) * (1.0 - smoothstep(5.4, 5.6, vRegion));
-    density *= mix(1.0, 0.55 * smoothstep(0.05, 0.45, vUv.x), isTube);
+    density *= mix(1.0, 0.55 * smoothstep(0.05, 0.45, vUv.x), isTube) * vFade;
     float grain = fbm(vWorldPos * 26.0 + vec3(uTime * 1.7, uTime * 0.9, 0.0));
     float grain2 = vnoise(vWorldPos * 90.0 + vec3(0.0, uTime * 13.0, uTime * 7.0));
     density *= 1.0 + uGrain * (grain - 0.5) + uGrain * 0.35 * (grain2 - 0.5);
