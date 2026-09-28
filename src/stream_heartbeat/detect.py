@@ -18,6 +18,19 @@ ENV_ABS_MIN = 0.008
 NOISE_INIT = 0.01
 PAIR_SECONDS = 0.36
 DEFAULT_INTERVAL = 0.8
+# 数秒ぶんの音の強弱の繰り返しから1拍の長さを測る（2音目を別の拍と数えないため）
+RHYTHM_RATE = 50.0
+RHYTHM_SECONDS = 6.0
+RHYTHM_MIN_SECONDS = 3.0
+RHYTHM_MAX_LAG = 2.0
+RHYTHM_EVERY = 0.5
+RHYTHM_CONF = 0.35
+RHYTHM_PICK = 0.75
+RHYTHM_ALTERNATE = 0.12
+# クリック拍に合わせて倍にするのは、倍がクリック拍の ±20% に入るときだけ
+# （運動後の速い拍を半分にしない）
+RHYTHM_HINT_BAND = math.log(1.2)
+RHYTHM_GUARD = 0.55
 
 
 def envelope_rms(samples: list[float], hop: int) -> list[float]:
@@ -82,7 +95,93 @@ def _cosine_demean(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def extract_thuds(samples: list[float], sample_rate: float) -> list[list[float]]:
+def estimate_period(
+    env: list[float],
+    rate: float,
+    min_lag: float,
+    max_lag: float,
+    hint: float = 0.0,
+) -> float:
+    """包絡の自己相関から1拍の長さ（秒）。はっきりしないときは 0。
+
+    ドッ・クンの間隔（片側だけ一致）より、1拍ぶんずらした所（両方一致）の方が強く出る。
+    同じくらい強い候補のうち一番短いものを選び、2拍ぶんを1拍と取り違えないようにする。
+    ただし倍の長さの方がはっきり強いときは、強弱が交互に来るドッ・クンなので倍を1拍とする。
+    強さも間隔もそろった音は速い拍のまま（まとめない）。
+    どちらとも言えないときは、hint（録音中のクリック拍の間隔）に近い方を選ぶ。
+    """
+    n = len(env)
+    lo = max(1, int(min_lag * rate))
+    hi = min(n - int(rate) - 2, int(max_lag * rate))
+    if hi <= lo:
+        return 0.0
+    # 体の動きなどの大きな一発に引きずられないよう、上位 5% より上は頭打ちにする
+    cap = 2.0 * sorted(env)[int(n * 0.95)]
+    x = [min(v, cap) for v in env]
+    mean = sum(x) / n
+    x = [v - mean for v in x]
+    scores = [0.0] * (hi + 2)
+    for lag in range(lo - 1, hi + 2):
+        a = x[: n - lag]
+        b = x[lag:]
+        na = sum(p * p for p in a)
+        nb = sum(q * q for q in b)
+        if na > 1e-12 and nb > 1e-12:
+            scores[lag] = sum(p * q for p, q in zip(a, b)) / math.sqrt(na * nb)
+    peaks = [
+        lag
+        for lag in range(lo, hi + 1)
+        if scores[lag] >= scores[lag - 1] and scores[lag] > scores[lag + 1]
+    ]
+    if not peaks:
+        return 0.0
+    best = max(scores[lag] for lag in peaks)
+    if best < RHYTHM_CONF:
+        return 0.0
+    lag = next(lag for lag in peaks if scores[lag] >= RHYTHM_PICK * best)
+    doubles = [p for p in peaks if abs(p - 2 * lag) <= 3]
+    if doubles:
+        double = max(doubles, key=lambda p: scores[p])
+        if scores[double] >= scores[lag] + RHYTHM_ALTERNATE:
+            lag = double
+        elif (
+            hint > 0
+            and scores[double] >= scores[lag] - RHYTHM_ALTERNATE
+            and abs(math.log(double / (hint * rate))) < RHYTHM_HINT_BAND
+        ):
+            lag = double
+    y0, y1, y2 = scores[lag - 1], scores[lag], scores[lag + 1]
+    den = y0 - 2.0 * y1 + y2
+    off = 0.5 * (y0 - y2) / den if abs(den) > 1e-9 else 0.0
+    return (lag + max(-0.5, min(0.5, off))) / rate
+
+
+def _band_coeffs(sample_rate: float) -> tuple[float, float]:
+    rate = max(sample_rate, 1.0)
+    lp_a = 1.0 - math.exp(-2.0 * math.pi * 180.0 / rate)
+    hp_a = 1.0 - math.exp(-2.0 * math.pi * 18.0 / rate)
+    return lp_a, hp_a
+
+
+def band_pass(samples: list[float], sample_rate: float) -> list[float]:
+    """検出と同じ帯域（18〜180 Hz）に絞る。覚えた型と聞こえた音を同じ条件で比べるため。"""
+    lp_a, hp_a = _band_coeffs(sample_rate)
+    lp = 0.0
+    hp = 0.0
+    out: list[float] = []
+    for sample in samples:
+        lp += lp_a * (sample - lp)
+        hp += hp_a * (lp - hp)
+        out.append(lp - hp)
+    return out
+
+
+def extract_thuds(
+    samples: list[float],
+    sample_rate: float,
+    cut_from: list[float] | None = None,
+) -> list[list[float]]:
+    """心音らしい塊を切り出す。cut_from を渡すと、同じ位置をそちらから切る。"""
     if not samples or sample_rate <= 0:
         return []
     hop = max(1, int(0.01 * sample_rate))
@@ -106,7 +205,7 @@ def extract_thuds(samples: list[float], sample_rate: float) -> list[list[float]]
         end = min(len(samples), start + width)
         chunk = samples[start:end]
         if looks_like_thud(chunk):
-            thuds.append(chunk)
+            thuds.append(chunk if cut_from is None else cut_from[start:end])
             last_i = center
     return thuds
 
@@ -139,7 +238,9 @@ class CalibrationTemplate:
     ) -> CalibrationTemplate | None:
         thuds: list[list[float]] = []
         for session in sessions:
-            thuds.extend(extract_thuds(session, sample_rate))
+            # 検出側は帯域を絞った音で比べるので、型も同じく絞った音から切る
+            filtered = band_pass(session, sample_rate)
+            thuds.extend(extract_thuds(session, sample_rate, cut_from=filtered))
         if not thuds:
             return None
         thuds.sort(key=lambda item: -_rms(item))
@@ -192,8 +293,20 @@ class HeartSoundDetector:
         self._last_raw_t = -1e9
         self._gaps: deque[float] = deque(maxlen=8)
         self._pair_mode = False
+        self._primed = False
+        self._rhythm: deque[float] = deque(maxlen=int(RHYTHM_SECONDS * RHYTHM_RATE))
+        self._rhythm_step = 0
+        self._rhythm_tick = 0
+        self._period = 0.0
+
+    @property
+    def period(self) -> float:
+        """音の繰り返しから測った1拍の長さ（秒）。まだ分からないときは 0。"""
+        return self._period
 
     def _refractory(self) -> float:
+        if self._period > 0:
+            return max(self.min_interval, RHYTHM_GUARD * self._period)
         if self.tap_interval >= 0.25:
             return max(self.min_interval, min(PAIR_SECONDS, self.tap_interval * 0.55))
         pair = min(PAIR_SECONDS, 0.45 * self._last_interval)
@@ -218,11 +331,13 @@ class HeartSoundDetector:
         hits: list[float] = []
         dt = 1.0 / sample_rate if sample_rate else 0.001
         win = max(16, int(THUD_SECONDS * sample_rate))
-        lp_a = 1.0 - math.exp(-2.0 * math.pi * 180.0 / max(sample_rate, 1.0))
-        hp_a = 1.0 - math.exp(-2.0 * math.pi * 18.0 / max(sample_rate, 1.0))
+        lp_a, hp_a = _band_coeffs(sample_rate)
         a_up = 1.0 - math.exp(-dt / 6.0)
         a_dn = 1.0 - math.exp(-dt / 0.25)
         peak_decay = math.exp(-dt / 2.2)
+        rhythm_hop = max(1, int(round(sample_rate / RHYTHM_RATE)))
+        rhythm_every = int(RHYTHM_EVERY * RHYTHM_RATE)
+        rhythm_min = int(RHYTHM_MIN_SECONDS * RHYTHM_RATE)
         for i, sample in enumerate(samples):
             self._lp += lp_a * (sample - self._lp)
             self._hp += hp_a * (self._lp - self._hp)
@@ -238,6 +353,27 @@ class HeartSoundDetector:
                 self._sumsq = 0.0
             env = math.sqrt(self._sumsq / win)
             sample_t = t + i * dt
+            if not self._primed:
+                # 最初の窓は「上がり始め」ではない。いまの音量を下地にして、
+                # 起動直後の空打ちで本物の次の拍を消さない
+                self._primed = True
+                self._noise = max(env, 1e-4)
+                self._prev_env = env
+                continue
+            self._rhythm_step += 1
+            if self._rhythm_step >= rhythm_hop:
+                self._rhythm_step = 0
+                self._rhythm.append(env)
+                self._rhythm_tick += 1
+                if self._rhythm_tick >= rhythm_every and len(self._rhythm) >= rhythm_min:
+                    self._rhythm_tick = 0
+                    self._period = estimate_period(
+                        list(self._rhythm),
+                        RHYTHM_RATE,
+                        self.min_interval,
+                        RHYTHM_MAX_LAG,
+                        hint=self.tap_interval if self.tap_interval >= 0.25 else 0.0,
+                    )
             if env < self._noise:
                 self._noise += a_dn * (env - self._noise)
             else:
@@ -268,7 +404,13 @@ class HeartSoundDetector:
                 continue
             if 0.33 < since <= 0.55 and env < self._last_onset_env * 0.55:
                 continue
-            if 0.45 <= self.tap_interval <= 1.2 and since < min(self.tap_interval * 0.72, 0.55):
+            # クリック拍の記憶は、いまの拍の長さが測れていないときだけ使う
+            # （安静時のクリックのせいで運動後の速い拍を半分にしない）
+            if (
+                self._period <= 0
+                and 0.45 <= self.tap_interval <= 1.2
+                and since < min(self.tap_interval * 0.72, 0.55)
+            ):
                 continue
             if since < self._refractory():
                 continue
