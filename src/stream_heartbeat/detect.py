@@ -13,7 +13,8 @@ THUD_SECONDS = 0.09
 BRIGHTNESS_MAX = 0.82
 ZCR_MAX = 0.22
 CORR_MIN = 0.45
-BUNDLED_CORR_MIN = 0.08
+# 覚えた型との照合は時間合わせが無く、本物の拍を落とすだけだったので止めている（D-2 で作り直す）
+BUNDLED_CORR_MIN = 0.0
 ENV_ABS_MIN = 0.008
 NOISE_INIT = 0.01
 PAIR_SECONDS = 0.36
@@ -30,18 +31,19 @@ RHYTHM_ALTERNATE = 0.12
 # クリック拍に合わせて倍にするのは、倍がクリック拍の ±20% に入るときだけ
 # （運動後の速い拍を半分にしない）
 RHYTHM_HINT_BAND = math.log(1.2)
-# 188 BPM を超える候補で、倍の長さもほぼ同じ強さなら倍を1拍とする
+# 176 BPM を超える候補で、倍の長さもほぼ同じ強さなら倍を1拍とする
 # （速い拍や失神前後では、ドッとクンがほぼ等間隔に並んで半分の長さに見える）
-RHYTHM_FAST_LAG = 0.32
-RHYTHM_FAST_MARGIN = 0.2
+RHYTHM_FAST_LAG = 0.34
+RHYTHM_FAST_MARGIN = 0.3
 RHYTHM_GUARD = 0.55
+RHYTHM_CAP = 1.6
 # 音の大きさは鳴り始めでなく山で比べる（鳴り始めはどの音も閾値ちょうどで差が出ない）。
 # 山を待つのはこの秒数まで。拍の時刻は鳴り始めのまま
 PEAK_WAIT = 0.06
 # 最近の拍の山の大きさ（中央値）に対する割合
 LEVEL_KEEP = 8
-EARLY_SHARE = 0.8
-EARLY_LEVEL = 0.6
+EARLY_SHARE = 0.85
+EARLY_LEVEL = 0.75
 QUIET_LEVEL = 0.22
 # 直前の拍よりはっきり大きい音がすぐ後に来たら、そちらを本当の拍とみなして数え直す
 REANCHOR_GAIN = 1.8
@@ -126,15 +128,18 @@ def estimate_period(
     ただし倍の長さの方がはっきり強いときは、強弱が交互に来るドッ・クンなので倍を1拍とする。
     強さも間隔もそろった音は速い拍のまま（まとめない）。
     どちらとも言えないときは、hint（録音中のクリック拍の間隔）に近い方を選ぶ。
-    188 BPM を超える候補で倍もほぼ同じ強さなら、等間隔に並んだドッ・クンとみて倍を取る。
+    176 BPM を超える候補で倍もほぼ同じ強さなら、等間隔に並んだドッ・クンとみて倍を取る。
     """
     n = len(env)
     lo = max(1, int(min_lag * rate))
     hi = min(n - int(rate) - 2, int(max_lag * rate))
     if hi <= lo:
         return 0.0
-    # 体の動きなどの大きな一発に引きずられないよう、上位 5% より上は頭打ちにする
-    cap = 2.0 * sorted(env)[int(n * 0.95)]
+    # 体の動きなどの大きな一発に引きずられないよう、音の山の中央値の 1.6 倍で頭打ちにする
+    tops = sorted(
+        env[i] for i in range(1, n - 1) if env[i] >= env[i - 1] and env[i] > env[i + 1]
+    )
+    cap = RHYTHM_CAP * tops[len(tops) // 2] if tops else max(env)
     x = [min(v, cap) for v in env]
     mean = sum(x) / n
     x = [v - mean for v in x]
@@ -325,6 +330,7 @@ class HeartSoundDetector:
         self._block_until = -1e9
         self._last_peak = 0.0
         self._levels: deque[float] = deque(maxlen=LEVEL_KEEP)
+        self._level_mid = 0.0
 
     @property
     def period(self) -> float:
@@ -437,9 +443,12 @@ class HeartSoundDetector:
 
     def _level(self) -> float:
         """最近の拍の山の大きさ（中央値）。まだ無いときは 0。"""
-        if len(self._levels) < 3:
-            return 0.0
-        return sorted(self._levels)[len(self._levels) // 2]
+        return self._level_mid
+
+    def _push_level(self, peak: float) -> None:
+        self._levels.append(peak)
+        if len(self._levels) >= 3:
+            self._level_mid = sorted(self._levels)[len(self._levels) // 2]
 
     def _accept(self, sample_t: float, peak: float) -> bool:
         """山まで聞いた1つの音を、拍として数えるか決める。"""
@@ -457,7 +466,7 @@ class HeartSoundDetector:
                 if since <= REANCHOR_SECONDS and peak >= REANCHOR_GAIN * self._last_peak:
                     self._last_beat = sample_t
                     self._last_peak = peak
-                    self._levels.append(peak)
+                    self._push_level(peak)
                 return False
             if level > 0:
                 need = EARLY_LEVEL if since < EARLY_SHARE * period else QUIET_LEVEL
@@ -478,7 +487,7 @@ class HeartSoundDetector:
             self._last_interval = 0.7 * self._last_interval + 0.3 * since
         self._last_beat = sample_t
         self._last_peak = peak
-        self._levels.append(peak)
+        self._push_level(peak)
         return True
 
     def unlock(self) -> None:
@@ -490,4 +499,5 @@ class HeartSoundDetector:
         self._last_raw_t = -1e9
         self._peak = min(self._peak, 0.08)
         self._levels.clear()
+        self._level_mid = 0.0
         self._pending = None
