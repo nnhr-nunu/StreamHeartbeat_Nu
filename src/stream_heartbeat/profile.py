@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -67,16 +68,73 @@ def profiles_dir(data_dir: Path | None = None) -> Path:
     return path
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """書き込みの途中で落ちても、前のファイルを壊さない。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def save_profile(path: Path, profile: HeartProfile) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(profile)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _set_aside(path: Path) -> None:
+    """読めないファイルは上書きで消さないよう、名前を変えて残す。"""
+    try:
+        os.replace(path, path.with_name(path.name + ".broken"))
+    except OSError:
+        pass
+
+
+def _same_kind(default: object, value: object) -> bool:
+    if isinstance(default, bool):
+        return isinstance(value, bool)
+    if isinstance(default, float):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(default, str):
+        return isinstance(value, str)
+    return True
+
+
+def _clean_calibration(value: object) -> list[list[float]]:
+    if not isinstance(value, list):
+        return []
+    out: list[list[float]] = []
+    for session in value:
+        if isinstance(session, list) and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in session
+        ):
+            out.append(session)
+    return out
 
 
 def load_profile(path: Path) -> HeartProfile:
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    allowed = {f.name for f in fields(HeartProfile)}
-    filtered = {k: v for k, v in raw.items() if k in allowed}
+    """壊れた・手で書き換えた項目は既定値にする。読めないファイルでも起動は止めない。"""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return HeartProfile(name=path.stem)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        _set_aside(path)
+        return HeartProfile(name=path.stem)
+    if not isinstance(raw, dict):
+        _set_aside(path)
+        return HeartProfile(name=path.stem)
+    defaults = HeartProfile()
+    filtered: dict[str, object] = {}
+    for item in fields(HeartProfile):
+        if item.name not in raw:
+            continue
+        value = raw[item.name]
+        if item.name == "calibration":
+            filtered[item.name] = _clean_calibration(value)
+            continue
+        default = getattr(defaults, item.name)
+        if _same_kind(default, value):
+            filtered[item.name] = float(value) if isinstance(default, float) else value
     return HeartProfile(**filtered)
 
 
@@ -106,10 +164,7 @@ def save_app_state(data_dir: Path | None = None, **updates: object) -> None:
             state.pop(key, None)
         else:
             state[key] = value
-    (root / STATE_FILENAME).write_text(
-        json.dumps(state, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _write_atomic(root / STATE_FILENAME, json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def load_last_profile_name(data_dir: Path | None = None) -> str:

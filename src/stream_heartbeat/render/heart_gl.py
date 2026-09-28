@@ -170,7 +170,8 @@ class HeartRenderer:
         program.setUniformValue1f("uSqueeze", float(cycle.squeeze))
         program.setUniformValue1f("uEject", float(cycle.eject))
         program.setUniformValue1f("uFill", float(cycle.fill))
-        program.setUniformValue1f("uTime", float(time_s))
+        # 長時間の配信でも細かい揺らぎが粗くならないよう、小さな値に折り返して渡す
+        program.setUniformValue1f("uTime", float(time_s % 3600.0))
         program.setUniformValue1f("uAge", float(cycle.age))
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uFatAmount", float(look.fat_amount))

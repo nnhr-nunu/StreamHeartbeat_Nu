@@ -43,6 +43,8 @@ RIPPLE_S = 0.55
 RIPPLE_R0 = 0.10
 RIPPLE_R1 = 0.42
 TAP_GOAL = 4
+# 補正の録音はこの秒数まで（止め忘れでメモリと保存ファイルが膨らみ続けないように）
+CAL_MAX_S = 60.0
 BURST_FADE_IN_S = 0.25
 BURST_HOLD_S = 0.2
 BURST_FADE_OUT_S = 0.35
