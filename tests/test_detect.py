@@ -8,6 +8,7 @@ from pathlib import Path
 from stream_heartbeat.detect import (
     CalibrationTemplate,
     HeartSoundDetector,
+    band_pass,
     envelope_rms,
     load_wav_mono,
     looks_like_thud,
@@ -70,13 +71,12 @@ def test_template_prefers_matching_shape() -> None:
     pulse = [_thud(i, 40) for i in range(90)]
     template = CalibrationTemplate.from_sessions([pulse, pulse], sample_rate=1000)
     assert template is not None
-    detector = HeartSoundDetector(template=template)
-    t = 0.0
-    hits: list[float] = []
-    for i, sample in enumerate(pulse * 2):
-        hits.extend(detector.feed([sample], t, 1000))
-        t += 0.001
-    assert hits
+    # 型は検出と同じ帯域に絞った音で覚えるので、聞こえた同じ形の音とよく一致する
+    heard = band_pass([0.01] * 200 + pulse, 1000)[200:290]
+    assert template.score(heard) > 0.9
+    snap = [0.9 if i % 2 == 0 else -0.9 for i in range(20)] + [0.0] * 70
+    other = band_pass([0.0] * 200 + snap, 1000)[200:290]
+    assert template.score(other) < template.score(heard)
     miss_det = HeartSoundDetector(template=template)
     miss: list[float] = []
     t = 0.0
@@ -279,3 +279,59 @@ def test_load_wav_mono(tmp_path: Path) -> None:
     samples = load_wav_mono(path)
     assert len(samples) == 160
     assert max(samples) > 0.1
+
+
+def _lub_dub(
+    bpm: float,
+    secs: float,
+    systole: float,
+    s1: float = 0.3,
+    s2: float = 0.18,
+    sr: int = 4000,
+) -> list[float]:
+    """ドッ（42Hz）とクン（58Hz）が systole 秒あいて鳴る合成の心音。"""
+    out = [0.0] * int(secs * sr)
+    t = 0.4
+    while t < secs - 0.5:
+        for freq, dur, amp, off in ((42.0, 0.09, s1, 0.0), (58.0, 0.07, s2, systole)):
+            n = int(dur * sr)
+            k = int((t + off) * sr)
+            for j in range(n):
+                env = math.sin(math.pi * j / n) ** 2
+                out[k + j] += amp * env * math.sin(2 * math.pi * freq * j / sr)
+        t += 60.0 / bpm
+    return out
+
+
+def _median_gap(samples: list[float], sr: int, after: float, **kwargs: float) -> float:
+    detector = HeartSoundDetector(**kwargs)
+    beats: list[float] = []
+    for i in range(0, len(samples), sr // 20):
+        beats.extend(detector.feed(samples[i : i + sr // 20], i / sr, sr))
+    late = [b for b in beats if b > after]
+    assert len(late) >= 4
+    return statistics.median(b - a for a, b in zip(late, late[1:]))
+
+
+def test_steady_background_is_not_a_beat_at_start() -> None:
+    sr = 4000
+    hum = [0.06 * math.sin(2 * math.pi * 40 * i / sr) for i in range(sr)]
+    detector = HeartSoundDetector()
+    assert detector.feed(hum, 0.0, sr) == []
+
+
+def test_resting_lub_dub_is_not_doubled() -> None:
+    # 70 BPM ではドッからクンまで約 0.37 秒あり、決め打ちの 0.36 秒の待ちでは防げなかった
+    sig = _lub_dub(bpm=70, secs=14, systole=0.37)
+    assert 0.78 < _median_gap(sig, 4000, after=5.0) < 0.94
+
+
+def test_loud_second_sound_is_not_doubled() -> None:
+    sig = _lub_dub(bpm=80, secs=14, systole=0.356, s1=0.16, s2=0.22)
+    assert 0.68 < _median_gap(sig, 4000, after=5.0) < 0.82
+
+
+def test_fast_beats_after_resting_tap_are_not_halved() -> None:
+    # 安静時に 75 BPM でクリックしたあと、運動で 120 BPM になっても半分に数えない
+    sig = _lub_dub(bpm=120, secs=14, systole=0.29)
+    assert 0.44 < _median_gap(sig, 4000, after=5.0, tap_interval=0.8) < 0.56
