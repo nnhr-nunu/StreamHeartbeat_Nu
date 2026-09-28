@@ -335,3 +335,41 @@ def test_fast_beats_after_resting_tap_are_not_halved() -> None:
     # 安静時に 75 BPM でクリックしたあと、運動で 120 BPM になっても半分に数えない
     sig = _lub_dub(bpm=120, secs=14, systole=0.29)
     assert 0.44 < _median_gap(sig, 4000, after=5.0, tap_interval=0.8) < 0.56
+
+
+def _add_bump(out: list[float], at: float, amp: float, freq: float, dur: float, sr: int) -> None:
+    n = int(dur * sr)
+    k = int(at * sr)
+    for j in range(min(n, len(out) - k)):
+        env = math.sin(math.pi * j / n) ** 2
+        out[k + j] += amp * env * math.sin(2 * math.pi * freq * j / sr)
+
+
+def _beats(samples: list[float], sr: int) -> list[float]:
+    detector = HeartSoundDetector()
+    beats: list[float] = []
+    for i in range(0, len(samples), sr // 20):
+        beats.extend(detector.feed(samples[i : i + sr // 20], i / sr, sr))
+    return beats
+
+
+def test_small_bump_before_lub_does_not_steal_the_beat() -> None:
+    # おなかの音などの小さな音が拍の少し前に鳴っても、本物のドッに合わせ直す
+    sr = 4000
+    sig = _lub_dub(bpm=75, secs=16, systole=0.3, sr=sr)
+    lubs = [0.4 + k * 0.8 for k in range(19)]
+    for lub in lubs[8:]:
+        _add_bump(sig, lub - 0.17, 0.16, 35.0, 0.06, sr)
+    late = [b for b in _beats(sig, sr) if b > 8.0]
+    assert len(late) >= 8
+    on_lub = sum(1 for b in late if min(abs(b - lub) for lub in lubs) < 0.08)
+    assert on_lub >= len(late) - 2
+
+
+def test_loud_bump_does_not_hide_following_beats() -> None:
+    # 体の動きなどの大きな一発のあとも、小さめの本物の拍を落とし続けない
+    sr = 4000
+    sig = _lub_dub(bpm=90, secs=16, systole=0.28, sr=sr)
+    _add_bump(sig, 8.05, 1.6, 30.0, 0.25, sr)
+    after = [b for b in _beats(sig, sr) if 8.6 < b < 12.6]
+    assert len(after) >= 5

@@ -24,13 +24,30 @@ RHYTHM_SECONDS = 6.0
 RHYTHM_MIN_SECONDS = 3.0
 RHYTHM_MAX_LAG = 2.0
 RHYTHM_EVERY = 0.5
-RHYTHM_CONF = 0.35
+RHYTHM_CONF = 0.25
 RHYTHM_PICK = 0.75
 RHYTHM_ALTERNATE = 0.12
 # クリック拍に合わせて倍にするのは、倍がクリック拍の ±20% に入るときだけ
 # （運動後の速い拍を半分にしない）
 RHYTHM_HINT_BAND = math.log(1.2)
+# 188 BPM を超える候補で、倍の長さもほぼ同じ強さなら倍を1拍とする
+# （速い拍や失神前後では、ドッとクンがほぼ等間隔に並んで半分の長さに見える）
+RHYTHM_FAST_LAG = 0.32
+RHYTHM_FAST_MARGIN = 0.2
 RHYTHM_GUARD = 0.55
+# 音の大きさは鳴り始めでなく山で比べる（鳴り始めはどの音も閾値ちょうどで差が出ない）。
+# 山を待つのはこの秒数まで。拍の時刻は鳴り始めのまま
+PEAK_WAIT = 0.06
+# 最近の拍の山の大きさ（中央値）に対する割合
+LEVEL_KEEP = 8
+EARLY_SHARE = 0.8
+EARLY_LEVEL = 0.6
+QUIET_LEVEL = 0.22
+# 直前の拍よりはっきり大きい音がすぐ後に来たら、そちらを本当の拍とみなして数え直す
+REANCHOR_GAIN = 1.8
+REANCHOR_SECONDS = 0.3
+# 体の動きなどの大きな一発で、しばらく本物の拍が小さく見えて落ちないように
+PEAK_CAP = 2.5
 
 
 def envelope_rms(samples: list[float], hop: int) -> list[float]:
@@ -109,6 +126,7 @@ def estimate_period(
     ただし倍の長さの方がはっきり強いときは、強弱が交互に来るドッ・クンなので倍を1拍とする。
     強さも間隔もそろった音は速い拍のまま（まとめない）。
     どちらとも言えないときは、hint（録音中のクリック拍の間隔）に近い方を選ぶ。
+    188 BPM を超える候補で倍もほぼ同じ強さなら、等間隔に並んだドッ・クンとみて倍を取る。
     """
     n = len(env)
     lo = max(1, int(min_lag * rate))
@@ -148,6 +166,12 @@ def estimate_period(
             hint > 0
             and scores[double] >= scores[lag] - RHYTHM_ALTERNATE
             and abs(math.log(double / (hint * rate))) < RHYTHM_HINT_BAND
+        ):
+            lag = double
+        elif (
+            lag < RHYTHM_FAST_LAG * rate
+            and scores[double] >= scores[lag] - RHYTHM_FAST_MARGIN
+            and not (0 < hint < RHYTHM_FAST_LAG * 1.25)
         ):
             lag = double
     y0, y1, y2 = scores[lag - 1], scores[lag], scores[lag + 1]
@@ -289,7 +313,6 @@ class HeartSoundDetector:
         self._hp = 0.0
         self._buf: deque[float] = deque()
         self._sumsq = 0.0
-        self._last_onset_env = 0.0
         self._last_raw_t = -1e9
         self._gaps: deque[float] = deque(maxlen=8)
         self._pair_mode = False
@@ -298,6 +321,10 @@ class HeartSoundDetector:
         self._rhythm_step = 0
         self._rhythm_tick = 0
         self._period = 0.0
+        self._pending: list[float] | None = None
+        self._block_until = -1e9
+        self._last_peak = 0.0
+        self._levels: deque[float] = deque(maxlen=LEVEL_KEEP)
 
     @property
     def period(self) -> float:
@@ -380,13 +407,24 @@ class HeartSoundDetector:
                 self._noise += a_up * (env - self._noise)
             self._noise = max(self._noise, 1e-4)
             self._peak *= peak_decay
-            self._peak = max(self._peak, env)
+            level = self._level()
+            capped = min(env, PEAK_CAP * level) if level > 0 else env
+            self._peak = max(self._peak, capped)
             denom = max(self._peak, self._noise * 4.0, 0.012)
             norm = env / denom
             onset = norm >= 0.42 and env > self._prev_env * 1.12 and self._prev_env <= env
             rising = norm >= 0.42 and self._prev_env < 0.42 * denom
             self._prev_env = 0.82 * self._prev_env + 0.18 * env
-            if not (onset or rising):
+            pending = self._pending
+            if pending is not None:
+                pending[1] = max(pending[1], env)
+                if sample_t >= pending[2] or env < 0.7 * pending[1]:
+                    self._pending = None
+                    self._block_until = sample_t + 0.05
+                    if self._accept(pending[0], pending[1]):
+                        hits.append(pending[0])
+                continue
+            if not (onset or rising) or sample_t < self._block_until:
                 continue
             window = list(self._buf)
             if not looks_like_thud(window):
@@ -394,32 +432,54 @@ class HeartSoundDetector:
             if self.template is not None and self.corr_min > 0:
                 if self.template.score(window) < self.corr_min:
                     continue
-            raw_dt = sample_t - self._last_raw_t
-            if raw_dt >= self.min_interval:
-                if self._last_raw_t > -1e8:
-                    self._update_pair_mode(raw_dt)
-                self._last_raw_t = sample_t
-            since = sample_t - self._last_beat
-            if 0.20 <= since <= 0.33 and env < self._last_onset_env * 0.85:
-                continue
-            if 0.33 < since <= 0.55 and env < self._last_onset_env * 0.55:
-                continue
+            self._pending = [sample_t, env, sample_t + PEAK_WAIT]
+        return hits
+
+    def _level(self) -> float:
+        """最近の拍の山の大きさ（中央値）。まだ無いときは 0。"""
+        if len(self._levels) < 3:
+            return 0.0
+        return sorted(self._levels)[len(self._levels) // 2]
+
+    def _accept(self, sample_t: float, peak: float) -> bool:
+        """山まで聞いた1つの音を、拍として数えるか決める。"""
+        raw_dt = sample_t - self._last_raw_t
+        if raw_dt >= self.min_interval:
+            if self._last_raw_t > -1e8:
+                self._update_pair_mode(raw_dt)
+            self._last_raw_t = sample_t
+        since = sample_t - self._last_beat
+        level = self._level()
+        period = self._period
+        if period > 0:
+            if since < self._refractory():
+                # 小さな雑音で拍を取ったすぐ後に本物のドッが来たら、数え直す（表示は増やさない）
+                if since <= REANCHOR_SECONDS and peak >= REANCHOR_GAIN * self._last_peak:
+                    self._last_beat = sample_t
+                    self._last_peak = peak
+                    self._levels.append(peak)
+                return False
+            if level > 0:
+                need = EARLY_LEVEL if since < EARLY_SHARE * period else QUIET_LEVEL
+                if peak < need * level:
+                    return False
+        else:
+            if 0.20 <= since <= 0.33 and peak < self._last_peak * 0.85:
+                return False
+            if 0.33 < since <= 0.55 and peak < self._last_peak * 0.55:
+                return False
             # クリック拍の記憶は、いまの拍の長さが測れていないときだけ使う
             # （安静時のクリックのせいで運動後の速い拍を半分にしない）
-            if (
-                self._period <= 0
-                and 0.45 <= self.tap_interval <= 1.2
-                and since < min(self.tap_interval * 0.72, 0.55)
-            ):
-                continue
+            if 0.45 <= self.tap_interval <= 1.2 and since < min(self.tap_interval * 0.72, 0.55):
+                return False
             if since < self._refractory():
-                continue
-            if self._last_beat > -1e8 and since > self.min_interval:
-                self._last_interval = 0.7 * self._last_interval + 0.3 * since
-            self._last_beat = sample_t
-            self._last_onset_env = env
-            hits.append(sample_t)
-        return hits
+                return False
+        if self._last_beat > -1e8 and since > self.min_interval:
+            self._last_interval = 0.7 * self._last_interval + 0.3 * since
+        self._last_beat = sample_t
+        self._last_peak = peak
+        self._levels.append(peak)
+        return True
 
     def unlock(self) -> None:
         """検出ロスト後に、遅い間隔の記憶で次の拍を落とさない。"""
@@ -429,3 +489,5 @@ class HeartSoundDetector:
         self._last_beat = -1e9
         self._last_raw_t = -1e9
         self._peak = min(self._peak, 0.08)
+        self._levels.clear()
+        self._pending = None
