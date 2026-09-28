@@ -36,7 +36,7 @@ from stream_heartbeat.config import (
     PREVIEW_IDLE_STATUS,
     PREVIEW_LOST_STATUS,
 )
-from stream_heartbeat.oshilog import fetch_aux_bpm
+from stream_heartbeat.oshilog import AuxBpmPoller
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
     HeartProfile,
@@ -387,6 +387,7 @@ class OperatorWindow(QMainWindow):
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._on_tick)
         self._timer.start()
+        self._aux_poller = AuxBpmPoller()
         self._aux_timer = QTimer(self)
         self._aux_timer.setInterval(5000)
         self._aux_timer.timeout.connect(self._poll_aux)
@@ -750,7 +751,7 @@ class OperatorWindow(QMainWindow):
 
     def _poll_aux(self) -> None:
         self._apply_controls()
-        bpm = fetch_aux_bpm(self._session.profile.oshilog_bpm_url)
+        bpm = self._aux_poller.poll(self._session.profile.oshilog_bpm_url)
         self._session.clock.oshilog_bpm = bpm
         if bpm is None:
             self._aux.setText("推しログ(ぬ) 補助: —")

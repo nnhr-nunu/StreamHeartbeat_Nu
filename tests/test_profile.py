@@ -69,3 +69,33 @@ def test_app_state_keeps_last_profile_when_saving_geometry(tmp_path: Path) -> No
     assert state["operator_geom"]["x"] == 10
     save_last_profile_name("default", tmp_path)
     assert load_app_state(tmp_path)["operator_geom"]["x"] == 10
+
+
+def test_broken_profile_does_not_stop_startup(tmp_path: Path) -> None:
+    path = tmp_path / "雑談.json"
+    path.write_text('{"name": "雑談", ', encoding="utf-8")
+    profile = load_profile(path)
+    assert profile.name == "雑談"
+    assert not path.exists()
+    assert (tmp_path / "雑談.json.broken").is_file()
+
+
+def test_wrong_types_fall_back_to_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text(
+        '{"name": "p", "scale": "big", "show_bpm": 1, "opacity": 1, '
+        '"calibration": [[0.1, 0.2], "x", [0.3, "y"]]}',
+        encoding="utf-8",
+    )
+    profile = load_profile(path)
+    assert profile.scale == HeartProfile().scale
+    assert profile.show_bpm is True
+    assert profile.opacity == 1.0 and isinstance(profile.opacity, float)
+    assert profile.calibration == [[0.1, 0.2]]
+
+
+def test_save_leaves_no_temp_file(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    save_profile(path, HeartProfile(name="p"))
+    save_app_state(tmp_path, last_profile="p")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["app_state.json", "p.json"]

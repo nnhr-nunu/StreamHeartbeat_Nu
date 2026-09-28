@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from stream_heartbeat.bundled import bundled_heart_sessions
 from stream_heartbeat.clock import BeatClock
-from stream_heartbeat.config import TAP_GOAL
+from stream_heartbeat.config import CAL_MAX_S, TAP_GOAL
 from stream_heartbeat.detect import BUNDLED_CORR_MIN, CalibrationTemplate, HeartSoundDetector
 from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.profile import HeartProfile
@@ -114,7 +114,9 @@ class HeartSession:
             if t > self._t:
                 self._t = t
         if self.calibrating is not None:
-            self.calibrating.extend(samples)
+            room = int(CAL_MAX_S * sample_rate) - len(self.calibrating)
+            if room > 0:
+                self.calibrating.extend(samples[:room])
             self._cal_sr = sample_rate
         for beat_t in self.detector.feed(samples, origin, sample_rate):
             self.clock.feed_beat(beat_t)

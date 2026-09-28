@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from unittest.mock import patch
 
+from stream_heartbeat.config import CAL_MAX_S
 from stream_heartbeat.detect import BUNDLED_CORR_MIN
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.session import HeartSession
@@ -220,3 +221,11 @@ def test_tap_is_ignored_outside_calibration() -> None:
     session.tap(2.0)
     assert session.taps == []
 
+
+def test_forgotten_calibration_stops_growing() -> None:
+    session = HeartSession()
+    session.begin_calibration(0.0)
+    for _ in range(80):
+        session.tick(0.0, [0.0] * 1000, sample_rate=1000.0)
+    assert session.calibrating is not None
+    assert len(session.calibrating) == int(CAL_MAX_S * 1000)
