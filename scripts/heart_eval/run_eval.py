@@ -33,6 +33,7 @@ import array
 import bisect
 import json
 import math
+import os
 import statistics
 import sys
 import time
@@ -107,6 +108,11 @@ def run_detector(
     if max_seconds:
         x = x[: int(max_seconds * SR)]
     session = sess_mod.HeartSession()
+    if os.environ.get("HEART_EVAL_TAP"):
+        # 補正で最初の 10 拍ほどを正しくタップしたときの間隔を与える
+        s1 = sorted(load_ref(name)["s1"])[:11]
+        session.profile.tap_interval = statistics.median(b - a for a, b in zip(s1, s1[1:]))
+        session.rebuild_detector()
     beats: list[float] = []
     orig = session.clock.feed_beat
 
@@ -284,6 +290,8 @@ def main() -> None:
     ms = float(argv[argv.index("--seconds") + 1]) if "--seconds" in argv else None
     overrides = [argv[i + 1] for i, a in enumerate(argv) if a == "--set"]
     src_arg = argv[argv.index("--src") + 1] if "--src" in argv else None
+    if "--tap" in flags:
+        os.environ["HEART_EVAL_TAP"] = "1"
     skip = {tag, cmp_tag, str(ms) if ms else None, src_arg, *overrides}
     names = [a for a in argv if not a.startswith("--") and a not in skip] or list(FILES)
     for n in names:
