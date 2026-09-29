@@ -462,3 +462,22 @@ def test_panel_folder_must_be_items(qapp, tmp_path: Path, monkeypatch) -> None:
     panel._choose_folder()
     assert panel._items_dir == assets / "Items" and notices == [NOT_ITEMS_NOTICE]
     panel.shutdown()
+
+
+def test_panel_guides_are_side_by_side_and_open_one_at_a_time(qapp, tmp_path: Path) -> None:
+    del qapp
+    from PySide6.QtWidgets import QToolButton
+
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui.vts_panel import API_SWITCH, HOW_TO, TROUBLE, VtsPanel
+
+    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+    how_to, trouble = panel.findChildren(QToolButton)
+    assert "使い方" in how_to.text() and "上手くいかない時" in trouble.text()
+    assert how_to.parentWidget() is trouble.parentWidget()
+    # VTube Studio の画面にあるスイッチの名前どおりに案内する
+    assert API_SWITCH in HOW_TO and API_SWITCH in TROUBLE and "【普段】" in HOW_TO
+    how_to.setChecked(True)
+    trouble.setChecked(True)
+    assert trouble.isChecked() and not how_to.isChecked()
+    panel.shutdown()

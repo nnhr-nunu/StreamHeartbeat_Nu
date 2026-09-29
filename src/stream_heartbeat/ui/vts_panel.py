@@ -31,7 +31,7 @@ from stream_heartbeat.render.heart_frames import (
     write_frames,
 )
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.fold import make_fold
+from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
 from stream_heartbeat.vts import (
@@ -56,64 +56,89 @@ from stream_heartbeat.vts import (
     item_framerate,
 )
 
+# VTube Studio の設定（プラグインの欄）にあるスイッチの名前
+API_SWITCH = "APIの起動（プラグインを許可）"
 STATE_LABELS = {
     OFF: "つないでいません",
     CONNECTING: "VTube Studio につないでいます…",
-    WAITING_USER: "VTube Studio の画面に出た確認で「許可」を押してください",
-    READY: "VTube Studio とつながっています",
+    WAITING_USER: "VTube Studio の画面に確認が出ています。「許可」を押してください",
+    READY: "VTube Studio とつながりました",
     NO_VTS: (
-        "VTube Studio が見つかりません。起動しているか、設定で API がオンになっているかを"
-        "確かめてください（5 秒ごとにつなぎ直します）"
+        f"VTube Studio とつながりません。VTube Studio を起動して、設定の「{API_SWITCH}」を"
+        "オンにしてください（つながるまで 5 秒ごとに試します）"
     ),
-    DENIED: "VTube Studio で許可されませんでした。つなぐときはもう一度チェックを入れてください",
+    DENIED: (
+        "VTube Studio で許可されなかったので、つなぐのをやめました。"
+        "つなぐときは、もう一度チェックを入れてください"
+    ),
 }
 # つなげないときは目立たせる
 WARN_STATES = frozenset({NO_VTS, DENIED})
 INTRO = (
-    "心臓を VTube Studio のアイテムにして、モデルの胸に留めます。"
-    "アバターが動いても心臓がずれず、拍に合わせて動きます。"
+    "VTube Studio の中に心臓を出して、モデルの胸に留めます。"
+    "モデルが動いても心臓がついていき、心拍に合わせて動きます。"
 )
 SHOW_BUTTON = "心臓を出す"
 REMAKE_BUTTON = "作り直す（今の見た目で）"
 HIDE_BUTTON = "しまう"
 PIN_BUTTON = "モデルの胸に留める"
-PICKING_BUTTON = "クリック待ち…（押すとやめる）"
+PICKING_BUTTON = "VTube Studio でクリック待ち…（押すとやめる）"
+SIZE_LABEL = "大きさ"
 ITEM_STYLE_NAMES = "リアル1〜3・レントゲン3・かわいい・機械"
-NOTE_BAD_STYLE = f"今のスタイルはアイテムにできません。{ITEM_STYLE_NAMES}のどれかを選んでください"
-NOTE_NOT_SHOWN = "心臓はまだ出していません。「心臓を出す」を押してください"
-NOTE_STALE = "見た目を変えました。「作り直す」を押すと VTube Studio の心臓にも反映します"
-NOTE_UNPINNED = "心臓を出しました。次は「モデルの胸に留める」で付ける場所を決めてください"
-NOTE_PINNED = "心臓をモデルに留めています"
-PICK_NOTICE = "VTube Studio で、モデルの心臓を置きたい所をクリックしてください"
-PINNED_NOTICE = "モデルに留めました。次からは出すたびにここへ留めます"
+NOTE_BAD_STYLE = f"このスタイルは VTube Studio に出せません。出せるのは{ITEM_STYLE_NAMES}です"
+NOTE_NOT_SHOWN = f"次は「{SHOW_BUTTON}」を押してください"
+NOTE_STALE = (
+    "スタイルか向きを変えました。「作り直す」を押すと、VTube Studio の心臓も同じ見た目になります"
+)
+NOTE_UNPINNED = (
+    f"心臓を出しました。次は「{PIN_BUTTON}」を押して、VTube Studio でモデルの胸を"
+    "クリックしてください"
+)
+NOTE_PINNED = f"心臓をモデルの胸に留めています。「{SIZE_LABEL}」で大きさを変えられます"
+PICK_NOTICE = "VTube Studio で、モデルの心臓を置きたい所（胸など）をクリックしてください"
+PINNED_NOTICE = "モデルに留めました。次からは心臓を出すたびに、自動でここへ留めます"
 NOT_ITEMS_NOTICE = (
     "Items フォルダを選んでください"
-    "（VTube Studio のフォルダの中の VTube Studio_Data → StreamingAssets → Items）"
+    "（VTube Studio のフォルダ → VTube Studio_Data → StreamingAssets → Items）"
 )
-GUIDE = (
+HOW_TO = (
     "【はじめて使うとき】\n"
-    "1. VTube Studio を起動し、設定（歯車）の最初のページにある、プラグインの API を"
-    "始めるスイッチ（英語表示では Start API (allow Plugins)）をオンにする\n"
-    "2. 上の「VTube Studio とつなぐ」にチェックを入れ、VTube Studio の画面に出た確認で"
-    "「許可」（Allow）を押す（次からは聞かれません）\n"
-    f"3. 「{SHOW_BUTTON}」を押す（VTube Studio の画面に心臓が出ます）\n"
-    f"4. 「{PIN_BUTTON}」を押し、VTube Studio でモデルの胸をクリックする\n"
-    "5. 「大きさ」で合わせる\n"
+    f"1. VTube Studio を起動し、設定（歯車）のプラグインの欄にある「{API_SWITCH}」を"
+    "オンにする\n"
+    "2. この欄の「VTube Studio とつなぐ」にチェックを入れる\n"
+    "3. VTube Studio の画面に、このアプリをつないでよいかの確認が出るので「許可」を押す"
+    "（はじめの 1 回だけ）\n"
+    f"4. 「{SHOW_BUTTON}」を押すと、VTube Studio に心臓が出る\n"
+    f"5. 「{PIN_BUTTON}」を押してから、VTube Studio でモデルの胸をクリックする\n"
+    f"6. 「{SIZE_LABEL}」のつまみで大きさを合わせる\n"
     "\n"
-    "【ふだん】\n"
-    "・留めた場所と大きさはモデルごとに覚えます。次からはつなぐだけで同じ所に心臓が出ます\n"
-    "・スタイルや向きを変えたら「作り直す」を押すと反映します\n"
-    f"・「{HIDE_BUTTON}」を押すと心臓を消し、次につないでも出しません\n"
+    "【普段】\n"
+    "・留めた場所と大きさは、モデルごとに覚えています。チェックを入れたままにしておけば、"
+    "次からは起動するだけで同じ所に心臓が出ます\n"
+    "・スタイルや心臓の向きを変えたときは「作り直す」を押してください。"
+    "押すまで VTube Studio の心臓は前の見た目のままです\n"
+    f"・心臓を消したいときは「{HIDE_BUTTON}」を押します。次に起動しても出ません"
+    f"（また出すときは「{SHOW_BUTTON}」）\n"
     "\n"
-    "【うまくいかないとき】\n"
-    f"・つながらない: VTube Studio の API がオンか、ポートが {DEFAULT_PORT} のままかを確かめる\n"
-    "・心臓が出ない: 下の書き出し先が VTube Studio の Items フォルダか確かめる"
-    "（Steam 以外で入れたときは「フォルダを選ぶ」で選び直す）\n"
-    f"・VTube Studio 側で心臓を消した: 「{SHOW_BUTTON}」をもう一度押す\n"
-    "\n"
-    "【パラメータ（モデルを拍で動かしたい人向け）】\n"
-    f"オンにすると {PARAM_BEAT}（拍の瞬間に 1）と {PARAM_BPM}（心拍数）を送ります。"
-    "VTube Studio のモデル設定で入力に選ぶと、拍に合わせて体を動かせます。"
+    "【パラメータ（上級者向け）】\n"
+    "チェックを入れると、次の 2 つを VTube Studio のパラメータとして送ります。\n"
+    f"・{PARAM_BEAT}: 拍の瞬間に 1、拍と拍のあいだは 0 に近い値\n"
+    f"・{PARAM_BPM}: 心拍数\n"
+    "VTube Studio のモデル設定で入力に選ぶと、拍に合わせてモデルを動かせます。"
+)
+TROUBLE = (
+    "・「VTube Studio とつながりません」と出る\n"
+    f"　→ VTube Studio が起動しているか、「{API_SWITCH}」がオンか、"
+    f"ポート番号が {DEFAULT_PORT} のままかを確かめてください\n"
+    "・「許可されなかった」と出る\n"
+    "　→ もう一度チェックを入れ、VTube Studio に出た確認で「許可」を押してください\n"
+    "・心臓が出ない\n"
+    "　→ 下の「書き出し先」が VTube Studio の Items フォルダになっているか確かめてください。"
+    "Steam 以外で入れた場合は「フォルダを選ぶ」で選び直します\n"
+    "・VTube Studio 側で心臓を消してしまった\n"
+    f"　→ 「{SHOW_BUTTON}」をもう一度押してください\n"
+    "・心臓の位置がずれた・別の所に付け直したい\n"
+    f"　→ 「{PIN_BUTTON}」を押して、クリックし直してください"
 )
 
 
@@ -203,20 +228,23 @@ class VtsPanel(QWidget):
             round(ITEM_SIZE_MIN * 100), round(ITEM_SIZE_MAX * 100), "小さく", "大きく"
         )
         self._size.setValue(round(self._heart.size * 100))
-        self._params = QCheckBox("拍と心拍数をパラメータでも送る（モデルを拍で動かしたい人向け）")
+        self._params = QCheckBox("心拍を VTube Studio のパラメータにも送る（上級者向け）")
         self._folder = QLabel("")
         self._folder.setObjectName("meta")
         self._folder.setWordWrap(True)
         self._folder_btn = QPushButton("フォルダを選ぶ")
-        guide = QLabel(GUIDE)
-        guide.setObjectName("meta")
-        guide.setWordWrap(True)
+        how_to = QLabel(HOW_TO)
+        how_to.setObjectName("meta")
+        how_to.setWordWrap(True)
+        trouble = QLabel(TROUBLE)
+        trouble.setObjectName("meta")
+        trouble.setWordWrap(True)
 
         item_row = QHBoxLayout()
         item_row.addWidget(self._item_btn, 1)
         item_row.addWidget(self._hide_btn)
         size_form = CenteredForm()
-        size_form.addRow("大きさ", size_row)
+        size_form.addRow(SIZE_LABEL, size_row)
         self._details = QWidget()
         details = QVBoxLayout(self._details)
         details.setContentsMargins(0, 0, 0, 0)
@@ -230,12 +258,14 @@ class VtsPanel(QWidget):
         folder_row = QHBoxLayout()
         folder_row.addWidget(self._folder, 1)
         folder_row.addWidget(self._folder_btn)
-        guide_inner = QWidget()
-        guide_col = QVBoxLayout(guide_inner)
-        guide_col.setContentsMargins(0, 0, 0, 0)
-        guide_col.addWidget(guide)
-        guide_col.addLayout(folder_row)
-        guide_wrap, _guide_fold = make_fold("使い方・うまくいかないとき", guide_inner)
+        trouble_inner = QWidget()
+        trouble_col = QVBoxLayout(trouble_inner)
+        trouble_col.setContentsMargins(0, 0, 0, 0)
+        trouble_col.addWidget(trouble)
+        trouble_col.addLayout(folder_row)
+        guide_wrap, _guide_folds = make_fold_row(
+            [("使い方", how_to), ("上手くいかない時", trouble_inner)]
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

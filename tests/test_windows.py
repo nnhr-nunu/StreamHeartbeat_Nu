@@ -96,7 +96,7 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     fold_texts = [btn.text() for btn in operator.findChildren(QToolButton)]
     order = [
         next(i for i, text in enumerate(fold_texts) if key in text)
-        for key in ("使い方・うまくいかないとき", "心拍の補正", "推しログ(ぬ)連携（未実装）")
+        for key in ("上手くいかない時", "心拍の補正", "推しログ(ぬ)連携（未実装）")
     ]
     assert order == sorted(order)
     assert not any(btn.isChecked() for btn in operator.findChildren(QToolButton))
