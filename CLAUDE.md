@@ -10,7 +10,7 @@
   - コード変更後はセルフレビュー → `pytest` → 日本語で commit → `git push origin main`（`composer-self-review.mdc`）
   - README は指示がない限り更新しない。完了タスクは `task.md` から消す
 - 開発用 Python は `.venv\Scripts\python.exe`（3.10）。`pytest` / `ruff check src tests` もここから
-- `QT_QPA_PLATFORM=offscreen` だと OpenGL が使えず、窓位置テスト 1 件が失敗する。窓/GL を確かめるときは offscreen 無しで実行
+- `QT_QPA_PLATFORM=offscreen`（CI と同じ）だと OpenGL が使えない。GL を確かめるときは offscreen 無しで実行
 - commit は PowerShell 前提。bash heredoc は使わず `-m` か `-F` を使う（`git-commit.mdc`）
 
 ## 主な作業領域の入口
