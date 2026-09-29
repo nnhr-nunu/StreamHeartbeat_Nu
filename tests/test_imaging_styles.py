@@ -20,6 +20,7 @@ from stream_heartbeat.ui.heart_imaging import (
 )
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
+    ROTATABLE_STYLES,
     paint_backdrop,
     paint_heart,
     paint_overlay,
@@ -80,7 +81,8 @@ def test_operator_lists_all_styles(
         "mech",
         "ecg",
     ]
-    assert GL_STYLES == {"realistic", "mech", "xray", "mri"}
+    assert GL_STYLES == {"realistic", "mech", "xray"}
+    assert ROTATABLE_STYLES == {"realistic", "mech"}
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)

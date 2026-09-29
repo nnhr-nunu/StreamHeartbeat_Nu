@@ -58,8 +58,8 @@ def test_mesh_triangles_face_outward() -> None:
 def test_realistic_has_two_looks_and_style_looks() -> None:
     assert [look.key for look in REALISTIC_LOOKS] == ["surgical", "anatomy"]
     assert realistic_look("nope").key == "surgical"
-    assert set(STYLE_LOOKS) == {"mech", "xray", "mri"}
-    assert STYLE_LOOKS["xray"].additive and STYLE_LOOKS["mri"].additive
+    assert set(STYLE_LOOKS) == {"mech", "xray"}
+    assert STYLE_LOOKS["xray"].additive
     for program in ("flesh", "mech", "scan"):
         assert "#version 130" in fragment_source(program)
 
