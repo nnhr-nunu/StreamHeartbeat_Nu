@@ -32,6 +32,25 @@ PARAM_BPM = "SHBBpm"
 RETRY_MS = 5000
 # パラメータは 1 秒に 1 回以上送らないと VTube Studio が手放す。なめらかさのため 30 回/秒
 PARAM_INTERVAL_S = 1.0 / 30.0
+# アイテムの大きさ（0〜1。VTube Studio で手で出したときがおよそ 0.32）
+ITEM_SIZE = 0.3
+ITEM_SIZE_MIN = 0.05
+ITEM_SIZE_MAX = 0.8
+# 留める場所を選ぶあいだ、心臓がクリックの邪魔をしないよう寄せておく位置（左端寄り）
+PICK_ASIDE_X = -0.75
+# モデル上の場所（ArtMesh の三角形と、その中の重み）。ItemPinRequest の pinInfo に使う
+PIN_KEYS = (
+    "modelID",
+    "artMeshID",
+    "vertexID1",
+    "vertexID2",
+    "vertexID3",
+    "vertexWeight1",
+    "vertexWeight2",
+    "vertexWeight3",
+)
+# ItemAnimationControlRequest で「そのアイテムは場に無い」
+ERROR_ITEM_NOT_FOUND = 850
 
 # 状態（操作画面の表示に使う）
 OFF = "off"
@@ -85,6 +104,36 @@ def item_framerate(frames_per_second: float, systole: float, reference_systole: 
     return max(0.1, min(120.0, rate))
 
 
+def clean_pin(raw: object) -> dict | None:
+    """保存・受信したピンの場所を確かめる。形が崩れていれば None。"""
+    if not isinstance(raw, dict):
+        return None
+    pin = {key: raw.get(key) for key in PIN_KEYS}
+    if not all(isinstance(pin[key], str) and pin[key] for key in PIN_KEYS[:2]):
+        return None
+    for key in PIN_KEYS[2:5]:
+        if not isinstance(pin[key], int) or isinstance(pin[key], bool):
+            return None
+    for key in PIN_KEYS[5:]:
+        if not isinstance(pin[key], (int, float)) or isinstance(pin[key], bool):
+            return None
+        pin[key] = float(pin[key])
+    return pin
+
+
+def clicked_pin(event: dict) -> dict | None:
+    """ModelClickedEvent から、いちばん手前の ArtMesh 上の場所を取り出す（左クリックだけ）。"""
+    if event.get("modelWasClicked") is not True or event.get("mouseButtonID") != 0:
+        return None
+    hits = [h for h in event.get("artMeshHits") or [] if isinstance(h, dict)]
+    hits.sort(key=lambda h: o if isinstance(o := h.get("artMeshOrder"), int) else 999)
+    for hit in hits:
+        pin = clean_pin(hit.get("hitInfo"))
+        if pin is not None:
+            return pin
+    return None
+
+
 class VtsClient(QObject):
     """VTube Studio との接続と認証。つながらなければ数秒おきにつなぎ直す。"""
 
@@ -107,6 +156,7 @@ class VtsClient(QObject):
         self._state = OFF
         self._next_id = 0
         self._waiting: dict[str, Reply | None] = {}
+        self._events: dict[str, Reply] = {}
 
     @property
     def state(self) -> str:
@@ -129,6 +179,7 @@ class VtsClient(QObject):
         self._enabled = False
         self._retry.stop()
         self._waiting.clear()
+        self._events.clear()
         self._socket.close()
         self._set_state(OFF)
 
@@ -143,7 +194,9 @@ class VtsClient(QObject):
         self._authenticate()
 
     def _on_disconnected(self) -> None:
+        # 切れると VTube Studio 側のイベント購読も消える。つなぎ直したら購読し直す
         self._waiting.clear()
+        self._events.clear()
         if not self._enabled:
             return
         if self._state != DENIED:
@@ -166,6 +219,19 @@ class VtsClient(QObject):
         }
         self._socket.sendTextMessage(json.dumps(payload, ensure_ascii=False))
 
+    def subscribe(self, event: str, config: dict, handler: Reply) -> None:
+        """イベントを購読する。届いたイベントの data を handler に渡す。"""
+        self._events[event] = handler
+        self.request(
+            "EventSubscriptionRequest", {"eventName": event, "subscribe": True, "config": config}
+        )
+
+    def unsubscribe(self, event: str) -> None:
+        if self._events.pop(event, None) is not None:
+            self.request(
+                "EventSubscriptionRequest", {"eventName": event, "subscribe": False, "config": {}}
+            )
+
     def _on_message(self, text: str) -> None:
         try:
             message = json.loads(text)
@@ -173,8 +239,12 @@ class VtsClient(QObject):
             return
         if not isinstance(message, dict):
             return
-        handler = self._waiting.pop(str(message.get("requestID", "")), None)
         data = message.get("data") if isinstance(message.get("data"), dict) else {}
+        event = self._events.get(str(message.get("messageType", "")))
+        if event is not None:
+            event(data)
+            return
+        handler = self._waiting.pop(str(message.get("requestID", "")), None)
         if message.get("messageType") == "APIError":
             data = {"errorID": data.get("errorID", -1), "message": data.get("message", "")}
         if handler is not None:
@@ -228,28 +298,61 @@ class VtsClient(QObject):
 
 
 class VtsHeart:
-    """VTube Studio 上の心臓アイテムと、拍・心拍数のパラメータ。"""
+    """VTube Studio 上の心臓アイテムと、拍・心拍数のパラメータ。
 
-    def __init__(self, client: VtsClient) -> None:
+    モデルに留める場所（pins、モデル ID ごと）と大きさ（size）はこちらで覚え、
+    出し直したとき・モデルを読み込み直したときに同じ場所へ留め直す。
+    VTube Studio の API からは、手で留めた場所を読み出せないため。
+    """
+
+    def __init__(
+        self,
+        client: VtsClient,
+        size: float = ITEM_SIZE,
+        pins: dict[str, dict] | None = None,
+    ) -> None:
         self._client = client
         self.instance_id: str | None = None
         self.frame_count = 0
         self.last_error = ""
+        self.size = size
+        self.pins: dict[str, dict] = dict(pins or {})
+        self.model_id = ""
+        # つないだ直後に場を調べ終えたら、心臓が場にあったかを渡す
+        self.on_found: Callable[[bool], None] | None = None
         self._params_ready = False
+        self._pick_done: Callable[[dict | None], None] | None = None
         client.ready.connect(self._on_ready)
         client.state_changed.connect(self._on_state)
+
+    @property
+    def picking(self) -> bool:
+        return self._pick_done is not None
 
     def _on_state(self, state: str) -> None:
         if state != READY:
             self._params_ready = False
+            self._pick_done = None
 
     def _on_ready(self) -> None:
+        self._client.subscribe("ModelLoadedEvent", {}, self._on_model)
+        self._client.request("CurrentModelRequest", {}, self._on_model)
         # つなぎ直したときは、前に出したアイテムがまだ場にあれば使い続ける
-        self._find_instance(None)
+        self._find_instance(self._report_found)
+
+    def _report_found(self) -> None:
+        if self.on_found is not None:
+            self.on_found(self.instance_id is not None)
+
+    def _on_model(self, data: dict) -> None:
+        loaded = data.get("modelLoaded") is True
+        self.model_id = str(data.get("modelID") or "") if loaded else ""
+        if loaded:
+            self._pin_saved()
 
     # ------------------------------------------------------------ アイテム
 
-    def _find_instance(self, then: Callable[[], None] | None) -> None:
+    def _find_instance(self, then: Callable[[], None] | None, rescan: bool = False) -> None:
         def got(data: dict) -> None:
             items = data.get("itemInstancesInScene") or []
             mine = [i for i in items if isinstance(i, dict) and i.get("fileName") == ITEM_FOLDER]
@@ -268,7 +371,9 @@ class VtsHeart:
             {
                 "includeAvailableSpots": False,
                 "includeItemInstancesInScene": True,
-                "includeAvailableItemFiles": True,
+                # 新しく書いたコマを読ませるには、ファイルの一覧を読み直させる
+                # （少し重いので出すときだけ）
+                "includeAvailableItemFiles": rescan,
                 "onlyItemsWithFileName": ITEM_FOLDER,
             },
             got,
@@ -277,6 +382,7 @@ class VtsHeart:
     def show_item(self, frame_count: int, done: Callable[[bool], None] | None = None) -> None:
         """心臓アイテムを出し直す（新しいコマを読ませるため、出ていれば一度しまう）。"""
         self.frame_count = frame_count
+        self._stop_pick()
 
         def load() -> None:
             self._client.request(
@@ -285,7 +391,7 @@ class VtsHeart:
                     "fileName": ITEM_FOLDER,
                     "positionX": 0.0,
                     "positionY": -0.15,
-                    "size": 0.3,
+                    "size": self.size,
                     "rotation": 0,
                     "fadeTime": 0.3,
                     "order": 5,
@@ -309,6 +415,7 @@ class VtsHeart:
             self.instance_id = instance
             self.last_error = ""
             self._rest()
+            self._pin_saved()
             if done is not None:
                 done(True)
 
@@ -316,19 +423,29 @@ class VtsHeart:
             if self.instance_id is None:
                 load()
                 return
-            self._client.request(
-                "ItemUnloadRequest",
-                {
-                    "unloadAllInScene": False,
-                    "unloadAllLoadedByThisPlugin": False,
-                    "allowUnloadingItemsLoadedByUserOrOtherPlugins": True,
-                    "instanceIDs": [self.instance_id],
-                    "fileNames": [],
-                },
-                lambda _data: load(),
-            )
+            self._unload(lambda _data: load())
 
-        self._find_instance(unload_then_load)
+        self._find_instance(unload_then_load, rescan=True)
+
+    def hide_item(self) -> None:
+        """心臓アイテムをしまう。"""
+        self._stop_pick()
+        self._unload(None)
+        self.instance_id = None
+
+    def _unload(self, then: Reply | None) -> None:
+        # 同じフォルダから出したものは（重複していても）まとめてしまう
+        self._client.request(
+            "ItemUnloadRequest",
+            {
+                "unloadAllInScene": False,
+                "unloadAllLoadedByThisPlugin": False,
+                "allowUnloadingItemsLoadedByUserOrOtherPlugins": True,
+                "instanceIDs": [],
+                "fileNames": [ITEM_FOLDER],
+            },
+            then,
+        )
 
     def _rest(self) -> None:
         """最後のコマ（休んでいる形）で止めておく。"""
@@ -354,10 +471,17 @@ class VtsHeart:
         """拍。最初のコマから再生し、最後のコマ（休み）で止まる。"""
         if self._client.state != READY or self.instance_id is None or self.frame_count <= 0:
             return
+        instance = self.instance_id
+
+        def replied(data: dict) -> None:
+            # VTube Studio 側で消された。拍ごとにエラーを返させない
+            if data.get("errorID") == ERROR_ITEM_NOT_FOUND and self.instance_id == instance:
+                self.instance_id = None
+
         self._client.request(
             "ItemAnimationControlRequest",
             {
-                "itemInstanceID": self.instance_id,
+                "itemInstanceID": instance,
                 "framerate": framerate,
                 "frame": 0,
                 "brightness": -1,
@@ -366,6 +490,103 @@ class VtsHeart:
                 "autoStopFrames": [self.frame_count - 1],
                 "setAnimationPlayState": True,
                 "animationPlayState": True,
+            },
+            replied,
+        )
+
+    # ------------------------------------------------------------ 留める・大きさ
+
+    def _pin_saved(self) -> None:
+        pin = self.pins.get(self.model_id)
+        if pin is not None and self.instance_id is not None and not self.picking:
+            self._pin(pin)
+
+    def _pin(self, pin: dict, then: Reply | None = None) -> None:
+        self._client.request(
+            "ItemPinRequest",
+            {
+                "pin": True,
+                "itemInstanceID": self.instance_id,
+                "angleRelativeTo": "RelativeToModel",
+                "sizeRelativeTo": "RelativeToWorld",
+                "vertexPinType": "Provided",
+                "pinInfo": {**pin, "angle": 0, "size": self.size},
+            },
+            then,
+        )
+
+    def start_pick(self, done: Callable[[dict | None], None]) -> bool:
+        """モデルをクリックした所へ心臓を留める。クリックを待ち、留めたら done(場所)。"""
+        if self._client.state != READY or self.instance_id is None:
+            return False
+        self._pick_done = done
+        # 心臓がモデルに重なっているとクリックが心臓に当たるので、外して脇へ寄せる
+        self._client.request("ItemPinRequest", {"pin": False, "itemInstanceID": self.instance_id})
+        self._move(x=PICK_ASIDE_X, y=0.0, seconds=0.3)
+        self._client.subscribe("ModelClickedEvent", {"onlyClicksOnModel": True}, self._on_click)
+        return True
+
+    def cancel_pick(self) -> None:
+        """クリック待ちをやめ、覚えている場所があればそこへ戻す。"""
+        if not self.picking:
+            return
+        self._stop_pick()
+        self._pin_saved()
+
+    def _stop_pick(self) -> None:
+        if self._pick_done is not None:
+            self._pick_done = None
+            self._client.unsubscribe("ModelClickedEvent")
+
+    def _on_click(self, data: dict) -> None:
+        done = self._pick_done
+        pin = clicked_pin(data)
+        if done is None or pin is None or self.instance_id is None:
+            return
+        self._stop_pick()
+
+        def pinned(reply: dict) -> None:
+            if "errorID" in reply:
+                self.last_error = str(reply.get("message") or "留められませんでした")
+                done(None)
+                return
+            self.pins[pin["modelID"]] = pin
+            done(pin)
+
+        self._pin(pin, pinned)
+
+    def set_size(self, size: float) -> None:
+        self.size = max(ITEM_SIZE_MIN, min(ITEM_SIZE_MAX, size))
+        if self._client.state != READY or self.instance_id is None:
+            return
+        # 留めてあるアイテムは移動の要求では大きさが変わらない。留め直しで大きさを渡す
+        if self.pins.get(self.model_id) is not None and not self.picking:
+            self._pin_saved()
+        else:
+            self._move(size=self.size)
+
+    def _move(
+        self, *, x: float = -1000.0, y: float = -1000.0, size: float = -1000.0, seconds: float = 0.0
+    ) -> None:
+        """動かす・大きさを変える（-1000 以下の項目は今のまま）。"""
+        self._client.request(
+            "ItemMoveRequest",
+            {
+                "itemsToMove": [
+                    {
+                        "itemInstanceID": self.instance_id,
+                        "timeInSeconds": seconds,
+                        "fadeMode": "easeOut",
+                        "positionX": x,
+                        "positionY": y,
+                        "size": size,
+                        "rotation": -1000,
+                        "order": -1000,
+                        "setFlip": False,
+                        "flip": False,
+                        "userCanStop": True,
+                    }
+                ]
             },
         )
 
