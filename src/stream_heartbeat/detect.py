@@ -6,8 +6,13 @@ import math
 from collections import deque
 
 from stream_heartbeat.config import MAX_BPM
+from stream_heartbeat.noise_gate import VOICE_KEEP, VOICE_RATE, looks_like_noise
 
 THUD_SECONDS = 0.09
+# 心音を聞く帯域（Hz）。上は 1 次の低域通過を 2 段重ねて切れを良くする。
+# S1 の芯は 100 Hz より下にあり、話し声・キーボード・衣擦れの多くはこれより上にある
+BAND_LO = 18.0
+BAND_HI = 100.0
 BRIGHTNESS_MAX = 0.82
 ZCR_MAX = 0.22
 CORR_MIN = 0.45
@@ -73,6 +78,8 @@ HF_RESCUE_BAND = (0.8, 1.25)
 HF_GAP_SKIPS = 2
 # この秒数、拍が無ければ覚えた割合は捨てる（別の人・別のマイクに切り替わっても居座らない）
 HF_FORGET = 5.0
+# 心音ではない音らしくても拍の候補に残す、リズムどおりの位置（前の拍からの周期に対する割合）
+NOISE_ON_TIME = (0.8, 1.3)
 
 
 def envelope_rms(samples: list[float], hop: int) -> list[float]:
@@ -210,8 +217,8 @@ def estimate_period(
 
 def _band_coeffs(sample_rate: float) -> tuple[float, float]:
     rate = max(sample_rate, 1.0)
-    lp_a = 1.0 - math.exp(-2.0 * math.pi * 180.0 / rate)
-    hp_a = 1.0 - math.exp(-2.0 * math.pi * 18.0 / rate)
+    lp_a = 1.0 - math.exp(-2.0 * math.pi * BAND_HI / rate)
+    hp_a = 1.0 - math.exp(-2.0 * math.pi * BAND_LO / rate)
     return lp_a, hp_a
 
 
@@ -226,15 +233,17 @@ def _hf_coeffs(sample_rate: float) -> tuple[float, float, float]:
 
 
 def band_pass(samples: list[float], sample_rate: float) -> list[float]:
-    """検出と同じ帯域（18〜180 Hz）に絞る。覚えた型と聞こえた音を同じ条件で比べるため。"""
+    """検出と同じ帯域（BAND_LO〜BAND_HI）に絞る。覚えた型と聞こえた音を同じ条件で比べるため。"""
     lp_a, hp_a = _band_coeffs(sample_rate)
     lp = 0.0
+    lp2 = 0.0
     hp = 0.0
     out: list[float] = []
     for sample in samples:
         lp += lp_a * (sample - lp)
-        hp += hp_a * (lp - hp)
-        out.append(lp - hp)
+        lp2 += lp_a * (lp - lp2)
+        hp += hp_a * (lp2 - hp)
+        out.append(lp2 - hp)
     return out
 
 
@@ -356,6 +365,7 @@ class HeartSoundDetector:
         self._noise = NOISE_INIT
         self._peak = 0.04
         self._lp = 0.0
+        self._lp2 = 0.0
         self._hp = 0.0
         self._buf: deque[float] = deque()
         self._sumsq = 0.0
@@ -388,6 +398,12 @@ class HeartSoundDetector:
         self._tn_mid = 0
         self._tone_t = -1e9
         self._sys = 0.0
+        # 心音ではない音をよける（noise_gate）。間引いて覚えた 300 Hz 以上で見分ける
+        self._vacc = 0.0
+        self._vcount = 0
+        self._voice: deque[float] = deque()
+        self._voice_sr = 0.0
+        self._voice_rate = VOICE_RATE
 
     @property
     def period(self) -> float:
@@ -435,10 +451,19 @@ class HeartSoundDetector:
         hf_b1 = -2.0 * hf_b0
         hf_k = 1.0 - math.exp(-dt / HF_TAU)
         hf_pre = HF_TAU / dt  # 直前 HF_TAU 秒ぶんのサンプル数
+        v_dec = max(1, int(round(sample_rate / VOICE_RATE))) if sample_rate else 1
+        if sample_rate != self._voice_sr:
+            self._voice_sr = sample_rate
+            self._voice_rate = (sample_rate or VOICE_RATE) / v_dec
+            self._voice = deque(maxlen=max(8, int(VOICE_KEEP * self._voice_rate)))
+        voice = self._voice
+        vacc = self._vacc
+        vcount = self._vcount
         for i, sample in enumerate(samples):
             self._lp += lp_a * (sample - self._lp)
-            self._hp += hp_a * (self._lp - self._hp)
-            band = self._lp - self._hp
+            self._lp2 += lp_a * (self._lp - self._lp2)
+            self._hp += hp_a * (self._lp2 - self._hp)
+            band = self._lp2 - self._hp
             # 300 Hz 以上と、いつもの帯域のエネルギー。直前 HF_TAU 秒ぶんは常に均しておき、
             # 音が鳴り始めたらその音の間だけ積み上げる
             hy = hf_b0 * sample + self._hz1
@@ -446,6 +471,13 @@ class HeartSoundDetector:
             self._hz2 = hf_b0 * sample - hf_a2 * hy
             self._hf_e += hf_k * (hy * hy - self._hf_e)
             self._lo_e += hf_k * (band * band - self._lo_e)
+            # 声やカチッを見分けるため、300 Hz 以上を間引いて覚えておく
+            vacc += hy
+            vcount += 1
+            if vcount >= v_dec:
+                voice.append(vacc / v_dec)
+                vacc = 0.0
+                vcount = 0
             if self._pending is not None:
                 self._pending[3] += hy * hy
                 self._pending[4] += band * band
@@ -505,7 +537,9 @@ class HeartSoundDetector:
                     tone = 0.0
                     if hf_b0 > 0.0:
                         tone = math.log((pending[3] + 1e-12) / (pending[4] + 1e-12))
-                    beat_t = self._accept(pending[0], pending[1], tone)
+                    # 300 Hz 以上が測れないサンプルレートでは雑音も見分けない
+                    noisy = hf_b0 > 0.0 and looks_like_noise(list(self._voice), self._voice_rate)
+                    beat_t = self._accept(pending[0], pending[1], tone, noisy)
                     if beat_t is not None:
                         hits.append(beat_t)
                 continue
@@ -524,6 +558,8 @@ class HeartSoundDetector:
                 self._hf_e * hf_pre,
                 self._lo_e * hf_pre,
             ]
+        self._vacc = vacc
+        self._vcount = vcount
         return hits
 
     def _level(self) -> float:
@@ -535,8 +571,14 @@ class HeartSoundDetector:
         if len(self._levels) >= 3:
             self._level_mid = sorted(self._levels)[len(self._levels) // 2]
 
-    def _accept(self, sample_t: float, peak: float, tone: float = 0.0) -> float | None:
-        """山まで聞いた1つの音を、拍として数えるか決める。数えるなら拍の時刻、数えないなら None。"""
+    def _accept(
+        self, sample_t: float, peak: float, tone: float = 0.0, noisy: bool = False
+    ) -> float | None:
+        """山まで聞いた1つの音を、拍として数えるか決める。数えるなら拍の時刻、数えないなら None。
+        noisy は心音ではない音らしいか（noise_gate）。リズムどおりの位置に来た音には使わない
+        （話しながらの心音は雑音が混ざって見えるが、捨てると拍が抜ける）。"""
+        if noisy and not self._on_time(sample_t):
+            return None
         raw_dt = sample_t - self._last_raw_t
         if raw_dt >= self.min_interval:
             if self._last_raw_t > -1e8:
@@ -602,6 +644,14 @@ class HeartSoundDetector:
             self._push_level(peak)
             self._note_beat(tone)
         return beat_t
+
+    def _on_time(self, t: float) -> bool:
+        """測れている 1 拍の長さから見て、次の拍が来るはずの位置か。"""
+        period = self._period
+        if period <= 0.0 or self._last_beat < -1e8:
+            return False
+        since = t - self._last_beat
+        return NOISE_ON_TIME[0] * period <= since <= NOISE_ON_TIME[1] * period
 
     def _note_beat(self, tone: float) -> None:
         """拍にした音の高域の割合を覚える（直前の拍のぶんと、ならしたぶん）。"""
