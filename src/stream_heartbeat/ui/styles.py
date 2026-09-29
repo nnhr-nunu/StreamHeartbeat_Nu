@@ -160,6 +160,21 @@ QLabel#disclaimer {
   color: #bdbdbd;
   font-size: 12px;
 }
+QProgressBar#meter {
+  background: #1b1b1b;
+  border: 1px solid #333;
+  border-radius: 5px;
+  max-height: 10px;
+}
+QProgressBar#meter::chunk {
+  background: #8ee0a8;
+  border-radius: 4px;
+}
+QToolTip {
+  background: #2a2a2a;
+  color: #f0f0f0;
+  border: 1px solid #555;
+}
 QLabel#meta {
   color: #9a9a9a;
   font-size: 12px;

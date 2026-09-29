@@ -50,10 +50,10 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     assert not (operator.windowFlags() & flag)
     assert not (output.windowFlags() & flag)
     titles = [box.title() for box in operator.findChildren(QGroupBox)]
-    assert "心拍の補正（配信前調整）" in titles
-    assert "スタイル" in titles
-    assert "文字表示" in titles
-    assert "その他" in titles
+    assert "② 心拍の補正（配信前調整）" in titles
+    assert "③ スタイル" in titles
+    assert "④ 同期文字" in titles and "⑤ 心拍数" in titles
+    assert "⑥ 背景と向き" in titles
     profiles = operator.findChildren(QComboBox)[0]
     assert not profiles.isEditable()
     folds = [btn for btn in operator.findChildren(QToolButton) if "推しログ(ぬ)連携" in btn.text()]
@@ -93,7 +93,7 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     reset_btns = [
         btn
         for box in operator.findChildren(QGroupBox)
-        if box.title() in ("同期文字", "心拍数")
+        if box.title() in ("④ 同期文字", "⑤ 心拍数")
         for btn in box.findChildren(QPushButton)
         if btn.text() == "設定をリセット"
     ]
@@ -265,10 +265,10 @@ def test_beat_and_bpm_reset_only_own_group(qapp: QApplication) -> None:
     operator = OperatorWindow(session, output)
     operator._beat_x.setValue(8)
     operator._bpm_scale.setValue(180)
-    _group_reset(operator, "同期文字").click()
+    _group_reset(operator, "④ 同期文字").click()
     assert operator._beat_x.value() == 50
     assert operator._bpm_scale.value() == 180
-    _group_reset(operator, "心拍数").click()
+    _group_reset(operator, "⑤ 心拍数").click()
     assert operator._bpm_scale.value() == 100
     operator.close()
     output.close()
@@ -287,4 +287,20 @@ def test_output_redraws_hwnd_when_time_advances(
     output = OutputWindow(session)
     output.canvas.set_now(1.25)
     assert called
+    output.close()
+
+
+def test_text_details_fold_when_unchecked(qapp: QApplication) -> None:
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    operator._show_bpm.setChecked(True)
+    assert not operator._bpm_details.isHidden()
+    operator._show_bpm.setChecked(False)
+    assert operator._bpm_details.isHidden()
+    session.profile.show_bpm = True
+    operator._load_into_controls(session.profile)
+    assert not operator._bpm_details.isHidden()
+    operator.close()
     output.close()
