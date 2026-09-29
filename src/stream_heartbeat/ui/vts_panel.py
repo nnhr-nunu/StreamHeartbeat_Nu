@@ -75,14 +75,14 @@ STATE_LABELS = {
 # つなげないときは目立たせる
 WARN_STATES = frozenset({NO_VTS, DENIED})
 INTRO = (
-    "VTube Studio の中に心臓を出して、モデルの胸に留めます。"
+    "VTube Studio の中に心臓を出して、モデルの胸に付けます。"
     "モデルが動いても心臓がついていき、心拍に合わせて動きます。"
 )
 SHOW_BUTTON = "心臓を出す"
 REMAKE_BUTTON = "作り直す（今の見た目で）"
 HIDE_BUTTON = "しまう"
-PIN_BUTTON = "モデルの胸に留める"
-PICKING_BUTTON = "VTube Studio でクリック待ち…（押すとやめる）"
+PIN_BUTTON = "心臓を付ける場所をクリックで選ぶ"
+PICKING_BUTTON = "クリック待ち…（もう一度押すとやめる）"
 SIZE_LABEL = "大きさ"
 ITEM_STYLE_NAMES = "リアル1〜3・レントゲン3・かわいい・機械"
 NOTE_BAD_STYLE = f"このスタイルは VTube Studio に出せません。出せるのは{ITEM_STYLE_NAMES}です"
@@ -91,12 +91,19 @@ NOTE_STALE = (
     "スタイルか向きを変えました。「作り直す」を押すと、VTube Studio の心臓も同じ見た目になります"
 )
 NOTE_UNPINNED = (
-    f"心臓を出しました。次は「{PIN_BUTTON}」を押して、VTube Studio でモデルの胸を"
-    "クリックしてください"
+    f"心臓を出しました。次は「{PIN_BUTTON}」を押して、モデルに付ける場所を決めてください"
 )
-NOTE_PINNED = f"心臓をモデルの胸に留めています。「{SIZE_LABEL}」で大きさを変えられます"
-PICK_NOTICE = "VTube Studio で、モデルの心臓を置きたい所（胸など）をクリックしてください"
-PINNED_NOTICE = "モデルに留めました。次からは心臓を出すたびに、自動でここへ留めます"
+NOTE_PINNED = f"心臓をモデルに付けています。「{SIZE_LABEL}」で大きさを変えられます"
+PICK_NOTICE = (
+    "VTube Studio の画面に切り替えて、映っているモデルの胸（心臓を付けたい所）を"
+    "マウスで左クリックしてください"
+)
+# クリックを待つあいだ出し続ける説明（知らせはすぐ消えるので）
+NOTE_PICKING = (
+    PICK_NOTICE + "。心臓はクリックの邪魔にならないよう、いったん画面の左端へ寄せています。"
+    "モデルの絵が無い所や右クリックでは決まりません"
+)
+PINNED_NOTICE = "モデルに付けました。次からは心臓を出すたびに、自動でここへ付けます"
 NOT_ITEMS_NOTICE = (
     "Items フォルダを選んでください"
     "（VTube Studio のフォルダ → VTube Studio_Data → StreamingAssets → Items）"
@@ -109,11 +116,13 @@ HOW_TO = (
     "3. VTube Studio の画面に、このアプリをつないでよいかの確認が出るので「許可」を押す"
     "（はじめの 1 回だけ）\n"
     f"4. 「{SHOW_BUTTON}」を押すと、VTube Studio に心臓が出る\n"
-    f"5. 「{PIN_BUTTON}」を押してから、VTube Studio でモデルの胸をクリックする\n"
+    f"5. 「{PIN_BUTTON}」を押す。VTube Studio の画面に切り替えて、映っているモデルの胸"
+    "（心臓を付けたい所）をマウスで左クリックすると、そこに心臓が付く。"
+    "以後はモデルが動いても一緒に動く（胸でなくても、肩や頭などクリックした所に付けられる）\n"
     f"6. 「{SIZE_LABEL}」のつまみで大きさを合わせる\n"
     "\n"
     "【普段】\n"
-    "・留めた場所と大きさは、モデルごとに覚えています。チェックを入れたままにしておけば、"
+    "・付けた場所と大きさは、モデルごとに覚えています。チェックを入れたままにしておけば、"
     "次からは起動するだけで同じ所に心臓が出ます\n"
     "・スタイルや心臓の向きを変えたときは「作り直す」を押してください。"
     "押すまで VTube Studio の心臓は前の見た目のままです\n"
@@ -138,7 +147,7 @@ TROUBLE = (
     "・VTube Studio 側で心臓を消してしまった\n"
     f"　→ 「{SHOW_BUTTON}」をもう一度押してください\n"
     "・心臓の位置がずれた・別の所に付け直したい\n"
-    f"　→ 「{PIN_BUTTON}」を押して、クリックし直してください"
+    f"　→ 「{PIN_BUTTON}」を押して、VTube Studio の画面でモデルをクリックし直してください"
 )
 
 
@@ -222,7 +231,7 @@ class VtsPanel(QWidget):
         self._hide_btn = QPushButton(HIDE_BUTTON)
         self._pin_btn = QPushButton(PIN_BUTTON)
         self._pin_btn.setToolTip(
-            "押したあと、VTube Studio でモデルの心臓を置きたい所をクリックします"
+            "押したあと、VTube Studio の画面でモデルの心臓を付けたい所を左クリックします"
         )
         self._size, size_row = labeled_slider(
             round(ITEM_SIZE_MIN * 100), round(ITEM_SIZE_MAX * 100), "小さく", "大きく"
@@ -316,6 +325,8 @@ class VtsPanel(QWidget):
         picking = self._heart.picking
         if not ready:
             note, warn = "", False
+        elif picking:
+            note, warn = NOTE_PICKING, True
         elif not can_item:
             note, warn = NOTE_BAD_STYLE, True
         elif not shown:
@@ -432,9 +443,9 @@ class VtsPanel(QWidget):
             self._save(vts_item_shown=True)
             pinned = self._heart.model_id in self._heart.pins
             self._notify(
-                "VTube Studio に心臓を出し、覚えている場所に留めました"
+                "VTube Studio に心臓を出し、覚えている場所に付けました"
                 if pinned
-                else "VTube Studio に心臓を出しました。次は「モデルの胸に留める」を押してください"
+                else f"VTube Studio に心臓を出しました。次は「{PIN_BUTTON}」を押してください"
             )
         else:
             self._notify(f"VTube Studio に出せませんでした（{self._heart.last_error}）")
@@ -462,7 +473,7 @@ class VtsPanel(QWidget):
 
     def _picked(self, pin: dict | None) -> None:
         if pin is None:
-            self._notify(f"モデルに留められませんでした（{self._heart.last_error}）")
+            self._notify(f"モデルに付けられませんでした（{self._heart.last_error}）")
         else:
             self._save(vts_pins=self._heart.pins)
             self._notify(PINNED_NOTICE)
