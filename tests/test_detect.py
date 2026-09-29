@@ -403,3 +403,28 @@ def test_loud_bump_does_not_hide_following_beats() -> None:
     _add_bump(sig, 8.05, 1.6, 30.0, 0.25, sr)
     after = [b for b in _beats(sig, sr) if 8.6 < b < 12.6]
     assert len(after) >= 5
+
+
+def test_sharp_second_sound_does_not_steal_the_beat() -> None:
+    # 115 BPM ではドッとクンがほぼ等間隔になる。クンのほうが大きくても、鋭い（高い音を含む）
+    # クンではなく、鈍いドッを拍にする（D-1）
+    sr = 16000
+    period = 60.0 / 115.0
+    systole = 0.28
+    sig = [0.0] * int(30 * sr)
+    onsets: list[float] = []
+    t = 0.4
+    while t < 29.4:
+        onsets.append(t)
+        _add_bump(sig, t, 0.15, 45.0, 0.09, sr)
+        _add_bump(sig, t + systole, 0.40, 70.0, 0.05, sr)
+        _add_bump(sig, t + systole, 0.15, 520.0, 0.03, sr)
+        t += period
+    detector = HeartSoundDetector()
+    beats: list[float] = []
+    for i in range(0, len(sig), 256):
+        beats.extend(detector.feed(sig[i : i + 256], i / sr, sr))
+    late = [b for b in beats if b > 15.0]
+    assert len(late) >= 20
+    on_s1 = sum(1 for b in late if min(abs(b - o) for o in onsets) < 0.08)
+    assert on_s1 >= 0.85 * len(late)
