@@ -41,6 +41,38 @@ def test_two_windows_have_obs_titles(qapp: QApplication) -> None:
     output.close()
 
 
+def test_only_style_combo_changes_on_wheel(qapp: QApplication) -> None:
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+
+    def spin(combo: QComboBox) -> bool:
+        combo.setCurrentIndex(0)
+        event = QWheelEvent(
+            QPointF(5, 5),
+            QPointF(5, 5),
+            QPoint(0, 0),
+            QPoint(0, -120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        combo.wheelEvent(event)
+        return combo.currentIndex() != 0
+
+    combos = [c for c in operator.findChildren(QComboBox) if c.count() > 1]
+    style = operator._style
+    assert spin(style)
+    assert combos and not any(spin(c) for c in combos if c is not style)
+    operator.close()
+    output.close()
+
+
 def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     del qapp
     session = HeartSession()
@@ -50,14 +82,19 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     assert not (operator.windowFlags() & flag)
     assert not (output.windowFlags() & flag)
     titles = [box.title() for box in operator.findChildren(QGroupBox)]
-    assert "② 心拍の補正（配信前調整）" in titles
-    assert "③ スタイル" in titles
-    assert "④ 同期文字" in titles and "⑤ 心拍数" in titles
-    assert "⑥ 背景と向き" in titles
+    assert "② スタイル" in titles
+    assert "③ 同期文字" in titles and "④ 心拍数" in titles
+    assert "⑤ 背景と向き" in titles
     profiles = operator.findChildren(QComboBox)[0]
     assert not profiles.isEditable()
-    folds = [btn for btn in operator.findChildren(QToolButton) if "推しログ(ぬ)連携" in btn.text()]
-    assert folds and not folds[0].isChecked()
+    fold_texts = [btn.text() for btn in operator.findChildren(QToolButton)]
+    order = [
+        next(i for i, text in enumerate(fold_texts) if key in text)
+        for key in ("心拍の補正", "VTube Studio 連携", "推しログ(ぬ)連携（未実装）")
+    ]
+    assert order == sorted(order)
+    assert not any(btn.isChecked() for btn in operator.findChildren(QToolButton))
+    assert not any("試験的" in text for text in fold_texts)
     tap = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "拍")
     assert not tap.isEnabled()
     primary = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正開始")
@@ -93,7 +130,7 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     reset_btns = [
         btn
         for box in operator.findChildren(QGroupBox)
-        if box.title() in ("④ 同期文字", "⑤ 心拍数")
+        if box.title() in ("③ 同期文字", "④ 心拍数")
         for btn in box.findChildren(QPushButton)
         if btn.text() == "設定をリセット"
     ]
@@ -265,10 +302,10 @@ def test_beat_and_bpm_reset_only_own_group(qapp: QApplication) -> None:
     operator = OperatorWindow(session, output)
     operator._beat_x.setValue(8)
     operator._bpm_scale.setValue(180)
-    _group_reset(operator, "④ 同期文字").click()
+    _group_reset(operator, "③ 同期文字").click()
     assert operator._beat_x.value() == 50
     assert operator._bpm_scale.value() == 180
-    _group_reset(operator, "⑤ 心拍数").click()
+    _group_reset(operator, "④ 心拍数").click()
     assert operator._bpm_scale.value() == 100
     operator.close()
     output.close()

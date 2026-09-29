@@ -68,11 +68,20 @@ PICKING_BUTTON = "クリック待ち（押すとやめる）"
 SHOWN_NOTICE = "VTube Studio に心臓を出しました。「モデルに留める」で胸に留められます"
 PICK_NOTICE = "VTube Studio で、モデルの心臓を置きたい所をクリックしてください"
 PINNED_NOTICE = "モデルに留めました。次からは出すたびにここへ留めます"
+STEPS = (
+    "【つなぎ方】\n"
+    "1. VTube Studio を起動し、設定の「API を開始」をオンにする\n"
+    "2. 下の「VTube Studio とつなぐ」にチェックを入れ、VTube Studio に出た確認で「許可」を押す\n"
+    "3. 「心臓をアイテムにして出す」を押す（書き出し先が見つからないときは"
+    "「フォルダを選ぶ」で VTube Studio の StreamingAssets の中の Items を選ぶ）\n"
+    "4. 「モデルに留める」を押し、VTube Studio でモデルの胸をクリックする\n"
+    "5. 「心臓の大きさ」で大きさを合わせる"
+)
 HINT = (
-    "「モデルに留める」を押してから VTube Studio でモデルの胸をクリックすると、そこに留まり"
-    "体と一緒に動きます（場所と大きさはモデルごとに覚えて、出し直しても留め直します）。"
-    "スタイルや向きを変えたら、もう一度「出す」を押してください。"
-    f"パラメータ（{PARAM_BEAT}・{PARAM_BPM}）は、モデルの設定で好きな動きにつなげられます。"
+    "・留めた場所と大きさはモデルごとに覚えて、次からは出すたびに留め直します。\n"
+    "・アイテムにできるスタイルはリアル・機械・レントゲン3・かわいいです。"
+    "スタイルや向きを変えたら、もう一度「出す」を押してください。\n"
+    f"・パラメータ（{PARAM_BEAT}・{PARAM_BPM}）は、モデルの設定で好きな動きにつなげられます。"
 )
 
 
@@ -138,6 +147,9 @@ class VtsPanel(QWidget):
         self._folder.setObjectName("meta")
         self._folder.setWordWrap(True)
         self._folder_btn = QPushButton("フォルダを選ぶ")
+        steps = QLabel(STEPS)
+        steps.setObjectName("meta")
+        steps.setWordWrap(True)
         hint = QLabel(HINT)
         hint.setObjectName("meta")
         hint.setWordWrap(True)
@@ -152,6 +164,7 @@ class VtsPanel(QWidget):
         size_label.setObjectName("meta")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(steps)
         layout.addWidget(self._enable)
         layout.addWidget(self._status)
         layout.addLayout(item_row)

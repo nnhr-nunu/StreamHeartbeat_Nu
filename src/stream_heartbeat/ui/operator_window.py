@@ -189,7 +189,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._profiles = MarkedComboBox()
         self._profiles.setEditable(False)
         self._mics = MarkedComboBox()
-        self._style = MarkedComboBox()
+        # スタイルはよく切り替えるので、これだけホイールでも変えられる
+        self._style = MarkedComboBox(wheel=True)
         for key, look, label in STYLES:
             self._style.addItem(label, (key, look))
         self._angle_locked = QCheckBox("角度を固定")
@@ -317,27 +318,29 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         cal_row.addWidget(self._cal_btn)
         cal_row.addWidget(self._discard_cal)
         cal_hint = QLabel(
-            "・配信前に一度、配信で使うマイクを使用して補正作業を行うのをおすすめします。\n"
+            "・ふだんはしなくても大丈夫です。心拍数が半分や倍に出るなど、"
+            "数字が合わないときだけ試してください。\n"
             "・補正開始ボタンを押下後、マイクが拾った自分の心音が再生されるので、"
             "その鼓動を聴きながら拍動に合わせて「拍」ボタン（またはスペース）を10回程度押して下さい。\n"
             "・補正を破棄ボタンで補正を中断することができます。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
-        cal_box = QGroupBox("② 心拍の補正（配信前調整）")
-        cal_inner = QVBoxLayout()
+        cal_inner_widget = QWidget()
+        cal_inner = QVBoxLayout(cal_inner_widget)
+        cal_inner.setContentsMargins(0, 0, 0, 0)
         cal_inner.addWidget(cal_hint)
         cal_inner.addLayout(cal_row)
         cal_inner.addWidget(self._tap_btn)
         # cal_inner.addWidget(load_cal)
         cal_inner.addLayout(_right(self._reset_cal))
-        cal_box.setLayout(cal_inner)
+        cal_wrap, _cal_fold = _make_fold("心拍の補正（数字が合わないときだけ）", cal_inner_widget)
 
         style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
         style_form.addRow("大きさ", scale_row)
         style_form.addRow("透明度", opacity_row)
-        style_box = QGroupBox("③ スタイル")
+        style_box = QGroupBox("② スタイル")
         style_box.setLayout(style_form)
 
         beat_form = CenteredForm()
@@ -351,7 +354,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         beat_form.addRow("文字色", self._beat_color)
         beat_form.addRow("縁取り", self._beat_outline)
         beat_box, self._beat_details = _toggle_box(
-            "④ 同期文字", self._show_beat_text, beat_form, self._reset_beat
+            "③ 同期文字", self._show_beat_text, beat_form, self._reset_beat
         )
 
         bpm_form = CenteredForm()
@@ -361,7 +364,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         bpm_form.addRow("文字色", self._bpm_color)
         bpm_form.addRow("縁取り", self._bpm_outline)
         bpm_box, self._bpm_details = _toggle_box(
-            "⑤ 心拍数", self._show_bpm, bpm_form, self._reset_bpm
+            "④ 心拍数", self._show_bpm, bpm_form, self._reset_bpm
         )
 
         angle_row = QHBoxLayout()
@@ -385,7 +388,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         other_inner.addWidget(obs_hint)
         other_inner.addWidget(self._angle_wrap)
         other_inner.addWidget(self._gl_note)
-        self._other_box = QGroupBox("⑥ 背景と向き")
+        self._other_box = QGroupBox("⑤ 背景と向き")
         self._other_box.setLayout(other_inner)
 
         oshi = CenteredForm()
@@ -393,9 +396,9 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         oshi.addRow("補助 BPM URL", self._bpm_url)
         oshi_inner = QWidget()
         oshi_inner.setLayout(oshi)
-        oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携", oshi_inner, expanded=False)
+        oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携（未実装）", oshi_inner, expanded=False)
         self._vts = VtsPanel(self._session, self._data_dir, self._flash)
-        vts_wrap, _vts_fold = _make_fold("VTube Studio 連携（試験的）", self._vts, expanded=False)
+        vts_wrap, _vts_fold = _make_fold("VTube Studio 連携", self._vts, expanded=False)
 
         self._banner = QFrame()
         self._banner.setObjectName("detectBanner")
@@ -412,13 +415,13 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         layout.setSpacing(10)
         layout.addWidget(disclaimer)
         layout.addWidget(input_box)
-        layout.addWidget(cal_box)
         layout.addWidget(style_box)
         layout.addWidget(beat_box)
         layout.addWidget(bpm_box)
         layout.addWidget(self._other_box)
-        layout.addWidget(oshi_wrap)
+        layout.addWidget(cal_wrap)
         layout.addWidget(vts_wrap)
+        layout.addWidget(oshi_wrap)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
         layout.addStretch(1)

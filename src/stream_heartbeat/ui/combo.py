@@ -1,18 +1,28 @@
-"""一覧の右端に ▼ を常に出すコンボ。"""
+"""一覧の右端に ▼ を常に出すコンボ。
+
+誤って変えないよう、ふだんはホイールでは切り替えない（画面のスクロールに回す）。
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QResizeEvent, QShowEvent
+from PySide6.QtGui import QResizeEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import QComboBox, QLabel, QWidget
 
 
 class MarkedComboBox(QComboBox):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, wheel: bool = False) -> None:
         super().__init__(parent)
+        self._wheel = wheel
         self._mark = QLabel("▼", self)
         self._mark.setObjectName("comboMark")
         self._mark.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if self._wheel:
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
