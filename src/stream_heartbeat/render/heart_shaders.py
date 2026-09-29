@@ -19,6 +19,7 @@ in vec2 aUv;
 in vec2 aSection;
 in vec2 aMerge;
 in float aAuricle;
+in float aCoronary;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -48,6 +49,7 @@ out vec3 vSecT;
 out float vJoint;
 out float vFade;
 out float vPulse;
+out float vCoronary;
 """
     + SECTION_AXES_GLSL
     + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
@@ -61,6 +63,8 @@ const vec3 LA_CENTER = vec3(0.18, 0.50, -0.30);
 const vec3 RA_CENTER = vec3(-0.36, 0.40, -0.02);
 const vec3 LA_FLAP = vec3(0.18, -0.55, 0.82);
 const vec3 RA_FLAP = vec3(0.62, -0.25, 0.74);
+// 形を作った中心。ここから外が表面の外向き
+const vec3 HEART_ORIGIN = vec3(0.0, 0.2, -0.1);
 
 float vhash(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -97,8 +101,12 @@ void main() {
 
     // 室は長軸へ向かって縮む。基部側は固定、心尖に近いほどよく縮む
     float radial = 1.0 - sq * 0.17 * wall * smoothstep(0.05, 0.55, ax);
+    // 心耳のパーツは根元（房に埋まる）0 から先 1。先ほど下の心室の基部に載って一緒に動き、
+    // 房の膨らみ・縮みには引かれない（引かれると心室の中へ沈んで見える）
+    float riding = aAuricle;
+    float atriumOwn = atrium * (1.0 - riding);
     // 房は室が縮むあいだ血を溜めて少し膨らみ、充満で戻る
-    float atr = 1.0 + atrium * (0.07 * uSqueeze - 0.05 * uFill) * patchy;
+    float atr = 1.0 + atriumOwn * (0.07 * uSqueeze - 0.05 * uFill) * patchy;
 
     vec3 p = aPos;
     vec3 n = aNormal;
@@ -112,16 +120,30 @@ void main() {
     if (uLively > 0.0) {
         float kick = laMask * uAtriaL + raMask * uAtriaR;
         vec3 center = laMask > 0.5 ? LA_CENTER : RA_CENTER;
-        p = center + (p - center) * (1.0 - kick * (0.07 + 0.20 * aAuricle) * uLively);
+        float own = (1.0 - riding) * (1.0 - riding);
+        p = center + (p - center) * (1.0 - kick * 0.07 * own * uLively);
+        // 心耳はその場で縮む: 上の面は表面へ下がり、幅も細る（丸ごと沈めない）
+        vec3 outward = normalize(aPos - HEART_ORIGIN);
+        vec3 rest = normalize(aNormal);
+        float facing = dot(rest, outward);
+        vec3 across = rest - facing * outward;
+        p -= (outward * max(facing, 0.0) * 0.030 + across * 0.018) * kick * riding * uLively;
+        // 一打ちで揺れる。表面に沿って揺れ、外へは浮くだけ
         float flap = laMask * uAurL + raMask * uAurR;
-        vec3 flapDir = normalize(laMask > 0.5 ? LA_FLAP : RA_FLAP);
-        p += flapDir * flap * 0.05 * pow(aAuricle, 1.5) * uLively;
+        vec3 f = laMask > 0.5 ? LA_FLAP : RA_FLAP;
+        vec3 along = normalize(f - dot(f, outward) * outward);
+        p += (along * flap * 0.045 + outward * max(flap, 0.0) * 0.012)
+            * pow(riding, 1.5) * uLively;
     }
+    // 表面の冠動脈は拡張期に血が満ちて太り、静脈は収縮で押し出された血で張る
+    float coronaryArtery = step(0.5, aCoronary) * (1.0 - step(1.5, aCoronary));
+    float coronaryVein = step(1.5, aCoronary);
+    p += normalize(n) * (coronaryArtery * 0.004 * uFill + coronaryVein * 0.003 * uSqueeze);
 
     // 房室弁の面が心尖へ下がる。心尖はほぼ動かない
     float descend = uSqueeze * 0.11;
-    p.y -= descend * ventricle * (1.0 - ax);
-    p.y -= descend * atrium * clamp((0.78 - aPos.y) / 0.42, 0.0, 1.0);
+    p.y -= descend * (ventricle + riding) * (1.0 - ax);
+    p.y -= descend * atriumOwn * clamp((0.78 - aPos.y) / 0.42, 0.0, 1.0);
 
     // 心尖が少し前へ突き上げる
     p.z += uSqueeze * 0.035 * ventricle * ax;
@@ -169,6 +191,7 @@ void main() {
     vSecT = normalize(mat3(uModel) * SEC_T);
     vJoint = aMerge.x;
     vFade = aMerge.y;
+    vCoronary = aCoronary;
     gl_Position = uProj * uView * world;
 }
 """
@@ -234,6 +257,7 @@ in vec3 vSecT;
 in float vJoint;
 in float vFade;
 in float vPulse;
+in float vCoronary;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -428,10 +452,14 @@ void main() {
     float hide = mix(0.45, 0.12, uCoronary);
     float coronaryVis = (trunk * mix(0.55, 1.0, uCoronary) + branches * mix(0.18, 0.82, uCoronary));
     coronaryVis *= (1.0 - fatMask * hide * (1.0 - 0.7 * uLively));
+    // 表面を這う管（生々しい見た目）
+    float onTube = step(0.5, vCoronary);
     if (uLively > 0.0) {
-        // 冠動脈は表面から盛り上がった管に見せる。拡張期に血が満ちて少し太り、明るくなる
+        // 幹と枝は管が受け持つので、描く網は細い枝の名残に抑える
+        coronaryVis *= 0.55;
+        // 細い枝は表面から盛り上がった管に見せる。拡張期に血が満ちて少し太り、明るくなる
         float filled = 0.85 + 0.30 * uFill;
-        float h = clamp(coronaryVis, 0.0, 1.0) * filled * uLively;
+        float h = clamp(coronaryVis, 0.0, 1.0) * filled * uLively * (1.0 - onTube);
         vec3 dpdx = dFdx(P);
         vec3 dpdy = dFdy(P);
         vec3 r1 = cross(dpdy, N);
@@ -446,6 +474,17 @@ void main() {
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
     // 送り出された血の波が大血管を走る。波の所が赤く張る
     albedo = mix(albedo, vec3(0.86, 0.10, 0.12), isVessel * vPulse * 0.45 * uLively);
+    if (onTube > 0.5) {
+        // 動脈は鮮やかな赤で拡張期に満ちて明るく、静脈は暗い紫。溝では脂肪が所々かぶさる
+        float isVein = step(1.5, vCoronary);
+        vec3 arteryTube = mix(vec3(0.62, 0.07, 0.09), vec3(0.84, 0.13, 0.14), uFill);
+        vec3 tube = mix(arteryTube, vec3(0.30, 0.07, 0.18), isVein);
+        tube *= 0.86 + 0.24 * fbm(P * 26.0 + 3.0);
+        float cover = smoothstep(0.45, 0.75, fbm(P * 9.0 + 61.0)) * fatMask * 0.55;
+        albedo = mix(tube, fatColor, cover);
+        fatMask *= cover;
+        isVessel = 1.0;
+    }
 
     // 血管の付け根: 本体と管の両側を脂肪混じりの外膜の色へ寄せ、接する所を影で沈める
     float jointNoise = 0.55 + 0.45 * fbm(P * 5.0 + 50.0);

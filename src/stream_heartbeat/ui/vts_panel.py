@@ -187,7 +187,7 @@ class VtsPanel(QWidget):
     def _make_item(self) -> None:
         profile = self._session.profile
         if profile.style not in ITEM_STYLES:
-            self._notify("アイテムにできるのはリアル・機械・レントゲン2・かわいいです")
+            self._notify("アイテムにできるのはリアル・機械・レントゲン3・かわいいです")
             return
         folder = self._resolved_dir()
         if folder is None:

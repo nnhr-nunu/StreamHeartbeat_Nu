@@ -96,11 +96,12 @@ class ProfileControlsMixin:
         return "realistic", "surgical"
 
     def _select_style(self, style: str, look: str) -> None:
-        wanted = (style, look if style == "realistic" else "")
-        for i in range(self._style.count()):
-            if self._style.itemData(i) == wanted:
-                self._style.setCurrentIndex(i)
-                return
+        # 見た目の違いがあるスタイル（リアル・レントゲン）はその見た目、無ければ素の形を選ぶ
+        for wanted in ((style, look), (style, "")):
+            for i in range(self._style.count()):
+                if self._style.itemData(i) == wanted:
+                    self._style.setCurrentIndex(i)
+                    return
         if style == "realistic":
             for i in range(self._style.count()):
                 if self._style.itemData(i) == ("realistic", "surgical"):

@@ -62,6 +62,7 @@ _ATTRIBUTES = (
     ("aSection", 11, 2),
     ("aMerge", 13, 2),
     ("aAuricle", 15, 1),
+    ("aCoronary", 16, 1),
 )
 
 

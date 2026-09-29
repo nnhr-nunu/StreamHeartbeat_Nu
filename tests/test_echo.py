@@ -150,3 +150,15 @@ def test_chest_xray_shader_fills_panel_with_dark_lungs(qapp: QApplication) -> No
     belly = image.pixelColor(60, 180)
     assert lung.green() < 200 and belly.lightness() > lung.lightness()
 
+    # 女性の像（レントゲン2）は肺の下の外側に乳房の影が重なって明るい
+    def lower_lateral(female: bool) -> int:
+        fbo.bind()
+        gl.glClear(0x4000)
+        xray.draw(width=200, height=200, panel=(10.0, 10.0, 180.0, 180.0), corner=12.0,
+                  time_s=1.0, opacity=1.0, female=female)
+        shot = fbo.toImage()
+        fbo.release()
+        return shot.pixelColor(146, 146).lightness() + shot.pixelColor(54, 146).lightness()
+
+    assert lower_lateral(True) > lower_lateral(False) + 20
+

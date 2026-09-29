@@ -183,9 +183,39 @@ def test_auricle_parts_are_tail_and_marked_from_root_to_tip() -> None:
     auricle = [mesh.data[v * stride + 15] for v in range(mesh.vertex_count)]
     # 心耳らしさは心耳のパーツだけ。根元（房に埋まる）0 から先 1
     assert all(auricle[v] == 0.0 for v in range(mesh.auricle_start))
-    parts = [auricle[v] for v in range(mesh.auricle_start, mesh.vertex_count)]
+    assert all(auricle[v] == 0.0 for v in range(mesh.coronary_start, mesh.vertex_count))
+    parts = [auricle[v] for v in range(mesh.auricle_start, mesh.coronary_start)]
     assert min(parts) == pytest.approx(0.0, abs=1e-6)
     assert max(parts) == pytest.approx(1.0)
-    regions = {mesh.data[v * stride + 6] for v in range(mesh.auricle_start, mesh.vertex_count)}
+    regions = {mesh.data[v * stride + 6] for v in range(mesh.auricle_start, mesh.coronary_start)}
     assert regions == {2.0, 3.0}
+
+
+def test_coronary_tubes_ride_on_ventricles_along_grooves() -> None:
+    from stream_heartbeat.render.heart_coronary import (
+        ARTERY,
+        VEIN,
+        coronary_parts,
+        direction,
+        trunks,
+    )
+    from stream_heartbeat.render.heart_mesh import CHAMBERS, _ray_ellipsoid
+
+    mesh = build_heart_mesh(rows=24, cols=36, section_step=0.08)
+    stride = FLOATS_PER_VERTEX
+    assert mesh.auricle_start < mesh.coronary_start < mesh.vertex_count
+    flags = [mesh.data[v * stride + 16] for v in range(mesh.vertex_count)]
+    assert all(flag == 0.0 for flag in flags[: mesh.coronary_start])
+    assert set(flags[mesh.coronary_start :]) == {ARTERY, VEIN}
+    # 下の心室と一緒に動くよう、部位は左室〜右室（境目は間の値）
+    regions = [mesh.data[v * stride + 6] for v in range(mesh.coronary_start, mesh.vertex_count)]
+    assert 0.0 <= min(regions) and max(regions) <= 1.0
+    assert any(0.1 < r < 0.9 for r in regions)
+    # 左前下行枝は左室と右室の境目の溝をたどる（心尖を回る先を除く）
+    lv, rv = CHAMBERS[0], CHAMBERS[1]
+    for az, el in trunks()["lad"][:-3]:
+        d = direction(az, el)
+        assert abs(_ray_ellipsoid(d, lv) - _ray_ellipsoid(d, rv)) < 1e-3
+    kinds = [part.kind for part in coronary_parts()]
+    assert kinds.count(ARTERY) >= 6 and kinds.count(VEIN) >= 2
 

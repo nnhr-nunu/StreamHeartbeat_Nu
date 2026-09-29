@@ -55,6 +55,7 @@ class HeartProfile:
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
     tap_interval: float = 0.0
+    # スタイルの中の見た目（リアルの 1〜3、レントゲンの女性の像など）
     realistic_look: str = "surgical"
     heart_yaw_deg: float = -18.0
     heart_pitch_deg: float = 12.0

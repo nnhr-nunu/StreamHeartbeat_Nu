@@ -2,7 +2,8 @@
 
 X 線の写り方に合わせ、厚く密なものほど明るく足し合わせる。軟部（首・肩・胸壁）、
 暗い肺野と血管影、気管、横隔膜と胃泡、骨（鎖骨・肋骨・肩甲骨・上腕骨頭・脊椎）を
-描く。骨は外側の皮質が明るく中が淡い。心臓の影はこの上に立体心臓を足して描く。
+描く。骨は外側の皮質が明るく中が淡く、縁はぼける。肋骨は心臓の影の所で淡くし、
+上に足す立体心臓を隠さない。女性の像では胸郭が少し狭く、肺の下の外側に乳房の影が重なる。
 座標はパネルの高さの半分を 1 とし、中心が原点、x が画面右（体の左）、y が画面下。
 """
 
@@ -13,6 +14,8 @@ from PySide6.QtGui import QOpenGLFunctions
 from stream_heartbeat.render.chamber_glsl import NOISE_GLSL, SDF_GLSL, SliceShader
 
 XRAY_FPS = 12.0
+# 女性の像を選ぶ見た目の名前（プロファイルの見た目の欄に入る）
+XRAY_FEMALE = "female"
 
 _UNIFORMS = """
 uniform vec2 uViewport;
@@ -20,6 +23,7 @@ uniform vec4 uPanel;
 uniform float uCorner;
 uniform float uFrame;
 uniform float uOpacity;
+uniform float uFemale;
 out vec4 fragColor;
 """
 
@@ -46,11 +50,11 @@ float sdBezier(vec2 p, vec2 a, vec2 b, vec2 c) {
     return d;
 }
 
-// 骨の帯。縁（皮質）がやや明るく、中は淡い。w は帯の半分の幅
+// 骨の帯。縁（皮質）がやや明るく、中は淡い。縁は幅に応じてぼける。w は帯の半分の幅
 float boneBand(float d, float w, float strength) {
-    float body = inside(d - w, 0.005);
-    float rim = exp(-pow((d - w * 0.80) / (w * 0.25), 2.0));
-    return strength * body * (0.62 + 0.38 * rim);
+    float body = inside(d - w, 0.004 + w * 0.35);
+    float rim = exp(-pow((d - w * 0.78) / (w * 0.30), 2.0));
+    return strength * body * (0.66 + 0.34 * rim);
 }
 
 // 肋骨。後ろ（背骨から横へ弓なりに出て、胸の外側で下へ回る）は濃く、
@@ -72,12 +76,14 @@ float ribs(vec2 p, float belly) {
             // 外へ行くほど太る
             float grow = 1.0 + 0.6 * smoothstep(0.1, 0.7, q.x);
             float lower = 1.0 - 0.75 * belly;
-            acc += boneBand(post, w * grow, 0.20) * lower;
+            // 骨の中のむら（1 本ごと・場所ごとに濃さが揺れる）
+            float grainy = 0.78 + 0.44 * vnoise(q * vec2(9.0, 5.0) + vec2(k * 3.7, k));
+            acc += boneBand(post, w * grow, 0.13) * lower * grainy;
             float ant = sdBezier(q, wall + vec2(-0.01, 0.05),
                                  vec2(lateral * 0.74, y0 + 0.34),
                                  vec2(0.24, y0 + 0.50 + 0.012 * k));
             float fadeIn = smoothstep(0.20, 0.42, q.x);
-            acc += boneBand(ant, w * 1.1, 0.075) * fadeIn * lower;
+            acc += boneBand(ant, w * 1.1, 0.05) * fadeIn * lower;
         }
     }
     return acc;
@@ -128,6 +134,8 @@ float shoulderBones(vec2 p) {
 }
 
 float density(vec2 p) {
+    // 女性は肩幅と胸郭が少し狭い
+    p.x *= 1.0 + 0.05 * uFemale;
     // 体の輪郭: 首から肩へなで下ろし、脇の下から胴
     float ax = abs(p.x);
     float shoulderLine = -0.80 + 0.10 * smoothstep(0.18, 0.40, ax);
@@ -185,8 +193,20 @@ float density(vec2 p) {
     d += 0.06 * inside(ax - 0.13, 0.04) * (1.0 - belly) * bodyMask;
     d += 0.07 * inside(sdEllipse(p - vec2(0.12, -0.30), vec2(0.07, 0.06)), 0.02);
 
-    d += (ribs(p, belly) + shoulderBones(p)) * bodyMask;
-    d += spine(p);
+    // 乳房の影: 肺の下の外側に重なる。下の縁は弧がはっきりし、上へは淡く消える
+    for (int s = 0; s < 2; s++) {
+        float side = s == 0 ? 1.0 : -1.0;
+        vec2 q = vec2(p.x * side, p.y);
+        float breast = inside(sdEllipse(q - vec2(0.52, 0.33), vec2(0.40, 0.30)), 0.012);
+        float thick = smoothstep(-0.02, 0.58, q.y);
+        // 横隔膜の下ではお腹の濃さに紛れる
+        d += 0.17 * breast * thick * (1.0 - 0.6 * belly) * uFemale * bodyMask;
+    }
+
+    // 肋骨は心臓の影の所で淡く（立体心臓を上に足すので、骨の縞で心臓を隠さない）
+    float heartZone = inside(sdEllipse(p - vec2(0.06, 0.18), vec2(0.34, 0.36)), 0.12);
+    d += (ribs(p, belly) * (1.0 - 0.5 * heartZone) + shoulderBones(p)) * bodyMask;
+    d += spine(p) * (1.0 - 0.4 * heartZone);
     return max(d, 0.0);
 }
 
@@ -232,8 +252,9 @@ class XrayRenderer:
         corner: float,
         time_s: float,
         opacity: float,
+        female: bool = False,
     ) -> None:
-        """panel は左上を原点とする画素の (x, y, 幅, 高さ)。"""
+        """panel は左上を原点とする画素の (x, y, 幅, 高さ)。female で女性の像。"""
         self._shader.draw(
             width,
             height,
@@ -242,5 +263,6 @@ class XrayRenderer:
                 "uCorner": max(0.0, corner),
                 "uFrame": float(int(time_s * XRAY_FPS) % 4096),
                 "uOpacity": max(0.0, min(1.0, opacity)),
+                "uFemale": 1.0 if female else 0.0,
             },
         )
