@@ -35,8 +35,10 @@ def place_side_by_side(operator: QSize, output: QSize, screen: QRect) -> tuple[Q
 
 
 def window_geom(widget: QWidget) -> dict[str, int]:
-    geo = widget.geometry()
-    return {"x": geo.x(), "y": geo.y(), "w": geo.width(), "h": geo.height()}
+    # move() は枠を含む位置なので pos() で保存する（geometry() だと枠の分ずつずれる）
+    pos = widget.pos()
+    size = widget.size()
+    return {"x": pos.x(), "y": pos.y(), "w": size.width(), "h": size.height()}
 
 
 def parse_geom(data: object) -> QRect | None:
