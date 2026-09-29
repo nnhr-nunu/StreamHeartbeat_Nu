@@ -72,10 +72,12 @@ def ensure_cache(names: list[str]) -> None:
 
 
 def apply_overrides(overrides: list[str]) -> None:
-    """--set RHYTHM_GUARD=0.7 のように detect.py のモジュール定数を（プロセス内だけ）差し替える。src は変えない。"""
+    """--set RHYTHM_GUARD=0.7 のように detect.py / noise_gate.py のモジュール定数を（プロセス内だけ）
+    差し替える。src は変えない。"""
     import stream_heartbeat.detect as det_mod
+    import stream_heartbeat.noise_gate as gate_mod
 
-    mods = [det_mod]
+    mods = [det_mod, gate_mod]
     for item in overrides:
         key, val = item.split("=", 1)
         hit = False
