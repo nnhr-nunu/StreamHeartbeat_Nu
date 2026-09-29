@@ -87,7 +87,7 @@ def build_section_cap(step: float) -> list[float]:
         out.append(0.0)
         out.append(0.0)
         out.append(1.0)
-        out.append(0.0)
+        out.extend((0.0, 0.0))
 
     for i in range(rows):
         for j in range(cols):

@@ -19,7 +19,7 @@ from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.mri_gl import MriRenderer
 from stream_heartbeat.render.orbit import Orbit
-from stream_heartbeat.render.xray_gl import XrayRenderer
+from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
@@ -145,7 +145,7 @@ class OutputCanvas(QOpenGLWidget):
         style = profile.style
 
         gl_mri = style == "mri" and self._mri is not None
-        # レントゲン1 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
+        # レントゲン1・2 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
         gl_chest = style == "xray" and self._xray is not None and self.uses_gl
         if not (gl_mri or gl_chest):
             paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
@@ -196,6 +196,7 @@ class OutputCanvas(QOpenGLWidget):
                     corner=corner,
                     time_s=t,
                     opacity=profile.opacity,
+                    female=profile.realistic_look == XRAY_FEMALE,
                 )
             # 回せないスタイルは体の絵と同じ正面から見る
             rotatable = style in ROTATABLE_STYLES

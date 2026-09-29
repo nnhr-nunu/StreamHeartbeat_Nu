@@ -31,8 +31,8 @@ BPM_COLOR = QColor(255, 255, 255)
 
 # 立体の心臓メッシュで描くスタイル。心エコーと MRI は断面シェーダー（echo_gl / mri_gl）
 GL_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart"})
-# 配信用の窓のドラッグで回せるスタイル。レントゲン1 は胸の絵と向きを合わせて正面に固定。
-# レントゲン2（心臓だけ）は体の絵が無いので回せる
+# 配信用の窓のドラッグで回せるスタイル。レントゲン1・2 は胸の絵と向きを合わせて正面に固定。
+# レントゲン3（心臓だけ）は体の絵が無いので回せる
 ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray_heart"})
 PANEL_STYLES = frozenset({"xray", "mri"})
 BPM_COLORS = (

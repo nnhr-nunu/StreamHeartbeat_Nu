@@ -385,7 +385,7 @@ def paint_xray_flat_heart(
 def paint_xray_cutout_heart(
     painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle
 ) -> None:
-    """レントゲン2（心臓だけ）の代替。背景に重ねるので足し算ではなく透かして描く。"""
+    """レントゲン3（心臓だけ）の代替。背景に重ねるので足し算ではなく透かして描く。"""
     cx = rect.center().x() + rect.width() * 0.03
     cy = rect.center().y() + rect.height() * 0.04
     s = min(rect.width(), rect.height()) * 0.36 * scale / 0.7

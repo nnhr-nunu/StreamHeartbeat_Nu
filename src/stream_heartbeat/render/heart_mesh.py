@@ -25,7 +25,7 @@ REGION_ARTERY = 4.0
 REGION_VEIN = 5.0
 REGION_LUMEN = 6.0
 
-FLOATS_PER_VERTEX = 16
+FLOATS_PER_VERTEX = 17
 BASE_Y = 0.36
 APEX_Y = -1.12
 # 画面上で体の上下に合わせる傾き。心臓の長軸は体の縦から左下へ倒れている
@@ -89,6 +89,8 @@ class HeartMesh:
     tube_start: int = 0
     # 心耳のパーツの頂点の始まり（断面の切り口の後ろ）。心耳を別に動かす見た目のときだけ描く
     auricle_start: int = -1
+    # 表面を這う冠動脈の頂点の始まり（心耳の後ろ、最後まで）。心耳と同じ見た目のときだけ描く
+    coronary_start: int = -1
 
     @property
     def section_end(self) -> int:
@@ -282,6 +284,7 @@ def _vertex(
     joint: float = 0.0,
     fade: float = 1.0,
     auricle: float = 0.0,
+    coronary: float = 0.0,
 ) -> None:
     out.extend(pos)
     out.extend(normal)
@@ -295,6 +298,7 @@ def _vertex(
     out.append(joint)
     out.append(fade)
     out.append(auricle)
+    out.append(coronary)
 
 
 def _no_contact(_p: Vec3) -> float:
@@ -721,8 +725,9 @@ def fix_winding(data: list[float], start_vertex: int = 0) -> None:
 
 
 def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0.018) -> HeartMesh:
-    # 断面と心耳は外形の関数を使うので、ここで遅れて読み込む
+    # 断面・心耳・冠動脈は外形の関数を使うので、ここで遅れて読み込む
     from stream_heartbeat.render.heart_auricles import AURICLE_PARTS, auricle_lobe
+    from stream_heartbeat.render.heart_coronary import coronary_parts, coronary_tube
     from stream_heartbeat.render.heart_section import build_section_cap, plane_side
 
     for chamber in CHAMBERS:
@@ -738,6 +743,9 @@ def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0
     auricle_start = len(data) // FLOATS_PER_VERTEX
     for part in AURICLE_PARTS:
         data += auricle_lobe(part)
+    coronary_start = len(data) // FLOATS_PER_VERTEX
+    for vessel in coronary_parts():
+        data += coronary_tube(vessel)
     fix_winding(data)
     return HeartMesh(
         data=array("f", data),
@@ -745,4 +753,5 @@ def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0
         section_start=section_start,
         tube_start=tube_start,
         auricle_start=auricle_start,
+        coronary_start=coronary_start,
     )
