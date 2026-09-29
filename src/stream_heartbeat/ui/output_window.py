@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QCloseEvent, QMouseEvent, QPainter, QSurfaceFormat
+from PySide6.QtGui import QCloseEvent, QMouseEvent, QPainter, QShowEvent, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMainWindow
 
@@ -286,6 +286,7 @@ class OutputWindow(QMainWindow):
         self.setCentralWidget(self.canvas)
         self._allow_close = False
         self._quit_via: Callable[[], None] | None = None
+        self._created_translucent: bool | None = None
         self.apply_backdrop()
 
     def apply_backdrop(self) -> None:
@@ -293,6 +294,21 @@ class OutputWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
         self.canvas.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
         self.canvas.update()
+
+    def needs_rebuild(self) -> bool:
+        """透過は窓を作るときにしか効かない。緑などで作った窓を透明にするには作り直す。"""
+        if self._created_translucent is None:
+            # まだ一度も出していない窓は、そのまま透過にできる
+            return False
+        transparent = self.canvas._session.profile.backdrop == "transparent"
+        return transparent and not self._created_translucent
+
+    def showEvent(self, event: QShowEvent) -> None:
+        if self._created_translucent is None:
+            self._created_translucent = self.testAttribute(
+                Qt.WidgetAttribute.WA_TranslucentBackground
+            )
+        super().showEvent(event)
 
     def set_quit_handler(self, handler: Callable[[], None]) -> None:
         self._quit_via = handler

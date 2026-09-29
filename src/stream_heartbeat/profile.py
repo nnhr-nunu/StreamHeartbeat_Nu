@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -76,9 +77,16 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def save_profile(path: Path, profile: HeartProfile) -> None:
+    """設定は 1 項目 1 行で読みやすく、補正の音は丸めて 1 行に詰める（ファイルを小さく保つ）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(profile)
-    _write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
+    calibration = payload.pop("calibration")
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    packed = json.dumps(
+        [[round(x, 5) for x in take] for take in calibration], separators=(",", ":")
+    )
+    text = text[: text.rindex("}")].rstrip() + f',\n  "calibration": {packed}\n}}'
+    _write_atomic(path, text)
 
 
 def _set_aside(path: Path) -> None:
@@ -93,7 +101,13 @@ def _same_kind(default: object, value: object) -> bool:
     if isinstance(default, bool):
         return isinstance(value, bool)
     if isinstance(default, float):
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        # NaN や無限大は画面の部品に入れると落ちるので受け付けない
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and abs(value) < 1e6
+        )
     if isinstance(default, str):
         return isinstance(value, str)
     return True
@@ -105,7 +119,8 @@ def _clean_calibration(value: object) -> list[list[float]]:
     out: list[list[float]] = []
     for session in value:
         if isinstance(session, list) and all(
-            isinstance(x, (int, float)) and not isinstance(x, bool) for x in session
+            isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+            for x in session
         ):
             out.append(session)
     return out

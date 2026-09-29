@@ -29,6 +29,14 @@ def list_mics() -> list[MicDevice]:
     return out
 
 
+def default_mic_id() -> str:
+    """Windows の既定の録音デバイス。無ければ空。"""
+    device = QMediaDevices.defaultAudioInput()
+    if device.isNull():
+        return ""
+    return bytes(device.id()).decode("utf-8", "replace")
+
+
 class MicTap:
     def __init__(self) -> None:
         self._source: QAudioSource | None = None

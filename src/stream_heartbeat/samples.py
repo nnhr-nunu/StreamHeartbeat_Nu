@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import array
+import wave
 from pathlib import Path
-
-from stream_heartbeat.detect import load_wav_mono
 
 AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".mp4", ".mov", ".m4v"}
 AUDIO_FILTER = "音声・動画 (*.wav *.mp3 *.m4a *.mp4 *.mov);;すべて (*.*)"
@@ -24,6 +23,24 @@ def load_audio_mono(path: Path) -> list[float]:
     except ValueError:
         # 一部の mp3 は Qt 側の 16 kHz 変換だけ失敗する。元の形式で読んで自前で変換する
         return _decode_with_qt(path, convert=False)
+
+
+def load_wav_mono(path: Path) -> list[float]:
+    """16bit の WAV をモノラル 16 kHz にする。それ以外の形式は ValueError。"""
+    try:
+        with wave.open(str(path), "rb") as wav:
+            channels = wav.getnchannels()
+            width = wav.getsampwidth()
+            rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+    except (wave.Error, EOFError) as exc:
+        raise ValueError(f"WAV を読めません: {exc}") from exc
+    if width != 2:
+        raise ValueError("16bit WAV only")
+    pcm = array.array("h")
+    pcm.frombytes(frames[: len(frames) // 2 * 2])
+    values = [x / 32768.0 for x in pcm]
+    return to_mono_16k(values, channels, rate)
 
 
 def to_mono_16k(frames: list[float], channels: int, rate: int) -> list[float]:

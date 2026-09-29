@@ -229,3 +229,24 @@ def test_forgotten_calibration_stops_growing() -> None:
         session.tick(0.0, [0.0] * 1000, sample_rate=1000.0)
     assert session.calibrating is not None
     assert len(session.calibrating) == int(CAL_MAX_S * 1000)
+
+
+def test_silent_calibration_is_not_saved() -> None:
+    session = HeartSession()
+    session.begin_calibration(0.0)
+    session.tick(0.1, [0.0] * 100, sample_rate=1000.0)
+    assert session.commit_calibration() is False
+    assert session.profile.calibration == []
+    assert session.recording is False
+
+
+@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
+def test_long_calibration_takes_are_trimmed(_bundled: object) -> None:
+    beat = [math.sin(i * 0.3) * math.exp(-i / 300.0) * 0.6 for i in range(1600)]
+    take: list[float] = []
+    for _ in range(40):
+        take.extend(beat)
+        take.extend([0.0] * 10400)
+    session = HeartSession(HeartProfile(calibration=[take]))
+    assert 1 <= len(session.profile.calibration) <= 8
+    assert all(len(snippet) <= 16000 for snippet in session.profile.calibration)

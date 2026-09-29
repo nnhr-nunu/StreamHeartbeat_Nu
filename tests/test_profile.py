@@ -99,3 +99,31 @@ def test_save_leaves_no_temp_file(tmp_path: Path) -> None:
     save_profile(path, HeartProfile(name="p"))
     save_app_state(tmp_path, last_profile="p")
     assert sorted(p.name for p in tmp_path.iterdir()) == ["app_state.json", "p.json"]
+
+
+def test_non_finite_numbers_fall_back_to_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text(
+        '{"name": "p", "scale": NaN, "opacity": 1e30, "beat_text_x": Infinity, '
+        '"heart_yaw_deg": -Infinity, "calibration": [[0.1, NaN], [0.2]]}',
+        encoding="utf-8",
+    )
+    profile = load_profile(path)
+    blank = HeartProfile()
+    assert profile.scale == blank.scale
+    assert profile.opacity == blank.opacity
+    assert profile.beat_text_x == blank.beat_text_x
+    assert profile.heart_yaw_deg == blank.heart_yaw_deg
+    assert profile.calibration == [[0.2]]
+
+
+def test_calibration_is_saved_compactly_and_reloads(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    take = [0.123456789 * (i % 7) for i in range(16000)]
+    save_profile(path, HeartProfile(name="p", calibration=[take]))
+    text = path.read_text(encoding="utf-8")
+    assert len(text.splitlines()) < 60
+    assert len(text) < 16000 * 9
+    loaded = load_profile(path)
+    assert loaded.name == "p"
+    assert loaded.calibration[0][1] == pytest.approx(0.12346)
