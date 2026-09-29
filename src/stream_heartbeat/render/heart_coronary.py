@@ -120,7 +120,7 @@ class Coronary:
     r0: float
     r1: float
     kind: float = ARTERY
-    wiggle: float = 0.010
+    wiggle: float = 0.007
     phase: float = 0.0
 
 
@@ -132,30 +132,47 @@ def coronary_parts() -> list[Coronary]:
     def branch(parent: list[Angles], at: float, rest: list[Angles]) -> list[Angles]:
         return [_along(parent, at), *rest]
 
-    # 前室間静脈は左前下行枝の左室側に沿って上り、大心静脈として左の房室溝へ回る
+    # 前室間静脈は左前下行枝の左室側に沿って上り、大心静脈は左の房室溝を回る。
+    # 1 本につなぐと、溝の間で左室の上を斜めに横切って浮いた管に見えるので分ける
     aiv = [(az + 6.0, el) for az, el in lad[2:-4]][::-1]
     gcv = [(az, el - 5.0) for az, el in lcx[1:7]]
+    # 対角枝（左室の前外側へ）・鈍縁枝（左室の側面を心尖へ）・鋭縁枝（右室の下の縁）
+    d1 = branch(lad, 0.22, [(30.0, -14.0), (47.0, -31.0), (60.0, -50.0)])
+    d2 = branch(lad, 0.50, [(22.0, -40.0), (36.0, -57.0), (45.0, -70.0)])
+    om1 = branch(lcx, 0.30, [(92.0, 6.0), (97.0, -20.0), (98.0, -45.0), (95.0, -62.0)])
+    am = branch(rca, 0.56, [(-66.0, -12.0), (-58.0, -32.0), (-48.0, -50.0)])
     return [
         Coronary(lad, 0.024, 0.009, wiggle=0.005, phase=0.3),
         Coronary(lcx, 0.021, 0.011, wiggle=0.004, phase=1.1),
         Coronary(rca, 0.024, 0.012, wiggle=0.004, phase=2.0),
-        # 対角枝（左室の前外側へ）
-        Coronary(branch(lad, 0.22, [(30.0, -14.0), (47.0, -31.0), (60.0, -50.0)]), 0.015, 0.006,
-                 phase=0.7),
-        Coronary(branch(lad, 0.50, [(22.0, -40.0), (36.0, -57.0), (45.0, -70.0)]), 0.013, 0.005,
-                 phase=2.6),
-        # 鈍縁枝（左室の側面を心尖へ）
-        Coronary(branch(lcx, 0.30, [(92.0, 6.0), (97.0, -20.0), (98.0, -45.0), (95.0, -62.0)]),
-                 0.015, 0.006, phase=1.9),
+        Coronary(d1, 0.015, 0.006, phase=0.7),
+        Coronary(d2, 0.013, 0.005, phase=2.6),
+        Coronary(branch(lad, 0.66, [(12.0, -52.0), (22.0, -63.0), (28.0, -74.0)]), 0.010,
+                 0.004, phase=3.7),
+        # 左前下行枝から右室の前へ出る細い枝
+        Coronary(branch(lad, 0.30, [(-2.0, -16.0), (-14.0, -22.0), (-24.0, -26.0)]), 0.009,
+                 0.004, phase=5.3),
+        Coronary(branch(lad, 0.55, [(-6.0, -38.0), (-16.0, -44.0)]), 0.008, 0.003, phase=1.4),
+        Coronary(om1, 0.015, 0.006, phase=1.9),
         Coronary(branch(lcx, 0.66, [(118.0, -14.0), (121.0, -38.0), (119.0, -56.0)]), 0.013,
                  0.004, phase=4.1),
-        # 右室枝と鋭縁枝（右室の前と下の縁）
+        Coronary(branch(lcx, 0.86, [(140.0, -18.0), (142.0, -38.0), (140.0, -54.0)]), 0.011,
+                 0.004, phase=0.2),
+        # 枝からさらに分かれる細い枝
+        Coronary(branch(d1, 0.5, [(52.0, -24.0), (64.0, -34.0), (72.0, -44.0)]), 0.009, 0.003,
+                 phase=2.9),
+        Coronary(branch(d2, 0.45, [(40.0, -50.0), (50.0, -60.0)]), 0.008, 0.003, phase=4.6),
+        Coronary(branch(om1, 0.5, [(106.0, -18.0), (112.0, -34.0)]), 0.008, 0.003, phase=3.1),
+        Coronary(branch(am, 0.5, [(-50.0, -26.0), (-38.0, -34.0)]), 0.008, 0.003, phase=0.5),
+        # 右室枝（右室の前）と鋭縁枝、右冠動脈の先から後ろを下りる枝
         Coronary(branch(rca, 0.28, [(-36.0, 18.0), (-26.0, 0.0), (-19.0, -16.0)]), 0.012, 0.005,
                  phase=3.3),
-        Coronary(branch(rca, 0.56, [(-66.0, -12.0), (-58.0, -32.0), (-48.0, -50.0)]), 0.014,
-                 0.005, phase=5.0),
+        Coronary(am, 0.014, 0.005, phase=5.0),
+        Coronary(branch(rca, 0.97, [(-116.0, -38.0), (-120.0, -54.0), (-118.0, -68.0)]), 0.012,
+                 0.004, phase=2.4),
         # 静脈は動脈より太く暗い
-        Coronary(aiv + gcv, 0.019, 0.023, VEIN, wiggle=0.006, phase=0.9),
+        Coronary(aiv, 0.017, 0.021, VEIN, wiggle=0.006, phase=0.9),
+        Coronary(gcv, 0.021, 0.019, VEIN, wiggle=0.005, phase=3.9),
         Coronary([(100.0, 22.0), (105.0, -4.0), (107.0, -30.0), (104.0, -50.0)], 0.016, 0.010,
                  VEIN, phase=2.2),
         Coronary([(-62.0, 22.0), (-50.0, 5.0), (-40.0, -12.0), (-33.0, -27.0)], 0.015, 0.009,
@@ -192,7 +209,7 @@ def _host(unit: Vec3) -> tuple[float, float]:
 
 
 def coronary_tube(part: Coronary) -> list[float]:
-    """管 1 本分の頂点。表面から 6 割ほど出して置き、先は閉じる。"""
+    """管 1 本分の頂点。半分ほど表面に埋めて置き、先は筋へ潜らせて閉じる。"""
     rough = [_on_surface(add(ORIGIN, direction(az, el)), 0.0) for az, el in part.path]
     base = _resample(rough, _STEP)
     count = len(base)
@@ -207,7 +224,9 @@ def coronary_tube(part: Coronary) -> list[float]:
         # 付け根は親の管から離れない
         w *= part.wiggle * _smooth01(u * 8.0)
         radius = part.r0 + (part.r1 - part.r0) * u
-        centers.append(_on_surface(add(c, mul(side, w)), radius * 0.25))
+        # 半分ほど表面に埋め、両端は筋の中へ潜って消える（付け根は親の管の下へ）
+        dive = max(_smooth01((u - 0.7) / 0.3), _smooth01((0.12 - u) / 0.12))
+        centers.append(_on_surface(add(c, mul(side, w)), radius * (0.05 - 0.75 * dive)))
 
     out: list[float] = []
     rings: list[list[tuple[Vec3, Vec3]]] = []
@@ -225,9 +244,13 @@ def coronary_tube(part: Coronary) -> list[float]:
         ring: list[tuple[Vec3, Vec3]] = []
         for j in range(_RING):
             a = 2.0 * math.pi * j / _RING
-            # 表面に押されて少し平たい断面
-            offset = add(mul(side, math.cos(a) * radius), mul(up, math.sin(a) * radius * 0.8))
-            normal = norm(add(mul(side, math.cos(a) * 0.8), mul(up, math.sin(a))))
+            # 表面に押された平たい断面。法線は外へ寄せ、脇がまわりの面へなだらかにつながる
+            offset = add(mul(side, math.cos(a) * radius), mul(up, math.sin(a) * radius * 0.65))
+            if math.sin(a) >= 0.0:
+                normal = norm(add(mul(side, math.cos(a) * 0.5), mul(up, math.sin(a) + 0.6)))
+            else:
+                # 下半分は表面に埋まって見えない。向きだけ外へ（面の表裏を崩さない）
+                normal = norm(add(mul(side, math.cos(a) * 0.8), mul(up, math.sin(a))))
             ring.append((warp(add(c, offset)), normal))
         rings.append(ring)
 

@@ -193,14 +193,22 @@ float density(vec2 p) {
     d += 0.06 * inside(ax - 0.13, 0.04) * (1.0 - belly) * bodyMask;
     d += 0.07 * inside(sdEllipse(p - vec2(0.12, -0.30), vec2(0.07, 0.06)), 0.02);
 
-    // 乳房の影: 肺の下の外側に重なる。下の縁は弧がはっきりし、上へは淡く消える
+    // 乳房の影: 肺の下の外側に重なる。下外側の縁は弧として見えるがぼけ、
+    // 内側（胸骨寄り）と上へは胸の壁へなだらかに消える（円の縁を出さない）
     for (int s = 0; s < 2; s++) {
         float side = s == 0 ? 1.0 : -1.0;
         vec2 q = vec2(p.x * side, p.y);
-        float breast = inside(sdEllipse(q - vec2(0.52, 0.33), vec2(0.40, 0.30)), 0.012);
-        float thick = smoothstep(-0.02, 0.58, q.y);
+        vec2 b = q - vec2(0.56, 0.34);
+        // 形を少しくずして、きれいな楕円に見せない
+        b += 0.035 * vec2(vnoise(q * 2.6 + 5.0) - 0.5, vnoise(q * 2.6 + 11.0) - 0.5);
+        float shape = sdEllipse(b, vec2(0.44, 0.28));
+        float lowerOuter = smoothstep(-0.06, 0.20, b.y) * smoothstep(-0.30, 0.10, b.x);
+        float breast = inside(shape, mix(0.12, 0.03, lowerOuter));
+        // 縁から中へ向けて厚くなる。下ほど厚く、内側と上は薄い
+        breast *= 0.55 + 0.45 * smoothstep(0.0, 0.16, -shape);
+        float thick = smoothstep(0.02, 0.52, q.y) * smoothstep(0.10, 0.44, q.x);
         // 横隔膜の下ではお腹の濃さに紛れる
-        d += 0.17 * breast * thick * (1.0 - 0.6 * belly) * uFemale * bodyMask;
+        d += 0.19 * breast * thick * (1.0 - 0.6 * belly) * uFemale * bodyMask;
     }
 
     // 肋骨は心臓の影の所で淡く（立体心臓を上に足すので、骨の縞で心臓を隠さない）
