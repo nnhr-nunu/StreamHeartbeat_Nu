@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
+from stream_heartbeat.clock import DisplayClock
 from stream_heartbeat.config import (
     DISCLAIMER,
     LIVE_STATUS,
@@ -38,6 +40,7 @@ from stream_heartbeat.config import (
 from stream_heartbeat.oshilog import AuxBpmPoller
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
+    HeartProfile,
     load_last_profile_name,
     load_profile,
     profiles_dir,
@@ -78,6 +81,10 @@ CAL_SAVE = "補正を保存"
 CAL_DISCARD = "補正を破棄"
 CAL_RESET = "設定を初期化"
 NOTICE_MS = 3500
+# この秒数マイクから何も届かなければ、抜けたか止まったとみなして知らせる
+NO_AUDIO_S = 2.0
+NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
+SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か、空き容量が足りません）"
 
 
 def _make_fold(
@@ -138,7 +145,14 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._monitor = MicMonitor()
         self._data_dir = resolve_data_dir()
         self._t0 = time.perf_counter()
+        self._display_clock = DisplayClock()
         self._closing = False
+        self._last_audio = 0.0
+        self._no_audio = False
+        self._mic_open = False
+        # マイクの抜き差しを受けて一覧を作り直す
+        self._devices = QMediaDevices(self)
+        self._devices.audioInputsChanged.connect(self._on_mics_changed)
         self.setWindowTitle(OPERATOR_WINDOW_TITLE)
         self.setMinimumSize(440, 420)
         self.resize(500, 760)
@@ -252,7 +266,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
         self._angle_locked.toggled.connect(self._apply_controls)
-        self._reset_angle.clicked.connect(self._output.canvas.reset_angle)
+        self._reset_angle.clicked.connect(lambda: self._output.canvas.reset_angle())
         self._scale.valueChanged.connect(self._apply_controls)
         self._opacity.valueChanged.connect(self._apply_controls)
         self._text.textChanged.connect(self._apply_controls)
@@ -273,7 +287,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._bpm_outline.currentIndexChanged.connect(self._apply_controls)
         self._backdrop.currentIndexChanged.connect(self._apply_controls)
         # self._show_arrhythmia.toggled.connect(self._apply_controls)
-        self._mics.currentIndexChanged.connect(self._restart_mic)
+        self._mics.currentIndexChanged.connect(self._on_mic_picked)
 
         self._reset_beat = QPushButton("設定をリセット")
         self._reset_bpm = QPushButton("設定をリセット")
@@ -438,6 +452,14 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             self._mics.addItem(mic.name, mic.id)
         self._mics.blockSignals(False)
 
+    def _on_mics_changed(self) -> None:
+        """保存したマイクが戻ればそれに、抜けたら既定のマイクに切り替える。"""
+        self._fill_mics()
+        self._mics.blockSignals(True)
+        self._select_mic(self._session.profile.mic_id)
+        self._mics.blockSignals(False)
+        self._restart_mic()
+
     def _profile_path(self, name: str) -> Path:
         safe = name.strip() or "default"
         return profiles_dir(self._data_dir) / f"{safe}.json"
@@ -454,7 +476,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._profiles.setCurrentText(last)
         self._profiles.blockSignals(False)
         path = self._profile_path(last)
-        if path.is_file():
+        # 起動時は app.py が同じプロファイルを読み込み済み。二度読みしない
+        if path.is_file() and self._session.profile.name != last:
             self._session.profile = load_profile(path)
             self._session.rebuild_detector()
 
@@ -465,10 +488,34 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         path = self._profile_path(name)
         if not path.is_file():
             return
+        # 閉じるときと同じく、切り替える前に今のプロファイルを保存する。
+        # 補正の途中なら、その録音は切り替え先へ持ち込まない
+        previous = self._session.profile
+        if previous.name != name:
+            self._write_profile(previous)
+        self._session.discard_calibration()
+        self._sync_cal_ui()
         self._session.profile = load_profile(path)
         self._session.rebuild_detector()
         self._load_into_controls(self._session.profile)
         self._restart_mic()
+
+    def _rebuild_output(self) -> None:
+        """配信用の窓を同じ場所に作り直す（背景を透明にしたとき）。"""
+        old = self._output
+        new = OutputWindow(self._session)
+        new.set_quit_handler(self.close)
+        new.canvas.angle_locked = old.canvas.angle_locked
+        new.setGeometry(old.geometry())
+        if old.isVisible():
+            new.show()
+        self._output = new
+        old.allow_close()
+        old.close()
+        old.deleteLater()
+        self._flash(
+            "透明にするため配信用の窓を開き直しました。OBS の取り込みが外れたら選び直してください"
+        )
 
     def _refresh_style_controls(self) -> None:
         style, _look = self._style_choice()
@@ -508,16 +555,33 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _restart_mic(self) -> None:
         self._apply_controls()
         mic_id = str(self._mics.currentData() or "")
+        self._last_audio = self._now()
+        self._no_audio = False
         try:
             self._mic.start(mic_id)
         except Exception:
+            self._mic_open = False
             self._meter.setValue(0)
             self._level.setText(
                 "マイクを開けません。OBS と同時に使うときは、独占モードをオフにしてください"
             )
             self._level.show()
             return
+        self._mic_open = True
         self._level.hide()
+
+    def _watch_audio(self, got_samples: bool, now: float) -> None:
+        if got_samples:
+            self._last_audio = now
+            if self._no_audio:
+                self._no_audio = False
+                self._level.hide()
+            return
+        if self._mic_open and not self._no_audio and now - self._last_audio > NO_AUDIO_S:
+            self._no_audio = True
+            self._meter.setValue(0)
+            self._level.setText(NO_AUDIO_LABEL)
+            self._level.show()
 
     def _now(self) -> float:
         return time.perf_counter() - self._t0
@@ -569,8 +633,11 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             self._tap_btn.setText(f"拍  {len(self._session.taps)}")
 
     def _commit_cal(self) -> None:
-        self._session.commit_calibration()
+        saved = self._session.commit_calibration()
         self._sync_cal_ui()
+        if not saved:
+            self._flash("音が録れていなかったので保存しませんでした。マイクを確かめてください")
+            return
         self._save_current(notice="補正を保存しました")
 
     def _confirm_reset(self) -> bool:
@@ -604,15 +671,23 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             return
         self._session.profile.calibration.append(samples)
         self._session.rebuild_detector()
-        count = len(self._session.profile.calibration)
         self._sync_cal_ui()
-        self._save_current(notice=f"心音サンプルを追加しました（{count} 件）")
+        self._save_current(notice="心音サンプルを追加しました")
 
-    def _save_current(self, *, notice: str | None = "プロファイルを保存しました") -> None:
+    def _write_profile(self, profile: HeartProfile) -> bool:
+        try:
+            save_profile(self._profile_path(profile.name), profile)
+            save_last_profile_name(profile.name, self._data_dir)
+        except OSError:
+            self._flash(SAVE_FAIL_LABEL)
+            return False
+        return True
+
+    def _save_current(self, *, notice: str | None = "プロファイルを保存しました") -> bool:
         self._apply_controls()
         name = self._session.profile.name
-        save_profile(self._profile_path(name), self._session.profile)
-        save_last_profile_name(name, self._data_dir)
+        if not self._write_profile(self._session.profile):
+            return False
         if self._profiles.findText(name) < 0:
             self._profiles.blockSignals(True)
             self._profiles.addItem(name)
@@ -620,6 +695,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             self._profiles.blockSignals(False)
         if notice:
             self._flash(notice)
+        return True
 
     def _save_as(self) -> None:
         name, ok = QInputDialog.getText(
@@ -634,15 +710,19 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         name = name.strip()
         if not name:
             return
-        self._session.profile.name = name
-        self._save_current(notice=f"「{name}」として保存しました")
+        # 保存は一覧で選んでいる名前を使うので、先に新しい名前を一覧に足して選ぶ
         self._profiles.blockSignals(True)
+        if self._profiles.findText(name) < 0:
+            self._profiles.addItem(name)
         self._profiles.setCurrentText(name)
         self._profiles.blockSignals(False)
+        self._save_current(notice=f"「{name}」として保存しました")
 
     def _poll_aux(self) -> None:
-        self._apply_controls()
-        bpm = self._aux_poller.poll(self._session.profile.oshilog_bpm_url)
+        profile = self._session.profile
+        profile.oshilog_public_id = self._public_id.text().strip()
+        profile.oshilog_bpm_url = self._bpm_url.text().strip()
+        bpm = self._aux_poller.poll(profile.oshilog_bpm_url)
         self._session.clock.oshilog_bpm = bpm
         if bpm is None:
             self._aux.setText("推しログ(ぬ) 補助: —")
@@ -651,14 +731,15 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
 
     def _on_tick(self) -> None:
         samples = self._mic.pull_mono()
+        now = self._now()
         if samples:
             peak = max(abs(x) for x in samples)
             # 心音は小さいので、平方根で小さい音も見えるようにする。
             self._meter.setValue(min(100, int(peak**0.5 * 100)))
+        self._watch_audio(bool(samples), now)
         recording = self._session.recording
         if recording and samples:
             self._monitor.write_mono(samples)
-        now = self._now()
         self._session.tick(now, samples)
         if recording:
             self._set_banner_kind("record")
@@ -672,19 +753,25 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
                 self._warn.setText("")
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
-        self._output.canvas.set_now(self._session.now)
+        self._output.canvas.set_now(self._display_clock.at(now, self._session.now))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._closing:
             super().closeEvent(event)
             return
         self._closing = True
+        self._timer.stop()
+        self._aux_timer.stop()
         self._save_current(notice=None)
-        save_app_state(
-            self._data_dir,
-            operator_geom=window_geom(self),
-            output_geom=window_geom(self._output),
-        )
+        # 保存に失敗しても、マイクや配信用の窓を残したまま終われなくならないようにする
+        try:
+            save_app_state(
+                self._data_dir,
+                operator_geom=window_geom(self),
+                output_geom=window_geom(self._output),
+            )
+        except OSError:
+            pass
         self._monitor.stop()
         self._mic.stop()
         self._output.allow_close()

@@ -5,7 +5,12 @@ from __future__ import annotations
 from stream_heartbeat.bundled import bundled_heart_sessions
 from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.config import CAL_MAX_S, TAP_GOAL
-from stream_heartbeat.detect import BUNDLED_CORR_MIN, CalibrationTemplate, HeartSoundDetector
+from stream_heartbeat.detect import (
+    BUNDLED_CORR_MIN,
+    CalibrationTemplate,
+    HeartSoundDetector,
+    compact_calibration,
+)
 from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.tap import chunks_near_taps, tap_interval
@@ -33,6 +38,8 @@ class HeartSession:
         bundled = bundled_heart_sessions()
         bundled_tmpl = CalibrationTemplate.from_sessions(bundled) if bundled else None
         user_tmpl = None
+        # 以前の版で積み増した長い録音もここで心音の所だけに切り詰める
+        self.profile.calibration = compact_calibration(self.profile.calibration)
         if self.profile.calibration:
             user_tmpl = CalibrationTemplate.from_sessions(self.profile.calibration)
         template = CalibrationTemplate.merge(user_tmpl, bundled_tmpl)
@@ -75,8 +82,10 @@ class HeartSession:
         self.calibrating = None
         self.taps = []
 
-    def commit_calibration(self) -> None:
-        if self.calibrating:
+    def commit_calibration(self) -> bool:
+        """録音を補正に加える。音が録れていなければ何も変えず False。"""
+        saved = False
+        if self.calibrating and any(abs(x) > 1e-4 for x in self.calibrating):
             audio = list(self.calibrating)
             self.profile.calibration.append(audio)
             near = chunks_near_taps(audio, self._cal_sr, self._cal_t0, self.taps)
@@ -85,8 +94,10 @@ class HeartSession:
             if interval > 0:
                 self.profile.tap_interval = interval
             self.rebuild_detector()
+            saved = True
         self.calibrating = None
         self.taps = []
+        return saved
 
     def reset_calibration(self) -> None:
         self.profile.calibration.clear()

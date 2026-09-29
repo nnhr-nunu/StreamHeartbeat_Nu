@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import math
-import wave
 from collections import deque
-from pathlib import Path
 
 from stream_heartbeat.config import MAX_BPM
 
@@ -239,19 +237,27 @@ def extract_thuds(
     return thuds
 
 
-def load_wav_mono(path: Path) -> list[float]:
-    with wave.open(str(path), "rb") as wav:
-        channels = wav.getnchannels()
-        width = wav.getsampwidth()
-        frames = wav.readframes(wav.getnframes())
-    if width != 2:
-        raise ValueError("16bit WAV only")
-    samples: list[float] = []
-    step = channels * 2
-    for i in range(0, len(frames) - 1, step):
-        raw = int.from_bytes(frames[i : i + 2], "little", signed=True)
-        samples.append(raw / 32768.0)
-    return samples
+# 補正の録音は心音の所だけ残す。長い録音をそのまま積むと保存ファイルが膨らむ
+CAL_SNIPPET_MAX_S = 1.0
+CAL_SNIPPETS_PER_TAKE = 8
+CAL_SNIPPETS_MAX = 48
+
+
+def compact_calibration(
+    sessions: list[list[float]], sample_rate: float = 16000.0
+) -> list[list[float]]:
+    """長い録音は大きい心音の塊だけに切り詰め、全体も新しい方から上限個に絞る。"""
+    limit = int(CAL_SNIPPET_MAX_S * sample_rate)
+    out: list[list[float]] = []
+    for session in sessions:
+        if len(session) <= limit:
+            out.append(session)
+            continue
+        filtered = band_pass(session, sample_rate)
+        thuds = extract_thuds(session, sample_rate, cut_from=filtered)
+        thuds.sort(key=lambda item: -_rms(item))
+        out.extend(thuds[:CAL_SNIPPETS_PER_TAKE])
+    return out[-CAL_SNIPPETS_MAX:]
 
 
 class CalibrationTemplate:

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from stream_heartbeat.detect import load_wav_mono
-from stream_heartbeat.samples import AUDIO_SUFFIXES, load_audio_mono
+from stream_heartbeat.samples import AUDIO_SUFFIXES, load_audio_mono, load_wav_mono
 
 
 def heart_samples_dir() -> Path:
@@ -25,6 +24,7 @@ def bundled_heart_sessions() -> list[list[float]]:
                 sessions.append(load_wav_mono(path))
             else:
                 sessions.append(load_audio_mono(path))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RuntimeError):
+            # 置かれたファイルが読めなくても起動は止めない
             continue
     return sessions

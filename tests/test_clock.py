@@ -153,3 +153,20 @@ def test_reacquire_after_lost_follows_new_tempo() -> None:
     assert clock.detected is True
     clock.publish_display(t + BPM_DISPLAY_S)
     assert 70 <= clock.bpm <= 80
+
+
+def test_display_clock_smooths_uneven_audio_steps() -> None:
+    from stream_heartbeat.clock import DisplayClock
+
+    display = DisplayClock()
+    audio = 0.0
+    shown = []
+    for i in range(240):
+        wall = i * 0.016
+        audio += 0.010 if i % 2 else 0.020
+        shown.append(display.at(wall, audio))
+    steps = [b - a for a, b in zip(shown[120:-1], shown[121:])]
+    assert max(steps) - min(steps) < 0.004
+    assert abs(shown[-1] - audio) < 0.03
+    # 大きく飛んだら（止まっていた・巻き戻った）すぐ合わせる
+    assert display.at(10.0, 50.0) == 50.0

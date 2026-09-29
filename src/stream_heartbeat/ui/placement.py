@@ -69,11 +69,27 @@ def fit_geom_on_screen(rect: QRect, screen: QRect) -> QRect | None:
     return fitted
 
 
-def apply_window_geom(widget: QWidget, data: object, screen: QRect) -> bool:
+def screen_for(rect: QRect, screens: list[QRect], fallback: QRect) -> QRect:
+    """保存した位置といちばん広く重なる画面。どれにも重ならなければ fallback（主画面）。"""
+    best = fallback
+    best_area = 0
+    for screen in screens:
+        overlap = rect.intersected(screen)
+        area = 0 if overlap.isEmpty() else overlap.width() * overlap.height()
+        if area > best_area:
+            best = screen
+            best_area = area
+    return best
+
+
+def apply_window_geom(
+    widget: QWidget, data: object, screen: QRect, screens: list[QRect] | None = None
+) -> bool:
+    """前回の位置へ戻す。2 枚目以降の画面に置いていた窓はその画面に戻す。"""
     rect = parse_geom(data)
     if rect is None:
         return False
-    fitted = fit_geom_on_screen(rect, screen)
+    fitted = fit_geom_on_screen(rect, screen_for(rect, screens or [], screen))
     if fitted is None:
         return False
     widget.resize(fitted.size())

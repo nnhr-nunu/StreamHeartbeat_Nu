@@ -187,3 +187,25 @@ class BeatClock:
         if self.oshilog_bpm is None:
             return False
         return abs(self.bpm - int(self.oshilog_bpm)) >= MISMATCH_BPM
+
+
+class DisplayClock:
+    """絵を描く時刻。音はまとまって届くので、心拍の時刻は 10 ms と 20 ms を交互に進む。
+
+    それをそのまま使うと動きが細かくつかえるので、壁時計の歩みで進めつつ、
+    音の時刻とのずれをゆっくり縮める。大きく飛んだときはすぐ合わせ直す。
+    """
+
+    FOLLOW = 0.05
+    JUMP_S = 0.25
+
+    def __init__(self) -> None:
+        self._offset: float | None = None
+
+    def at(self, wall: float, audio_time: float) -> float:
+        offset = audio_time - wall
+        if self._offset is None or abs(offset - self._offset) > self.JUMP_S:
+            self._offset = offset
+        else:
+            self._offset += (offset - self._offset) * self.FOLLOW
+        return wall + self._offset

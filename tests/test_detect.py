@@ -5,14 +5,17 @@ import statistics
 import wave
 from pathlib import Path
 
+import pytest
+
 from stream_heartbeat.detect import (
     CalibrationTemplate,
     HeartSoundDetector,
     band_pass,
+    compact_calibration,
     envelope_rms,
-    load_wav_mono,
     looks_like_thud,
 )
+from stream_heartbeat.samples import load_wav_mono
 
 
 def test_envelope_rms_is_shorter_than_samples() -> None:
@@ -279,6 +282,33 @@ def test_load_wav_mono(tmp_path: Path) -> None:
     samples = load_wav_mono(path)
     assert len(samples) == 160
     assert max(samples) > 0.1
+
+
+def test_load_wav_mono_resamples_to_16k_and_rejects_non_wav(tmp_path: Path) -> None:
+    path = tmp_path / "stereo44.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(44100)
+        wav.writeframes(b"\x00\x10" * 2 * 44100)
+    assert abs(len(load_wav_mono(path)) - 16000) <= 1
+    broken = tmp_path / "broken.wav"
+    broken.write_bytes(b"not a wave file at all")
+    with pytest.raises(ValueError):
+        load_wav_mono(broken)
+
+
+def test_compact_calibration_keeps_short_snippets_and_trims_long_takes() -> None:
+    take = []
+    for _beat in range(20):
+        take.extend(_thud(i, 400) * 0.6 for i in range(1600))
+        take.extend([0.0] * 12800)
+    short = [0.1] * 1000
+    out = compact_calibration([take, short])
+    assert out[-1] == short
+    assert 1 <= len(out) - 1 <= 8
+    assert all(len(snippet) <= 16000 for snippet in out)
+    assert len(compact_calibration([short] * 100)) == 48
 
 
 def _lub_dub(

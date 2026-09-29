@@ -42,12 +42,13 @@ def run() -> int:
     output.show()
     screen = app.primaryScreen()
     area = screen.availableGeometry() if screen is not None else None
+    screens = [item.availableGeometry() for item in app.screens()]
     state = load_app_state(resolve_data_dir())
     op_ok = False
     out_ok = False
     if area is not None:
-        op_ok = apply_window_geom(operator, state.get("operator_geom"), area)
-        out_ok = apply_window_geom(output, state.get("output_geom"), area)
+        op_ok = apply_window_geom(operator, state.get("operator_geom"), area, screens)
+        out_ok = apply_window_geom(output, state.get("output_geom"), area, screens)
         if not op_ok and not out_ok:
             op_pos, out_pos = place_side_by_side(operator.size(), output.size(), area)
             output.move(out_pos)

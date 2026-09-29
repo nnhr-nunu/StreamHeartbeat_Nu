@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtWidgets import QAbstractSlider
+
+from stream_heartbeat.audio import default_mic_id
 from stream_heartbeat.config import DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_COLOR
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.ui.combo import MarkedComboBox
@@ -18,6 +21,9 @@ class ProfileControlsMixin:
 
     _session: HeartSession
     _output: OutputWindow
+    # マイクを操作画面で選び直したときだけプロファイルへ書く。保存したマイクが
+    # つながっていないときに、代わりに開いたマイクで上書きしないため
+    _mic_chosen: bool = False
 
     def _load_into_controls(self, profile: HeartProfile) -> None:
         # 途中で値変更の合図が飛ぶと、まだ初期値の他の項目でプロファイルが上書きされる。
@@ -53,30 +59,27 @@ class ProfileControlsMixin:
         try:
             self._text.setText(profile.beat_text)
             self._show_beat_text.setChecked(profile.show_beat_text)
-            self._beat_scale.setValue(int(profile.beat_text_scale * 100))
-            self._beat_opacity.setValue(int(profile.beat_text_opacity * 100))
-            self._beat_x.setValue(int(round(profile.beat_text_x * 100)))
-            self._beat_y.setValue(int(round(profile.beat_text_y * 100)))
-            self._beat_jitter.setValue(int(round(profile.beat_text_jitter * 100)))
-            self._beat_tilt.setValue(int(round(profile.beat_text_tilt * 100)))
+            _set_percent(self._beat_scale, profile.beat_text_scale)
+            _set_percent(self._beat_opacity, profile.beat_text_opacity)
+            _set_percent(self._beat_x, profile.beat_text_x)
+            _set_percent(self._beat_y, profile.beat_text_y)
+            _set_percent(self._beat_jitter, profile.beat_text_jitter)
+            _set_percent(self._beat_tilt, profile.beat_text_tilt)
             self._select_combo(self._beat_color, profile.beat_text_color)
             self._select_combo(self._beat_outline, profile.beat_text_outline)
             self._show_bpm.setChecked(profile.show_bpm)
-            self._bpm_scale.setValue(int(profile.bpm_scale * 100))
-            self._bpm_x.setValue(int(round(profile.bpm_x * 100)))
-            self._bpm_y.setValue(int(round(profile.bpm_y * 100)))
+            _set_percent(self._bpm_scale, profile.bpm_scale)
+            _set_percent(self._bpm_x, profile.bpm_x)
+            _set_percent(self._bpm_y, profile.bpm_y)
             self._select_combo(self._bpm_color, profile.bpm_color)
             self._select_combo(self._bpm_outline, profile.bpm_outline)
             self._select_combo(self._backdrop, profile.backdrop)
-            self._scale.setValue(int(profile.scale * 100))
-            self._opacity.setValue(int(profile.opacity * 100))
+            _set_percent(self._scale, profile.scale)
+            _set_percent(self._opacity, profile.opacity)
             self._public_id.setText(profile.oshilog_public_id)
             self._bpm_url.setText(profile.oshilog_bpm_url)
             self._select_style(profile.style, profile.realistic_look)
-            for i in range(self._mics.count()):
-                if self._mics.itemData(i) == profile.mic_id:
-                    self._mics.setCurrentIndex(i)
-                    break
+            self._select_mic(profile.mic_id)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -110,6 +113,24 @@ class ProfileControlsMixin:
             if combo.itemData(i) == value:
                 combo.setCurrentIndex(i)
                 return
+        # 選択肢に無い値（手で書いた色など）は消さずに選択肢へ足して残す
+        combo.addItem(f"保存値 {value}", value)
+        combo.setCurrentIndex(combo.count() - 1)
+
+    def _select_mic(self, mic_id: str) -> None:
+        """保存したマイクを選ぶ。つながっていなければ Windows の既定のマイクを開く。"""
+        self._mic_chosen = False
+        for wanted in (mic_id, default_mic_id()):
+            index = self._mics.findData(wanted) if wanted else -1
+            if index >= 0:
+                self._mics.setCurrentIndex(index)
+                return
+        if self._mics.count():
+            self._mics.setCurrentIndex(0)
+
+    def _on_mic_picked(self, _index: int = 0) -> None:
+        self._mic_chosen = True
+        self._restart_mic()
 
     def _apply_controls(self) -> None:
         profile = self._session.profile
@@ -143,9 +164,11 @@ class ProfileControlsMixin:
         profile.show_arrhythmia = False
         profile.oshilog_public_id = self._public_id.text().strip()
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
-        if self._mics.currentData():
+        if self._mic_chosen and self._mics.currentData():
             profile.mic_id = str(self._mics.currentData())
         self._output.apply_backdrop()
+        if self._output.needs_rebuild():
+            self._rebuild_output()
 
     def _reset_beat_look(self) -> None:
         blank = HeartProfile()
@@ -172,3 +195,9 @@ class ProfileControlsMixin:
         profile.bpm_color = blank.bpm_color
         profile.bpm_outline = blank.bpm_outline
         self._load_into_controls(profile)
+
+
+def _set_percent(slider: QAbstractSlider, value: float) -> None:
+    """0.57 → 57 のように百分率で入れる。切り捨てると保存のたびに 1 ずつ減るので丸める。"""
+    percent = int(round(value * 100))
+    slider.setValue(max(slider.minimum(), min(slider.maximum(), percent)))
