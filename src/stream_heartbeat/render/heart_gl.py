@@ -268,7 +268,7 @@ class OffscreenHeart:
         gl = self._context.functions()
         bg = background if background is not None else QColor(0, 255, 0)
         gl.glViewport(0, 0, width, height)
-        gl.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), 1.0)
+        gl.glClearColor(bg.redF(), bg.greenF(), bg.blueF(), bg.alphaF())
         gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         self._renderer.draw(
             width=width,

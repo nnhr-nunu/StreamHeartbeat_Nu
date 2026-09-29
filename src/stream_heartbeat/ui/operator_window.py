@@ -65,6 +65,7 @@ from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.slider import labeled_slider
 from stream_heartbeat.ui.styles import DARK_QSS
+from stream_heartbeat.ui.vts_panel import VtsPanel
 
 STYLES = [
     ("realistic", "surgical", "リアル1"),
@@ -392,6 +393,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         oshi_inner = QWidget()
         oshi_inner.setLayout(oshi)
         oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携", oshi_inner, expanded=False)
+        self._vts = VtsPanel(self._session, self._data_dir, self._flash)
+        vts_wrap, _vts_fold = _make_fold("VTube Studio 連携（試験的）", self._vts, expanded=False)
 
         self._banner = QFrame()
         self._banner.setObjectName("detectBanner")
@@ -414,6 +417,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         layout.addWidget(bpm_box)
         layout.addWidget(self._other_box)
         layout.addWidget(oshi_wrap)
+        layout.addWidget(vts_wrap)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
         layout.addStretch(1)
@@ -756,7 +760,9 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
                 self._warn.setText("")
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
-        self._output.canvas.set_now(self._display_clock.at(now, self._session.now))
+        shown = self._display_clock.at(now, self._session.now)
+        self._output.canvas.set_now(shown)
+        self._vts.tick(shown)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._closing:
@@ -777,6 +783,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             pass
         self._monitor.stop()
         self._mic.stop()
+        self._vts.shutdown()
         self._output.allow_close()
         self._output.close()
         super().closeEvent(event)
