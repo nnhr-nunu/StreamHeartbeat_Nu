@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QRectF
@@ -97,13 +98,25 @@ def render_frames(profile: HeartProfile, size: int = FRAME_SIZE) -> list[QImage]
     return frames
 
 
-def write_frames(frames: list[QImage], folder: Path) -> int:
-    """コマを folder に書く（前のコマは消す）。書けたコマの数。"""
+def write_frames(frames: list[QImage], folder: Path, tag: str | None = None) -> int:
+    """コマを folder に書く（前のコマは消す）。書けたコマの数。
+
+    VTube Studio は一度読んだ絵をファイル名で覚えていて、同じ名前で書き直しても
+    （アイテムを出し直しても）前の絵を出し続ける。書くたびに名前へ tag を入れて変える。
+    """
+    if tag is None:
+        tag = f"{time.time_ns() // 1_000_000:x}"
     folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob(f"{FRAME_PREFIX}*.png"):
+    # このフォルダはアイテム専用。PNG が残っていると VTube Studio がコマとして混ぜるので全部消す
+    for old in folder.glob("*.png"):
         old.unlink()
     for index, frame in enumerate(frames):
         # VTube Studio は名前の末尾の番号の順に並べる。桁をそろえて並びを崩さない
-        if not frame.save(str(folder / f"{FRAME_PREFIX}{index + 1:03d}.png")):
+        if not frame.save(str(folder / f"{FRAME_PREFIX}{tag}_{index + 1:03d}.png")):
             raise OSError(f"コマを書けません: {folder}")
     return len(frames)
+
+
+def count_frames(folder: Path) -> int:
+    """folder に書いてあるコマの数（無ければ 0）。"""
+    return sum(1 for _ in folder.glob("*.png")) if folder.is_dir() else 0

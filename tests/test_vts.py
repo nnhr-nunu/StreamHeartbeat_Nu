@@ -15,6 +15,7 @@ from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.heart_frames import (
     FRAME_PREFIX,
     beat_cycles,
+    count_frames,
     render_frames,
     write_frames,
 )
@@ -25,8 +26,28 @@ from stream_heartbeat.vts import (
     READY,
     VtsClient,
     VtsHeart,
+    clicked_pin,
     item_framerate,
 )
+
+HIT = {
+    "modelID": "m1",
+    "artMeshID": "D_BODY_00",
+    "angle": 12.0,
+    "size": 1.0,
+    "vertexID1": 3,
+    "vertexID2": 4,
+    "vertexID3": 5,
+    "vertexWeight1": 0.2,
+    "vertexWeight2": 0.3,
+    "vertexWeight3": 0.5,
+}
+PIN = {k: v for k, v in HIT.items() if k not in ("angle", "size")}
+
+
+def click_event(hits: list[dict], button: int = 0) -> dict:
+    return {"modelLoaded": True, "modelWasClicked": bool(hits), "mouseButtonID": button,
+            "artMeshHits": hits}
 
 
 class FakeVts(QObject):
@@ -35,6 +56,8 @@ class FakeVts(QObject):
     def __init__(self, *, deny: bool = False) -> None:
         super().__init__()
         self.deny = deny
+        # True なら、アイテムは VTube Studio 側で消された扱い
+        self.item_gone = False
         self.received: list[dict] = []
         self._server = QWebSocketServer("fake-vts", QWebSocketServer.SslMode.NonSecureMode)
         assert self._server.listen(QHostAddress.SpecialAddress.LocalHost, 0)
@@ -58,6 +81,16 @@ class FakeVts(QObject):
     def types(self) -> list[str]:
         return [m["messageType"] for m in self.received]
 
+    def sent(self, kind: str) -> list[dict]:
+        return [m["data"] for m in self.received if m["messageType"] == kind]
+
+    def push(self, kind: str, data: dict) -> None:
+        """イベントを送る。"""
+        payload = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
+                   "requestID": "event", "messageType": kind, "data": data}
+        for socket in self._sockets:
+            socket.sendTextMessage(json.dumps(payload))
+
     def _reply(self, socket: QWebSocket, text: str) -> None:
         message = json.loads(text)
         self.received.append(message)
@@ -76,6 +109,12 @@ class FakeVts(QObject):
             data = {"itemInstancesInScene": [], "availableItemFiles": []}
         elif kind == "ItemLoadRequest":
             data = {"instanceID": "inst1", "fileName": message["data"]["fileName"]}
+        elif kind == "CurrentModelRequest":
+            data = {"modelLoaded": True, "modelName": "Model", "modelID": "m1"}
+        elif kind == "ItemPinRequest":
+            data = {"isPinned": message["data"]["pin"], "itemInstanceID": "inst1"}
+        elif kind == "ItemAnimationControlRequest" and self.item_gone:
+            answer, data = "APIError", {"errorID": 850, "message": "not found"}
         payload = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
                    "requestID": message["requestID"], "messageType": answer, "data": data}
         socket.sendTextMessage(json.dumps(payload))
@@ -164,10 +203,18 @@ def test_frames_are_transparent_and_numbered(qapp, tmp_path: Path) -> None:
     folder = tmp_path / ITEM_FOLDER
     folder.mkdir()
     (folder / f"{FRAME_PREFIX}999.png").write_bytes(b"old")
-    assert write_frames(frames, folder) == len(frames)
+    (folder / "leftover_001.png").write_bytes(b"old")
+    assert write_frames(frames, folder, tag="t1") == len(frames)
     names = sorted(p.name for p in folder.iterdir())
-    assert names[0] == f"{FRAME_PREFIX}001.png" and len(names) == len(frames)
+    assert names[0] == f"{FRAME_PREFIX}t1_001.png" and len(names) == len(frames)
     assert not QImage(str(folder / names[0])).isNull()
+    # 書き直すたびに名前を変える（VTube Studio は同じ名前なら前の絵を出し続けるため）
+    write_frames(frames[:3], folder, tag="t2")
+    assert sorted(p.name for p in folder.iterdir())[0] == f"{FRAME_PREFIX}t2_001.png"
+    assert count_frames(folder) == 3 and count_frames(tmp_path / "none") == 0
+    write_frames(frames[:2], folder)
+    assert count_frames(folder) == 2
+    assert not (folder / f"{FRAME_PREFIX}t2_001.png").exists()
 
 
 def test_panel_plays_item_once_per_beat(qapp, tmp_path: Path) -> None:
@@ -194,3 +241,122 @@ def test_panel_plays_item_once_per_beat(qapp, tmp_path: Path) -> None:
     assert len(rates) == 2
     assert all(20.0 < r < 40.0 for r in rates)
     panel.shutdown()
+
+
+def _ready_heart(qtbot, fake_vts: FakeVts, **kwargs) -> tuple[VtsClient, VtsHeart]:
+    client = VtsClient(token="tok123", port=fake_vts.port)
+    heart = VtsHeart(client, **kwargs)
+    found: list[bool] = []
+    heart.on_found = found.append
+    client.start()
+    qtbot.waitUntil(lambda: found == [False] and heart.model_id == "m1", timeout=3000)
+    return client, heart
+
+
+def test_clicked_place_pins_item_and_is_remembered(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts, size=0.25)
+    shown: list[bool] = []
+    heart.show_item(20, shown.append)
+    qtbot.waitUntil(lambda: shown == [True], timeout=3000)
+    # 覚えた場所が無いうちは、出しても留めない
+    assert fake_vts.sent("ItemPinRequest") == []
+    picked: list[dict | None] = []
+    assert heart.start_pick(picked.append)
+    qtbot.waitUntil(lambda: [s["eventName"] for s in fake_vts.sent("EventSubscriptionRequest")][-1:]
+                    == ["ModelClickedEvent"], timeout=3000)
+    # 選ぶあいだは外して脇へ寄せる。右クリックやモデルの外では決めない
+    assert fake_vts.sent("ItemPinRequest")[0]["pin"] is False
+    assert fake_vts.sent("ItemMoveRequest")[0]["itemsToMove"][0]["positionX"] < -0.5
+    fake_vts.push("ModelClickedEvent", click_event([{"artMeshOrder": 0, "hitInfo": HIT}], button=1))
+    fake_vts.push("ModelClickedEvent", click_event([]))
+    fake_vts.push("ModelClickedEvent", click_event([
+        {"artMeshOrder": 1, "hitInfo": {**HIT, "artMeshID": "D_BACK"}},
+        {"artMeshOrder": 0, "hitInfo": HIT},
+    ]))
+    qtbot.waitUntil(lambda: picked == [PIN], timeout=3000)
+    assert not heart.picking and heart.pins == {"m1": PIN}
+    pin = fake_vts.sent("ItemPinRequest")[-1]
+    assert pin["pin"] is True and pin["vertexPinType"] == "Provided"
+    assert pin["pinInfo"] == {**PIN, "angle": 0, "size": 0.25}
+    assert fake_vts.sent("EventSubscriptionRequest")[-1]["subscribe"] is False
+    # 留めたあとの大きさは留め直しで変える（移動の要求では変わらない）
+    heart.set_size(0.4)
+    qtbot.waitUntil(lambda: fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == 0.4,
+                    timeout=3000)
+    client.stop()
+
+
+def test_saved_place_is_used_when_item_is_shown_again(qtbot, fake_vts: FakeVts) -> None:
+    pins = {"m1": PIN, "other": {**PIN, "modelID": "other"}}
+    client, heart = _ready_heart(qtbot, fake_vts, size=0.2, pins=pins)
+    shown: list[bool] = []
+    heart.show_item(20, shown.append)
+    qtbot.waitUntil(lambda: shown == [True] and bool(fake_vts.sent("ItemPinRequest")), timeout=3000)
+    assert fake_vts.sent("ItemLoadRequest")[0]["size"] == 0.2
+    assert fake_vts.sent("ItemPinRequest")[0]["pinInfo"]["artMeshID"] == "D_BODY_00"
+    assert fake_vts.sent("ItemPinRequest")[0]["pinInfo"]["modelID"] == "m1"
+    # モデルを読み込み直したら、そのモデル用の場所へ留め直す
+    fake_vts.push("ModelLoadedEvent", {"modelLoaded": True, "modelName": "O", "modelID": "other"})
+    qtbot.waitUntil(lambda: fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["modelID"] == "other",
+                    timeout=3000)
+    client.stop()
+
+
+def test_item_removed_in_vts_is_forgotten(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts)
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: heart.instance_id == "inst1", timeout=3000)
+    fake_vts.item_gone = True
+    heart.beat(30.0)
+    qtbot.waitUntil(lambda: heart.instance_id is None, timeout=3000)
+    client.stop()
+
+
+def test_clicked_pin_rejects_broken_hits() -> None:
+    assert clicked_pin(click_event([{"artMeshOrder": 0, "hitInfo": HIT}])) == PIN
+    broken = {**HIT, "vertexID1": "x"}
+    assert clicked_pin(click_event([{"artMeshOrder": 0, "hitInfo": broken}])) is None
+    assert clicked_pin(click_event([{"artMeshOrder": 0, "hitInfo": HIT}], button=2)) is None
+    assert clicked_pin({"modelWasClicked": True, "mouseButtonID": 0, "artMeshHits": None}) is None
+
+
+def test_panel_restores_item_after_vts_restart(qapp, tmp_path: Path, monkeypatch) -> None:
+    del qapp
+    from stream_heartbeat.profile import load_app_state, save_app_state
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import VtsPanel
+
+    items = tmp_path / "Items"
+    write_frames(render_frames(HeartProfile(style="cute"), size=64)[:4], items / ITEM_FOLDER)
+    monkeypatch.setattr(vts_panel, "find_items_dir", lambda: items)
+    save_app_state(tmp_path, vts_item_shown=True, vts_item_size=5.0,
+                   vts_pins={"m1": PIN, "bad": {"modelID": "bad"}})
+    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+    assert panel._heart.pins == {"m1": PIN} and panel._heart.size == 0.8
+    shows: list[int] = []
+    panel._heart.show_item = lambda count, done=None: shows.append(count)  # type: ignore[method-assign]
+    panel._on_found(True)
+    assert shows == []
+    panel._on_found(False)
+    assert shows == [4]
+    # 「しまう」を押したら、次につないでも出さない
+    panel._hide_item()
+    panel._on_found(False)
+    assert shows == [4] and load_app_state(tmp_path)["vts_item_shown"] is False
+    panel.shutdown()
+
+
+def test_events_reach_subscriber_not_reply_handlers(qtbot, fake_vts: FakeVts) -> None:
+    client = VtsClient(token="tok123", port=fake_vts.port)
+    client.start()
+    qtbot.waitUntil(lambda: client.state == READY, timeout=3000)
+    events: list[dict] = []
+    client.subscribe("TestEvent", {}, events.append)
+    fake_vts.push("TestEvent", {"counter": 1})
+    qtbot.waitUntil(lambda: events == [{"counter": 1}], timeout=3000)
+    client.unsubscribe("TestEvent")
+    fake_vts.push("TestEvent", {"counter": 2})
+    qtbot.wait(100)
+    assert events == [{"counter": 1}]
+    client.stop()
