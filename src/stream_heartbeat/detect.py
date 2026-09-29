@@ -48,6 +48,31 @@ REANCHOR_GAIN = 1.8
 REANCHOR_SECONDS = 0.3
 # 体の動きなどの大きな一発で、しばらく本物の拍が小さく見えて落ちないように
 PEAK_CAP = 2.5
+# 音色で S1 と S2 を見分ける。S2 は鋭く、S1 は鈍い。300 Hz 以上の割合（対数エネルギー比）は
+# S2 のほうが高い。割合は、鳴り始めの直前 HF_TAU 秒から山（PEAK_WAIT）までのエネルギーで測る。
+# 拍の時刻は鳴り始めのまま
+HF_FC = 300.0
+HF_TAU = 0.03
+# 拍の音と、周期の途中に来た音（S2 のはず）の割合の差が、この値以上に開いた録音でだけ音色を使う
+# （差が無い録音は今まで通り）
+HF_SEP = 1.2
+# 覚えた割合の更新の速さと、使い始めに要る観測数
+HF_RATE = 0.25
+HF_MIN_N = 3
+# 周期の途中の音と拍の割合の差は、直近この個数の中央値で見る（雑音の 1 回に引きずられない）
+HF_KEEP = 5
+# 拍から「周期の途中」と数える範囲（周期に対する割合）
+HF_MID = (0.3, 0.8)
+# 拍が来ないまま周期のこの割合を過ぎてから S2 らしい音が来たら、S1 を取りこぼしたとみて、
+# 収縮期ぶん戻した所に拍を置く
+HF_RESCUE_AT = 1.3
+# 取りこぼしを取り戻すのは、収縮期を引いた位置が前の拍から周期のこの範囲にあるときだけ
+# （拍が何回も抜けたときは今まで通り）
+HF_RESCUE_BAND = (0.8, 1.25)
+# 何拍も抜けたあと、S2 らしい音を見送って S1 を待つ最大の回数
+HF_GAP_SKIPS = 2
+# この秒数、拍が無ければ覚えた割合は捨てる（別の人・別のマイクに切り替わっても居座らない）
+HF_FORGET = 5.0
 
 
 def envelope_rms(samples: list[float], hop: int) -> list[float]:
@@ -188,6 +213,16 @@ def _band_coeffs(sample_rate: float) -> tuple[float, float]:
     lp_a = 1.0 - math.exp(-2.0 * math.pi * 180.0 / rate)
     hp_a = 1.0 - math.exp(-2.0 * math.pi * 18.0 / rate)
     return lp_a, hp_a
+
+
+def _hf_coeffs(sample_rate: float) -> tuple[float, float, float]:
+    """生の波形にかける 2 次バターワースの高域通過 (HF_FC)。戻り値: (b0, a1, a2)。b1=-2*b0, b2=b0。
+    サンプルレートが低くて使えないときは b0=0（割合はいつも同じ値になり、音色は使われない）。"""
+    if sample_rate < 4.0 * HF_FC:
+        return 0.0, 0.0, 0.0
+    c = 1.0 / math.tan(math.pi * HF_FC / sample_rate)
+    a0 = c * c + math.sqrt(2.0) * c + 1.0
+    return c * c / a0, (2.0 - 2.0 * c * c) / a0, (c * c - math.sqrt(2.0) * c + 1.0) / a0
 
 
 def band_pass(samples: list[float], sample_rate: float) -> list[float]:
@@ -337,6 +372,22 @@ class HeartSoundDetector:
         self._last_peak = 0.0
         self._levels: deque[float] = deque(maxlen=LEVEL_KEEP)
         self._level_mid = 0.0
+        self._hf_sr = 0.0
+        self._hf_coef = (0.0, 0.0, 0.0)
+        self._hz1 = 0.0
+        self._hz2 = 0.0
+        self._hf_e = 0.0
+        self._lo_e = 0.0
+        self._tone_beat = 0.0
+        self._tone_last = 0.0
+        self._sep = 0.0
+        self._gap_skips = 0
+        self._diffs: deque[float] = deque(maxlen=HF_KEEP)
+        self._tone_on = False
+        self._tn_beat = 0
+        self._tn_mid = 0
+        self._tone_t = -1e9
+        self._sys = 0.0
 
     @property
     def period(self) -> float:
@@ -377,10 +428,27 @@ class HeartSoundDetector:
         rhythm_hop = max(1, int(round(sample_rate / RHYTHM_RATE)))
         rhythm_every = int(RHYTHM_EVERY * RHYTHM_RATE)
         rhythm_min = int(RHYTHM_MIN_SECONDS * RHYTHM_RATE)
+        if sample_rate != self._hf_sr:
+            self._hf_sr = sample_rate
+            self._hf_coef = _hf_coeffs(sample_rate)
+        hf_b0, hf_a1, hf_a2 = self._hf_coef
+        hf_b1 = -2.0 * hf_b0
+        hf_k = 1.0 - math.exp(-dt / HF_TAU)
+        hf_pre = HF_TAU / dt  # 直前 HF_TAU 秒ぶんのサンプル数
         for i, sample in enumerate(samples):
             self._lp += lp_a * (sample - self._lp)
             self._hp += hp_a * (self._lp - self._hp)
             band = self._lp - self._hp
+            # 300 Hz 以上と、いつもの帯域のエネルギー。直前 HF_TAU 秒ぶんは常に均しておき、
+            # 音が鳴り始めたらその音の間だけ積み上げる
+            hy = hf_b0 * sample + self._hz1
+            self._hz1 = hf_b1 * sample - hf_a1 * hy + self._hz2
+            self._hz2 = hf_b0 * sample - hf_a2 * hy
+            self._hf_e += hf_k * (hy * hy - self._hf_e)
+            self._lo_e += hf_k * (band * band - self._lo_e)
+            if self._pending is not None:
+                self._pending[3] += hy * hy
+                self._pending[4] += band * band
             self._buf.append(band)
             self._sumsq += band * band
             if len(self._buf) > win:
@@ -433,8 +501,13 @@ class HeartSoundDetector:
                 if sample_t >= pending[2] or env < 0.7 * pending[1]:
                     self._pending = None
                     self._block_until = sample_t + 0.05
-                    if self._accept(pending[0], pending[1]):
-                        hits.append(pending[0])
+                    # サンプルレートが低くて 300 Hz 以上が測れないときは、音色を使わない（いつも 0）
+                    tone = 0.0
+                    if hf_b0 > 0.0:
+                        tone = math.log((pending[3] + 1e-12) / (pending[4] + 1e-12))
+                    beat_t = self._accept(pending[0], pending[1], tone)
+                    if beat_t is not None:
+                        hits.append(beat_t)
                 continue
             if not (onset or rising) or sample_t < self._block_until:
                 continue
@@ -444,7 +517,13 @@ class HeartSoundDetector:
             if self.template is not None and self.corr_min > 0:
                 if self.template.score(window) < self.corr_min:
                     continue
-            self._pending = [sample_t, env, sample_t + PEAK_WAIT]
+            self._pending = [
+                sample_t,
+                env,
+                sample_t + PEAK_WAIT,
+                self._hf_e * hf_pre,
+                self._lo_e * hf_pre,
+            ]
         return hits
 
     def _level(self) -> float:
@@ -456,8 +535,8 @@ class HeartSoundDetector:
         if len(self._levels) >= 3:
             self._level_mid = sorted(self._levels)[len(self._levels) // 2]
 
-    def _accept(self, sample_t: float, peak: float) -> bool:
-        """山まで聞いた1つの音を、拍として数えるか決める。"""
+    def _accept(self, sample_t: float, peak: float, tone: float = 0.0) -> float | None:
+        """山まで聞いた1つの音を、拍として数えるか決める。数えるなら拍の時刻、数えないなら None。"""
         raw_dt = sample_t - self._last_raw_t
         if raw_dt >= self.min_interval:
             if self._last_raw_t > -1e8:
@@ -466,35 +545,146 @@ class HeartSoundDetector:
         since = sample_t - self._last_beat
         level = self._level()
         period = self._period
+        beat_t = sample_t
+        rescued = False
         if period > 0:
+            act = self._tone_action(sample_t, tone, period)
+            if act == "flip":
+                if level > 0 and peak < QUIET_LEVEL * level:
+                    act = "pass"  # 小さすぎる音には乗り換えない
+                else:
+                    self._flip(sample_t, peak, tone, period)
+                    return sample_t
             if since < self._refractory():
-                # 小さな雑音で拍を取ったすぐ後に本物のドッが来たら、数え直す（表示は増やさない）
-                if since <= REANCHOR_SECONDS and peak >= REANCHOR_GAIN * self._last_peak:
+                # 小さな雑音で拍を取ったすぐ後に本物のドッが来たら、数え直す（表示は増やさない）。
+                # ただし数え直す先が S2 らしい音なら数え直さない
+                if (
+                    since <= REANCHOR_SECONDS
+                    and peak >= REANCHOR_GAIN * self._last_peak
+                    and act != "skip"
+                ):
                     self._last_beat = sample_t
                     self._last_peak = peak
                     self._push_level(peak)
-                return False
+                self._note_mid(since, tone, period)
+                return None
+            if act == "skip":
+                self._note_mid(since, tone, period)
+                return None
             if level > 0:
                 need = EARLY_LEVEL if since < EARLY_SHARE * period else QUIET_LEVEL
                 if peak < need * level:
-                    return False
+                    return None
+            if act == "rescue":
+                beat_t = sample_t - self._sys
+                rescued = True
         else:
             if 0.20 <= since <= 0.33 and peak < self._last_peak * 0.85:
-                return False
+                return None
             if 0.33 < since <= 0.55 and peak < self._last_peak * 0.55:
-                return False
+                return None
             # クリック拍の記憶は、いまの拍の長さが測れていないときだけ使う
             # （安静時のクリックのせいで運動後の速い拍を半分にしない）
             if 0.45 <= self.tap_interval <= 1.2 and since < min(self.tap_interval * 0.72, 0.55):
-                return False
+                return None
             if since < self._refractory():
-                return False
-        if self._last_beat > -1e8 and since > self.min_interval:
-            self._last_interval = 0.7 * self._last_interval + 0.3 * since
-        self._last_beat = sample_t
+                return None
+        if self._last_beat > -1e8 and beat_t - self._last_beat > self.min_interval:
+            self._last_interval = 0.7 * self._last_interval + 0.3 * (beat_t - self._last_beat)
+        self._last_beat = beat_t
+        self._tone_t = beat_t
+        self._gap_skips = 0
+        if rescued:
+            # S2 から置き直した拍では、S2 の大きさと割合を S1 のものとして覚えない
+            self._tone_last = self._tone_beat
+        else:
+            self._last_peak = peak
+            self._push_level(peak)
+            self._note_beat(tone)
+        return beat_t
+
+    def _note_beat(self, tone: float) -> None:
+        """拍にした音の高域の割合を覚える（直前の拍のぶんと、ならしたぶん）。"""
+        self._tone_last = tone
+        if self._tn_beat == 0:
+            self._tone_beat = tone
+        else:
+            near = min(max(tone, self._tone_beat - 3.0), self._tone_beat + 3.0)
+            self._tone_beat += HF_RATE * (near - self._tone_beat)
+        self._tn_beat = min(self._tn_beat + 1, 1000)
+
+    def _note_mid(self, since: float, tone: float, period: float) -> None:
+        """拍にしなかった周期の途中の音（S2 のはず）について、直前の拍との割合の差（sep）と、
+        拍からの時間（収縮期）を覚える。擦れなどで割合が全体にずれても、直前の拍との差は保たれる。"""
+        if self._tn_beat == 0 or not HF_MID[0] * period <= since <= HF_MID[1] * period:
+            return
+        self._diffs.append(min(max(tone - self._tone_last, -5.0), 5.0))
+        self._sep = sorted(self._diffs)[len(self._diffs) // 2]
+        if self._tn_mid == 0:
+            self._sys = since
+        else:
+            self._sys += HF_RATE * (since - self._sys)
+        self._tn_mid = len(self._diffs)
+
+    def _tone_action(self, t: float, tone: float, period: float) -> str:
+        """音の高域の割合から見た、この音の扱い。
+        pass: 音色では決めない / skip: S2 らしいので拍にしない /
+        rescue: S1 を取りこぼしたので、収縮期ぶん戻して拍にする /
+        flip: 拍が S2 側に乗っているので、S1 らしい音に乗り換える。"""
+        if self._tn_beat < HF_MIN_N or self._tn_mid < HF_MIN_N:
+            return "pass"
+        ref = self._last_beat if self._last_beat > -1e8 else self._tone_t
+        if t - ref > HF_FORGET:
+            self._tn_beat = 0
+            self._tn_mid = 0
+            self._diffs.clear()
+            self._tone_on = False
+            return "pass"
+        since = t - ref
+        sep = self._sep
+        # 使い始めは HF_SEP 以上の差が要るが、使い出したら半分まで下がっても使い続ける
+        # （境目でばたつかない）
+        if abs(sep) < (0.5 * HF_SEP if self._tone_on else HF_SEP):
+            self._tone_on = False
+            return "pass"
+        self._tone_on = True
+        in_mid = HF_MID[0] * period <= since <= HF_MID[1] * period and self._last_beat > -1e8
+        if sep < 0:
+            if in_mid and tone - self._tone_last <= 0.5 * sep:
+                return "flip"
+            return "pass"
+        if in_mid:
+            # 周期の途中の音は、直前の拍との差で比べる
+            return "skip" if tone - self._tone_last > 0.5 * sep else "pass"
+        diff = tone - self._tone_beat
+        if since < HF_RESCUE_AT * period:
+            # 次の拍のはずの位置にある音は、よほど S2 らしいときだけ見送る
+            return "skip" if diff > sep else "pass"
+        # 拍が来ないまま過ぎた。ちょうど 1 拍ぶん取りこぼしたと言える位置にある S2 らしい音は、
+        # 収縮期ぶん戻して拍にする
+        gap = since - self._sys
+        if diff > 0.5 * sep and HF_RESCUE_BAND[0] * period <= gap <= HF_RESCUE_BAND[1] * period:
+            return "rescue"
+        # 何拍も抜けたあとの最初の音は、拍か S2 か分からない。
+        # よほど S2 らしければ、数回だけ見送って S1 を待つ
+        if diff > sep and self._gap_skips < HF_GAP_SKIPS:
+            self._gap_skips += 1
+            return "skip"
+        return "pass"
+
+    def _flip(self, t: float, peak: float, tone: float, period: float) -> None:
+        """S2 に乗っていた拍を、直後の S1 に乗せ替える（拍と周期の途中の音の役を入れ替える）。"""
+        since = t - (self._last_beat if self._last_beat > -1e8 else self._tone_t)
+        self._tone_beat = tone
+        self._tone_last = tone
+        self._diffs = deque((-d for d in self._diffs), maxlen=HF_KEEP)
+        self._sep = -self._sep
+        self._sys = min(max(period - since, 0.12), 0.6)
+        self._gap_skips = 0
+        self._last_beat = t
+        self._tone_t = t
         self._last_peak = peak
         self._push_level(peak)
-        return True
 
     def unlock(self) -> None:
         """検出ロスト後に、遅い間隔の記憶で次の拍を落とさない。"""
