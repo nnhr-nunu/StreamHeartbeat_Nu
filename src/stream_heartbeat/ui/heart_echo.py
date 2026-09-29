@@ -28,16 +28,58 @@ ECHO_MYO = QColor(126, 136, 148)
 ECHO_BRIGHT = QColor(226, 232, 240)
 ECHO_CAVITY = QColor(3, 4, 6)
 ECHO_VALVE = QColor(240, 244, 250)
-HALF_ANGLE_DEG = 40.0
+HALF_ANGLE_DEG = 42.0
+MARK_COLOR = QColor(150, 162, 180, 170)
+
+
+DEFAULT_SCALE = 0.7
+
+
+def sector_geometry(rect: QRectF, scale: float = DEFAULT_SCALE) -> tuple[QPointF, float, float]:
+    """扇の要（上端の点）・半径・半角（ラジアン）。
+
+    標準の大きさで窓に収まる最大。小さくすると扇ごと縮み、大きくすると扇は
+    そのままで中身を拡大する（echo_zoom）。
+    """
+    half = math.radians(HALF_ANGLE_DEG)
+    margin = min(rect.width(), rect.height()) * 0.04
+    radius = min(rect.height() - 2.0 * margin, (rect.width() * 0.5 - margin) / math.sin(half))
+    radius = max(1.0, radius * min(1.0, max(0.25, scale / DEFAULT_SCALE)))
+    apex = QPointF(rect.center().x(), rect.center().y() - radius * 0.5)
+    return apex, radius, half
+
+
+def echo_zoom(scale: float) -> float:
+    """扇の中身の拡大率。実機で深さを浅くしたのと同じ見え方。"""
+    return max(1.0, min(1.7, scale / DEFAULT_SCALE))
+
+
+def paint_echo_marks(painter: QPainter, rect: QRectF, scale: float = DEFAULT_SCALE) -> None:
+    """扇の右縁に沿う深さの点と、上の向きの印。数値は出さない。"""
+    apex, radius, half = sector_geometry(rect, scale)
+    edge = QPointF(math.sin(half), math.cos(half))
+    outward = QPointF(math.cos(half), -math.sin(half))
+    gap = max(4.0, radius * 0.018)
+    dot = max(1.0, radius * 0.0035)
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(MARK_COLOR)
+    for i in range(1, 11):
+        at = apex + edge * (radius * i / 10.0) + outward * gap
+        size = dot * (1.8 if i % 5 == 0 else 1.0)
+        painter.drawEllipse(at, size, size)
+    painter.drawEllipse(apex + QPointF(radius * 0.16, radius * 0.01), dot * 2.4, dot * 2.4)
+    painter.restore()
 
 
 def paint_echo(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle) -> None:
-    cx = rect.center().x()
-    side = min(rect.width(), rect.height())
-    size = side * 0.42 * scale / 0.7 * 0.7
-    apex = QPointF(cx, rect.center().y() - side * 0.42)
-    radius = side * 0.86
-    sector = _sector_path(apex, radius, HALF_ANGLE_DEG)
+    """立体描画（シェーダー）が使えないときの代替。図形を重ねて描く。"""
+    apex, radius, half = sector_geometry(rect, scale)
+    cx = apex.x()
+    side = radius / 0.86
+    size = radius * 0.342 * echo_zoom(scale)
+    sector = _sector_path(apex, radius, math.degrees(half))
 
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -78,15 +120,8 @@ def paint_echo(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycl
     painter.setPen(QPen(QColor(40, 46, 56), max(1.0, side * 0.003)))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawPath(sector)
-
-    # 深さ目盛り（数値なし）
-    painter.setPen(QPen(QColor(120, 130, 146, 150), max(1.0, side * 0.002)))
-    tick_x = apex.x() + radius * math.sin(math.radians(HALF_ANGLE_DEG)) + side * 0.03
-    for i in range(1, 10):
-        y = apex.y() + radius * i / 10.0
-        length = side * (0.022 if i % 5 == 0 else 0.011)
-        painter.drawLine(QPointF(tick_x, y), QPointF(tick_x + length, y))
     painter.restore()
+    paint_echo_marks(painter, rect, scale)
 
 
 def _draw_heart_section(

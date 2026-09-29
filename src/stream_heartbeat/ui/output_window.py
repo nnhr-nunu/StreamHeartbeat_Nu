@@ -14,11 +14,13 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMainWindow
 
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
+from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
+from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     backdrop_color,
@@ -50,6 +52,7 @@ class OutputCanvas(QOpenGLWidget):
         self._session = session
         self._now = 0.0
         self._renderer: HeartRenderer | None = None
+        self._echo: EchoRenderer | None = None
         self._gl_error: str | None = None
         self._orbit = Orbit(session.profile.heart_yaw_deg, session.profile.heart_pitch_deg)
         self._drag_from: QPointF | None = None
@@ -104,6 +107,11 @@ class OutputCanvas(QOpenGLWidget):
         except (HeartRendererError, RuntimeError, AttributeError) as exc:
             self._renderer = None
             self._gl_error = str(exc) or "OpenGL を初期化できません"
+        # エコーは使えなければ図形で描く代替に戻るだけなので、失敗は知らせない
+        try:
+            self._echo = EchoRenderer(self.context().functions())
+        except (EchoRendererError, RuntimeError, AttributeError):
+            self._echo = None
 
     def paintGL(self) -> None:
         painter = QPainter(self)
@@ -119,7 +127,27 @@ class OutputCanvas(QOpenGLWidget):
         style = profile.style
 
         paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
-        if self.uses_gl and self._renderer is not None:
+        if style == "echo" and self._echo is not None:
+            painter.beginNativePainting()
+            ratio = self.devicePixelRatioF()
+            apex, radius, half = sector_geometry(rect, profile.scale)
+            self._echo.draw(
+                width=int(self.width() * ratio),
+                height=int(self.height() * ratio),
+                apex=(apex.x() * ratio, apex.y() * ratio),
+                radius=radius * ratio,
+                half_angle=half,
+                zoom=echo_zoom(profile.scale),
+                cycle=cycle,
+                time_s=t,
+                opacity=profile.opacity,
+            )
+            painter.endNativePainting()
+            painter.save()
+            painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
+            paint_echo_marks(painter, rect, profile.scale)
+            painter.restore()
+        elif self.uses_gl and self._renderer is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
             self._renderer.draw(
