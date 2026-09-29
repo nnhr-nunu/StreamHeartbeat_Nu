@@ -593,10 +593,11 @@ def great_vessels() -> list[Vessel]:
     brachio_root = body(asc_top, left=0.05, up=0.10, front=-0.06)
     carotid_root = body(arch_top, left=-0.03, up=0.02, front=0.02)
     subclavian_root = body(arch_top, left=0.14, up=-0.01, front=-0.08)
+    # 長く伸ばすと角のように見えるので、根元の少し先で透けて消えるくらいに留める
     branches = [
-        branch(brachio_root, -0.14, 0.60, 0.078),
-        branch(carotid_root, 0.02, 0.58, 0.056),
-        branch(subclavian_root, 0.22, 0.50, 0.060),
+        branch(brachio_root, -0.10, 0.42, 0.078),
+        branch(carotid_root, 0.02, 0.40, 0.056),
+        branch(subclavian_root, 0.16, 0.35, 0.060),
     ]
 
     # 肺動脈幹: 右室の出口から大動脈の前を昇り、弓の下で左右に分かれる

@@ -187,8 +187,9 @@ def test_auricle_parts_are_tail_and_marked_from_root_to_tip() -> None:
     parts = [auricle[v] for v in range(mesh.auricle_start, mesh.coronary_start)]
     assert min(parts) == pytest.approx(0.0, abs=1e-6)
     assert max(parts) == pytest.approx(1.0)
+    # 左心耳は貼り付けた塊に見えるので載せず、右心耳だけ
     regions = {mesh.data[v * stride + 6] for v in range(mesh.auricle_start, mesh.coronary_start)}
-    assert regions == {2.0, 3.0}
+    assert regions == {3.0}
 
 
 def test_coronary_tubes_ride_on_ventricles_along_grooves() -> None:

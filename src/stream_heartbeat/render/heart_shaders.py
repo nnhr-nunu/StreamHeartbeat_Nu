@@ -50,6 +50,7 @@ out float vJoint;
 out float vFade;
 out float vPulse;
 out float vCoronary;
+out float vAuricle;
 """
     + SECTION_AXES_GLSL
     + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
@@ -192,6 +193,7 @@ void main() {
     vJoint = aMerge.x;
     vFade = aMerge.y;
     vCoronary = aCoronary;
+    vAuricle = aAuricle;
     gl_Position = uProj * uView * world;
 }
 """
@@ -258,6 +260,7 @@ in float vJoint;
 in float vFade;
 in float vPulse;
 in float vCoronary;
+in float vAuricle;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -385,6 +388,9 @@ void main() {
     }
 
     vec3 base = regionBase(vRegion, P);
+    // 心耳は房の紫から、まわりの筋に近い暗い赤へ寄せる（貼り付けた別の塊に見せない）
+    float auricle = smoothstep(0.05, 0.4, vAuricle);
+    base = mix(base, vec3(0.52, 0.12, 0.17), auricle * 0.75);
     float isRv = smoothstep(0.4, 0.6, vRegion) * (1.0 - smoothstep(1.4, 1.6, vRegion));
 
     // 筋線維の走行と表面のむら
@@ -454,6 +460,7 @@ void main() {
     coronaryVis *= (1.0 - fatMask * hide * (1.0 - 0.7 * uLively));
     // 表面を這う管（生々しい見た目）
     float onTube = step(0.5, vCoronary);
+    float tubeShow = 0.0;
     if (uLively > 0.0) {
         // 幹と枝は管が受け持つので、描く網は細い枝の名残に抑える
         coronaryVis *= 0.55;
@@ -472,18 +479,25 @@ void main() {
     albedo = mix(albedo, coronaryShade, clamp(trunkShade * mix(0.15, 0.7, uCoronary), 0.0, 1.0));
     albedo = mix(albedo, coronaryColor, clamp(coronaryVis, 0.0, 1.0));
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
-    // 送り出された血の波が大血管を走る。波の所が赤く張る
-    albedo = mix(albedo, vec3(0.86, 0.10, 0.12), isVessel * vPulse * 0.45 * uLively);
+    // 送り出された血の波が大血管を走る。波の所がほんのり赤く張る
+    albedo = mix(albedo, vec3(0.80, 0.12, 0.13), isVessel * vPulse * 0.22 * uLively);
     if (onTube > 0.5) {
-        // 動脈は鮮やかな赤で拡張期に満ちて明るく、静脈は暗い紫。溝では脂肪が所々かぶさる
+        // 動脈は赤く拡張期に満ちて少し明るく、静脈は暗い紫。溝では脂肪が所々かぶさる
         float isVein = step(1.5, vCoronary);
-        vec3 arteryTube = mix(vec3(0.62, 0.07, 0.09), vec3(0.84, 0.13, 0.14), uFill);
-        vec3 tube = mix(arteryTube, vec3(0.30, 0.07, 0.18), isVein);
+        vec3 arteryTube = mix(vec3(0.58, 0.10, 0.11), vec3(0.72, 0.14, 0.14), uFill);
+        vec3 tube = mix(arteryTube, vec3(0.38, 0.11, 0.19), isVein);
         tube *= 0.86 + 0.24 * fbm(P * 26.0 + 3.0);
-        float cover = smoothstep(0.45, 0.75, fbm(P * 9.0 + 61.0)) * fatMask * 0.55;
-        albedo = mix(tube, fatColor, cover);
-        fatMask *= cover;
-        isVessel = 1.0;
+        float cover = smoothstep(0.45, 0.75, fbm(P * 9.0 + 61.0)) * fatMask;
+        cover *= mix(0.7, 0.85, isVein);
+        // 管の色は頂だけ。脇と両端はまわりの表面の色へ寄せ、膜の下から盛り上がって見せる
+        // （vUv は管の長さ方向 0〜1 と周り 0〜1。周りの 1/4 が真上）
+        float crest = max(sin(6.2831853 * vUv.y), 0.0);
+        float ends = smoothstep(0.0, 0.08, vUv.x) * (1.0 - smoothstep(0.70, 1.0, vUv.x));
+        float show = smoothstep(0.05, 0.8, crest) * ends;
+        albedo = mix(albedo, mix(tube, fatColor, cover), show);
+        fatMask = mix(fatMask, fatMask * cover, show);
+        isVessel = show;
+        tubeShow = show;
     }
 
     // 血管の付け根: 本体と管の両側を脂肪混じりの外膜の色へ寄せ、接する所を影で沈める
@@ -495,12 +509,14 @@ void main() {
     albedo *= tipDark;
 
     albedo = desaturate(albedo);
-    vec3 color = lightFlesh(albedo, N, V, P, mix(1.0, 0.55, vJoint), fatMask, isVessel);
+    // 心耳と表面の管は濡れ光を抑える（強い照り返しで、貼り付けた部品に見えないように）
+    float gloss = mix(1.0, 0.55, vJoint) * (1.0 - 0.3 * auricle) * (1.0 - 0.6 * tubeShow);
+    vec3 color = lightFlesh(albedo, N, V, P, gloss, fatMask, isVessel);
 
     // 断面の内腔は暗く沈める
     color = mix(color, color * 0.35, isLumen);
-    // 血の波の所は内から照るように少し光る
-    color += vec3(0.20, 0.015, 0.02) * isVessel * vPulse * uLively;
+    // 血の波の所は内から照るようにわずかに光る
+    color += vec3(0.07, 0.005, 0.007) * isVessel * vPulse * uLively;
 
     color = pow(color, vec3(0.92));
     fragColor = vec4(color, alpha);
