@@ -68,10 +68,12 @@ from stream_heartbeat.ui.styles import DARK_QSS
 
 STYLES = [
     ("realistic", "surgical", "リアル1"),
-    ("realistic", "anatomy", "リアル2"),
+    ("realistic", "vivid", "リアル2"),
+    ("realistic", "anatomy", "リアル3"),
     ("echo", "", "心エコー"),
     ("mri", "", "MRI"),
-    ("xray", "", "レントゲン"),
+    ("xray", "", "レントゲン1"),
+    ("xray_heart", "", "レントゲン2"),
     ("cute", "", "かわいい"),
     ("mech", "", "機械"),
     ("ecg", "", "心電図"),

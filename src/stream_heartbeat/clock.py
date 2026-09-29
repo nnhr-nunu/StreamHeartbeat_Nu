@@ -29,6 +29,18 @@ class CardiacCycle:
     waist: float
     sheen: float
     age: float
+    # 心房の収縮（次の拍の直前に右房から、少し遅れて左房）と、心耳の揺れ（-1〜1）
+    atria_r: float = 0.0
+    atria_l: float = 0.0
+    auricle_r: float = 0.0
+    auricle_l: float = 0.0
+
+
+# 心房は心室より先に縮む。右房は次の拍のこの秒数前から、左房はさらに少し遅れて
+KICK_LEAD = 0.17
+KICK_RISE = 0.07
+KICK_FALL = 0.09
+LA_DELAY = 0.035
 
 
 def _smoothstep(x: float) -> float:
@@ -42,6 +54,34 @@ def _envelope(dt: float, start: float, peak: float, end: float) -> float:
     if dt <= peak:
         return _smoothstep((dt - start) / max(peak - start, 1e-6))
     return _smoothstep(1.0 - (dt - peak) / max(end - peak, 1e-6))
+
+
+def _kick_start(interval: float, delay: float) -> float:
+    # 速い拍でも心室が縮んでいる最中には重ねない
+    return max(0.25, interval - KICK_LEAD) + delay
+
+
+def _flap(t: float, period: float, decay: float) -> float:
+    """揺さぶられた心耳の、減衰しながらの揺れ。"""
+    if t <= 0.0:
+        return 0.0
+    return math.exp(-t / decay) * math.sin(2.0 * math.pi * t / period)
+
+
+def atrial_motion(dt: float, interval: float) -> tuple[float, float, float, float]:
+    """右房・左房の収縮と、右・左の心耳の揺れ。心耳は心室の一打ちと自分の房の収縮で揺れる。"""
+    out: list[float] = []
+    for delay in (0.0, LA_DELAY):
+        start = _kick_start(interval, delay)
+        out.append(_envelope(dt, start, start + KICK_RISE, start + KICK_RISE + KICK_FALL))
+    flaps: list[float] = []
+    # 右心耳・左心耳。左は一打ちへの反応が少し遅く、揺れも少しゆっくり
+    for jolt_delay, kick_delay, period in ((0.0, 0.0, 0.21), (0.02, LA_DELAY, 0.24)):
+        jolt = _flap(dt - 0.03 - jolt_delay, period, 0.16)
+        kick_peak = _kick_start(interval, kick_delay) + KICK_RISE
+        own = 0.5 * _flap(dt - kick_peak, period * 0.75, 0.12)
+        flaps.append(max(-1.0, min(1.0, jolt + own)))
+    return out[0], out[1], flaps[0], flaps[1]
 
 
 class BeatClock:
@@ -153,6 +193,7 @@ class BeatClock:
         apex = 1.0 - 0.24 * squeeze
         waist = 1.0 + 0.08 * squeeze
         sheen = _envelope(dt, 0.02, 0.07, 0.16)
+        atria_r, atria_l, auricle_r, auricle_l = atrial_motion(dt, interval)
         return CardiacCycle(
             squeeze=squeeze,
             eject=eject,
@@ -161,6 +202,10 @@ class BeatClock:
             waist=waist,
             sheen=sheen,
             age=dt,
+            atria_r=atria_r,
+            atria_l=atria_l,
+            auricle_r=auricle_r,
+            auricle_l=auricle_l,
         )
 
     def pulse_scale(self, t: float) -> float:

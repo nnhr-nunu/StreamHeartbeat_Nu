@@ -74,15 +74,17 @@ def test_operator_lists_all_styles(
     assert keys == [
         "realistic",
         "realistic",
+        "realistic",
         "echo",
         "mri",
         "xray",
+        "xray_heart",
         "cute",
         "mech",
         "ecg",
     ]
-    assert GL_STYLES == {"realistic", "mech", "xray"}
-    assert ROTATABLE_STYLES == {"realistic", "mech"}
+    assert GL_STYLES == {"realistic", "mech", "xray", "xray_heart"}
+    assert ROTATABLE_STYLES == {"realistic", "mech", "xray_heart"}
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
@@ -93,10 +95,16 @@ def test_operator_lists_all_styles(
     )
     labels = [style.itemText(i) for i in range(style.count())]
     assert "リアル1" in labels
-    assert "リアル2" in labels
+    assert "リアル2" in labels and "リアル3" in labels
     assert "心エコー" in labels
     assert "MRI" in labels
-    assert "レントゲン" in labels
+    assert "レントゲン1" in labels and "レントゲン2" in labels
+    looks = [style.itemData(i) for i in range(style.count())]
+    assert looks[:3] == [
+        ("realistic", "surgical"),
+        ("realistic", "vivid"),
+        ("realistic", "anatomy"),
+    ]
     assert "手術寄り" not in labels
     operator.close()
     output.close()

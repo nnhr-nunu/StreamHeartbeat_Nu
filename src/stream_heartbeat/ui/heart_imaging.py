@@ -382,6 +382,27 @@ def paint_xray_flat_heart(
     painter.restore()
 
 
+def paint_xray_cutout_heart(
+    painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle
+) -> None:
+    """レントゲン2（心臓だけ）の代替。背景に重ねるので足し算ではなく透かして描く。"""
+    cx = rect.center().x() + rect.width() * 0.03
+    cy = rect.center().y() + rect.height() * 0.04
+    s = min(rect.width(), rect.height()) * 0.36 * scale / 0.7
+    painter.save()
+    painter.translate(cx, cy)
+    painter.rotate(-18.0)
+    painter.scale(1.0 - 0.10 * cycle.squeeze, cycle.apex * 0.5 + 0.5)
+    painter.setPen(Qt.PenStyle.NoPen)
+    shade = QRadialGradient(QPointF(0, 0), s)
+    shade.setColorAt(0.0, QColor(XRAY_BONE.red(), XRAY_BONE.green(), XRAY_BONE.blue(), 220))
+    shade.setColorAt(0.7, QColor(XRAY_HEART.red(), XRAY_HEART.green(), XRAY_HEART.blue(), 150))
+    shade.setColorAt(1.0, QColor(XRAY_HEART.red(), XRAY_HEART.green(), XRAY_HEART.blue(), 0))
+    painter.setBrush(shade)
+    painter.drawEllipse(QPointF(0, 0), s * 0.85, s)
+    painter.restore()
+
+
 def paint_mri_flat_heart(
     painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle
 ) -> None:

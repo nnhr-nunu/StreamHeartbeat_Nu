@@ -20,6 +20,7 @@ from stream_heartbeat.ui.heart_imaging import (
     paint_mri_flat_heart,
     paint_mri_overlay,
     paint_xray_backdrop,
+    paint_xray_cutout_heart,
     paint_xray_flat_heart,
     paint_xray_overlay,
 )
@@ -29,9 +30,10 @@ TEXT_COLOR = QColor(255, 236, 180)
 BPM_COLOR = QColor(255, 255, 255)
 
 # 立体の心臓メッシュで描くスタイル。心エコーと MRI は断面シェーダー（echo_gl / mri_gl）
-GL_STYLES = frozenset({"realistic", "mech", "xray"})
-# 配信用の窓のドラッグで回せるスタイル。レントゲンは胸の絵と向きを合わせて正面に固定
-ROTATABLE_STYLES = frozenset({"realistic", "mech"})
+GL_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart"})
+# 配信用の窓のドラッグで回せるスタイル。レントゲン1 は胸の絵と向きを合わせて正面に固定。
+# レントゲン2（心臓だけ）は体の絵が無いので回せる
+ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray_heart"})
 PANEL_STYLES = frozenset({"xray", "mri"})
 BPM_COLORS = (
     ("#FFFFFF", "白"),
@@ -128,6 +130,8 @@ def paint_heart(
         paint_echo(painter, rect, scale, cycle)
     elif style == "xray":
         paint_xray_flat_heart(painter, rect, scale, cycle)
+    elif style == "xray_heart":
+        paint_xray_cutout_heart(painter, rect, scale, cycle)
     elif style == "mri":
         paint_mri_flat_heart(painter, rect, scale, cycle)
     else:

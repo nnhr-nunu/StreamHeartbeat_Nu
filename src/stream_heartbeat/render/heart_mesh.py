@@ -4,7 +4,9 @@
 心尖は細く絞り、後ろ（横隔膜側）は平たくする。
 大血管は制御点を滑らかに通る管。大動脈は弓を描いて背中側へ降り、弓の上から首・頭へ 3 本が昇る。
 座標は心臓の長軸が -Y（尖が下）の姿勢。体の上下は ANATOMY_ROLL_DEG だけ傾いた向き。
-頂点ごとに位置・法線・部位・脂肪量・軸位置・UV・断面（切り口の印と切る面からの距離）を持つ。
+頂点ごとに位置・法線・部位・脂肪量・軸位置・UV・断面（切り口の印と切る面からの距離）・
+付け根のなじみ・透かし・心耳らしさ（心耳の先ほど 1。心耳だけ別に動かす）を持つ。
+左右の心耳は本体の半径の関数では張り出しを表せないので、別の小さなパーツとして最後に足す。
 変形は頂点シェーダーが行う。
 """
 
@@ -23,7 +25,7 @@ REGION_ARTERY = 4.0
 REGION_VEIN = 5.0
 REGION_LUMEN = 6.0
 
-FLOATS_PER_VERTEX = 15
+FLOATS_PER_VERTEX = 16
 BASE_Y = 0.36
 APEX_Y = -1.12
 # 画面上で体の上下に合わせる傾き。心臓の長軸は体の縦から左下へ倒れている
@@ -85,6 +87,12 @@ class HeartMesh:
     section_start: int = -1
     # 血管の頂点の始まり。先を透かすので、不透明の後にもう一度描く
     tube_start: int = 0
+    # 心耳のパーツの頂点の始まり（断面の切り口の後ろ）。心耳を別に動かす見た目のときだけ描く
+    auricle_start: int = -1
+
+    @property
+    def section_end(self) -> int:
+        return self.vertex_count if self.auricle_start < 0 else self.auricle_start
 
     @property
     def triangle_count(self) -> int:
@@ -273,6 +281,7 @@ def _vertex(
     cap: float = 0.0,
     joint: float = 0.0,
     fade: float = 1.0,
+    auricle: float = 0.0,
 ) -> None:
     out.extend(pos)
     out.extend(normal)
@@ -285,6 +294,7 @@ def _vertex(
     out.append(side)
     out.append(joint)
     out.append(fade)
+    out.append(auricle)
 
 
 def _no_contact(_p: Vec3) -> float:
@@ -711,7 +721,8 @@ def fix_winding(data: list[float], start_vertex: int = 0) -> None:
 
 
 def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0.018) -> HeartMesh:
-    # 断面は外形の関数を使うので、ここで遅れて読み込む
+    # 断面と心耳は外形の関数を使うので、ここで遅れて読み込む
+    from stream_heartbeat.render.heart_auricles import AURICLE_PARTS, auricle_lobe
     from stream_heartbeat.render.heart_section import build_section_cap, plane_side
 
     for chamber in CHAMBERS:
@@ -724,10 +735,14 @@ def build_heart_mesh(*, rows: int = 84, cols: int = 132, section_step: float = 0
         data += _tube(vessel, plane_side)
     section_start = len(data) // FLOATS_PER_VERTEX
     data += build_section_cap(section_step)
+    auricle_start = len(data) // FLOATS_PER_VERTEX
+    for part in AURICLE_PARTS:
+        data += auricle_lobe(part)
     fix_winding(data)
     return HeartMesh(
         data=array("f", data),
         vertex_count=len(data) // FLOATS_PER_VERTEX,
         section_start=section_start,
         tube_start=tube_start,
+        auricle_start=auricle_start,
     )

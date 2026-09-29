@@ -55,11 +55,16 @@ def test_mesh_triangles_face_outward() -> None:
     assert flipped == 0, f"{flipped}/{total}"
 
 
-def test_realistic_has_two_looks_and_style_looks() -> None:
-    assert [look.key for look in REALISTIC_LOOKS] == ["surgical", "anatomy"]
+def test_realistic_has_three_looks_and_style_looks() -> None:
+    assert [look.key for look in REALISTIC_LOOKS] == ["surgical", "vivid", "anatomy"]
     assert realistic_look("nope").key == "surgical"
-    assert set(STYLE_LOOKS) == {"mech", "xray"}
+    assert set(STYLE_LOOKS) == {"mech", "xray", "xray_heart"}
     assert STYLE_LOOKS["xray"].additive
+    # 心臓だけのレントゲンは背景に重ねるので、足し算ではなく下を隠して描く
+    assert STYLE_LOOKS["xray_heart"].cutout and not STYLE_LOOKS["xray_heart"].additive
+    # 生々しい見た目（リアル2）だけ、心房の時間差・心耳・冠動脈の盛り上がりを使う
+    assert [look.key for look in REALISTIC_LOOKS if look.lively > 0] == ["vivid"]
+    assert "uLively" in fragment_source("flesh") and "uCutout" in fragment_source("scan")
     for program in ("flesh", "mech", "scan"):
         assert "#version 130" in fragment_source(program)
 
@@ -102,7 +107,7 @@ def test_offscreen_render_puts_heart_over_chroma(qapp: QApplication) -> None:
 
     heart = OffscreenHeart()
     rest = CardiacCycle(0.0, 0.0, 0.2, 1.0, 1.0, 0.0, 0.5)
-    for look in (*REALISTIC_LOOKS, STYLE_LOOKS["mech"]):
+    for look in (*REALISTIC_LOOKS, STYLE_LOOKS["mech"], STYLE_LOOKS["xray_heart"]):
         image = heart.render(width=160, height=160, cycle=rest, look=look, scale=0.7)
         center = image.pixelColor(80, 88)
         corner = image.pixelColor(3, 3)
@@ -145,9 +150,10 @@ def test_section_cap_is_tail_of_mesh_and_only_anatomy_uses_it() -> None:
     stride = FLOATS_PER_VERTEX
     assert 0 < mesh.section_start < mesh.vertex_count
     assert mesh.body_vertex_count == mesh.section_start
+    assert mesh.section_start < mesh.auricle_start == mesh.section_end < mesh.vertex_count
     for v in range(0, mesh.vertex_count, 97):
         cap = mesh.data[v * stride + 11]
-        assert cap == (1.0 if v >= mesh.section_start else 0.0)
+        assert cap == (1.0 if mesh.section_start <= v < mesh.section_end else 0.0)
     assert realistic_look("anatomy").section
     assert not realistic_look("surgical").section
     assert not any(look.section for look in STYLE_LOOKS.values())
@@ -169,3 +175,17 @@ def test_vessel_tips_fade_out_and_roots_blend_into_body() -> None:
     apex = [v for v in body if mesh.data[v * stride + 8] > 0.6]
     assert apex and max(joint[v] for v in apex) < 0.05
     assert max(joint[v] for v in tubes) == pytest.approx(1.0)
+
+
+def test_auricle_parts_are_tail_and_marked_from_root_to_tip() -> None:
+    mesh = build_heart_mesh(rows=24, cols=36, section_step=0.08)
+    stride = FLOATS_PER_VERTEX
+    auricle = [mesh.data[v * stride + 15] for v in range(mesh.vertex_count)]
+    # 心耳らしさは心耳のパーツだけ。根元（房に埋まる）0 から先 1
+    assert all(auricle[v] == 0.0 for v in range(mesh.auricle_start))
+    parts = [auricle[v] for v in range(mesh.auricle_start, mesh.vertex_count)]
+    assert min(parts) == pytest.approx(0.0, abs=1e-6)
+    assert max(parts) == pytest.approx(1.0)
+    regions = {mesh.data[v * stride + 6] for v in range(mesh.auricle_start, mesh.vertex_count)}
+    assert regions == {2.0, 3.0}
+
