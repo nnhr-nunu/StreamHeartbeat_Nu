@@ -49,7 +49,13 @@ from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
-from stream_heartbeat.ui.heart_paint import BACKDROPS, BPM_COLORS, BPM_OUTLINES
+from stream_heartbeat.ui.heart_paint import (
+    BACKDROPS,
+    BPM_COLORS,
+    BPM_OUTLINES,
+    GL_STYLES,
+    ROTATABLE_STYLES,
+)
 from stream_heartbeat.ui.operator_controls import ProfileControlsMixin
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
@@ -66,7 +72,6 @@ STYLES = [
     ("mech", "", "機械"),
     ("ecg", "", "心電図"),
 ]
-ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
 CAL_START = "補正開始"
 CAL_SAVE = "補正を保存"
@@ -469,7 +474,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         style, _look = self._style_choice()
         rotatable = style in ROTATABLE_STYLES
         self._angle_wrap.setVisible(rotatable)
-        failed = rotatable and self._output.canvas.gl_error is not None
+        failed = style in GL_STYLES and self._output.canvas.gl_error is not None
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
 

@@ -17,12 +17,15 @@ from stream_heartbeat import OUTPUT_WINDOW_TITLE
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
+from stream_heartbeat.render.mri_gl import MriRenderer
 from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
+from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_rect
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
+    ROTATABLE_STYLES,
     backdrop_color,
     paint_backdrop,
     paint_bpm,
@@ -53,6 +56,7 @@ class OutputCanvas(QOpenGLWidget):
         self._now = 0.0
         self._renderer: HeartRenderer | None = None
         self._echo: EchoRenderer | None = None
+        self._mri: MriRenderer | None = None
         self._gl_error: str | None = None
         self._orbit = Orbit(session.profile.heart_yaw_deg, session.profile.heart_pitch_deg)
         self._drag_from: QPointF | None = None
@@ -107,11 +111,13 @@ class OutputCanvas(QOpenGLWidget):
         except (HeartRendererError, RuntimeError, AttributeError) as exc:
             self._renderer = None
             self._gl_error = str(exc) or "OpenGL を初期化できません"
-        # エコーは使えなければ図形で描く代替に戻るだけなので、失敗は知らせない
+        # 断面のスタイルは使えなければ図形で描く代替に戻るだけなので、失敗は知らせない
         try:
             self._echo = EchoRenderer(self.context().functions())
+            self._mri = MriRenderer(self.context().functions())
         except (EchoRendererError, RuntimeError, AttributeError):
             self._echo = None
+            self._mri = None
 
     def paintGL(self) -> None:
         painter = QPainter(self)
@@ -126,7 +132,9 @@ class OutputCanvas(QOpenGLWidget):
         cycle = clock.cycle(t)
         style = profile.style
 
-        paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
+        gl_mri = style == "mri" and self._mri is not None
+        if not gl_mri:
+            paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
         if style == "echo" and self._echo is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
@@ -147,16 +155,39 @@ class OutputCanvas(QOpenGLWidget):
             painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
             paint_echo_marks(painter, rect, profile.scale)
             painter.restore()
+        elif gl_mri and self._mri is not None:
+            painter.beginNativePainting()
+            ratio = self.devicePixelRatioF()
+            panel = panel_rect(rect)
+            corner = min(panel.width(), panel.height()) * PANEL_RADIUS_RATIO
+            self._mri.draw(
+                width=int(self.width() * ratio),
+                height=int(self.height() * ratio),
+                panel=(
+                    panel.x() * ratio,
+                    panel.y() * ratio,
+                    panel.width() * ratio,
+                    panel.height() * ratio,
+                ),
+                corner=corner * ratio,
+                zoom=profile.scale / 0.7,
+                cycle=cycle,
+                time_s=t,
+                opacity=profile.opacity,
+            )
+            painter.endNativePainting()
         elif self.uses_gl and self._renderer is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
+            # 回せないスタイルは体の絵と同じ正面から見る
+            rotatable = style in ROTATABLE_STYLES
             self._renderer.draw(
                 width=int(self.width() * ratio),
                 height=int(self.height() * ratio),
                 cycle=cycle,
                 look=self._look(),
-                yaw_deg=self._orbit.yaw,
-                pitch_deg=self._orbit.pitch,
+                yaw_deg=self._orbit.yaw if rotatable else 0.0,
+                pitch_deg=self._orbit.pitch if rotatable else 0.0,
                 scale=profile.scale,
                 opacity=profile.opacity,
                 time_s=t,
@@ -200,7 +231,11 @@ class OutputCanvas(QOpenGLWidget):
     # ---------------------------------------------------------------- 回転
 
     def _can_rotate(self) -> bool:
-        return self.uses_gl and not self.angle_locked
+        return (
+            self.uses_gl
+            and self._session.profile.style in ROTATABLE_STYLES
+            and not self.angle_locked
+        )
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._can_rotate():

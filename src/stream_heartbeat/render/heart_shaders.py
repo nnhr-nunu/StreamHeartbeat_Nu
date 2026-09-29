@@ -558,6 +558,9 @@ class Look:
     section: bool = False
     yaw_offset_deg: float = 0.0
     pitch_offset_deg: float = 0.0
+    # 画面の上での置き場所のずれ（体の絵に合わせる。右・上が正）
+    shift_x: float = 0.0
+    shift_y: float = 0.0
 
 
 REALISTIC_LOOKS: list[Look] = [
@@ -588,16 +591,9 @@ STYLE_LOOKS: dict[str, Look] = {
         grain=0.35,
         density=1.35,
         size_factor=0.80,
-    ),
-    "mri": Look(
-        "mri",
-        "MRI",
-        "scan",
-        additive=True,
-        tint_dense=(1.0, 0.58, 0.62),
-        tint_thin=(0.55, 0.05, 0.10),
-        grain=0.9,
-        size_factor=0.88,
+        # 胸の正面像では心臓の 3 分の 2 が体の左（画面右）にあり、横隔膜に乗る
+        shift_x=0.14,
+        shift_y=-0.06,
     ),
 }
 

@@ -386,11 +386,13 @@ def paint_mri_flat_heart(
     painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle
 ) -> None:
     panel = panel_rect(rect)
-    cx = panel.center().x()
-    cy = panel.center().y() - panel.height() * 0.04
-    s = panel.height() * 0.30 * scale / 0.7
+    # 輪切りの胸の中で、心臓は体の左前寄り。心尖が画面右上（体の左前）を向く
+    cx = panel.center().x() + panel.height() * 0.04
+    cy = panel.center().y() - panel.height() * 0.02
+    s = panel.height() * 0.24 * scale / 0.7
     painter.save()
     painter.translate(cx, cy)
+    painter.rotate(-134.0)
     painter.scale(1.0 - 0.14 * cycle.squeeze, cycle.apex * 0.6 + 0.4)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(MRI_TISSUE)

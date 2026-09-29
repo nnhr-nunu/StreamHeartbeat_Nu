@@ -28,7 +28,10 @@ from stream_heartbeat.ui.heart_realistic import paint_realistic
 TEXT_COLOR = QColor(255, 236, 180)
 BPM_COLOR = QColor(255, 255, 255)
 
-GL_STYLES = frozenset({"realistic", "mech", "xray", "mri"})
+# 立体の心臓メッシュで描くスタイル。心エコーと MRI は断面シェーダー（echo_gl / mri_gl）
+GL_STYLES = frozenset({"realistic", "mech", "xray"})
+# 配信用の窓のドラッグで回せるスタイル。レントゲンは胸の絵と向きを合わせて正面に固定
+ROTATABLE_STYLES = frozenset({"realistic", "mech"})
 PANEL_STYLES = frozenset({"xray", "mri"})
 BPM_COLORS = (
     ("#FFFFFF", "白"),

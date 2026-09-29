@@ -125,6 +125,7 @@ class HeartRenderer:
         gl = self._gl
         program = self._programs[look.program]
         model = QMatrix4x4()
+        model.translate(look.shift_x, look.shift_y, 0.0)
         model.scale(BASE_SCALE * max(0.05, scale) * look.size_factor)
         model.rotate(pitch_deg + look.pitch_offset_deg, 1.0, 0.0, 0.0)
         model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)

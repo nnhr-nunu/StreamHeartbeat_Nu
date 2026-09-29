@@ -9,7 +9,8 @@ from PySide6.QtOpenGL import QOpenGLFramebufferObject
 from PySide6.QtWidgets import QApplication
 
 from stream_heartbeat.clock import BeatClock
-from stream_heartbeat.render.echo_gl import EchoRenderer, valve_open
+from stream_heartbeat.render.chamber_glsl import valve_open
+from stream_heartbeat.render.echo_gl import EchoRenderer
 from stream_heartbeat.ui.heart_echo import echo_zoom, sector_geometry
 
 
@@ -86,3 +87,39 @@ def test_shader_draws_sector_and_leaves_outside(qapp: QApplication) -> None:
     inside = image.pixelColor(100, int(apex.y() + radius * 0.8))
     assert inside.green() < 200
     assert abs(inside.red() - inside.green()) < 30
+
+
+def test_mri_shader_fills_rounded_panel(qapp: QApplication) -> None:
+    del qapp
+    from stream_heartbeat.render.mri_gl import MriRenderer
+
+    ctx = QOpenGLContext()
+    surface = QOffscreenSurface()
+    surface.create()
+    if not ctx.create() or not ctx.makeCurrent(surface):
+        pytest.skip("OpenGL なし")
+    mri = MriRenderer(ctx.functions())
+    clock, last = _clock()
+    fbo = QOpenGLFramebufferObject(200, 200)
+    fbo.bind()
+    gl = ctx.functions()
+    gl.glViewport(0, 0, 200, 200)
+    gl.glClearColor(0.0, 1.0, 0.0, 1.0)
+    gl.glClear(0x4000)
+    mri.draw(
+        width=200,
+        height=200,
+        panel=(10.0, 10.0, 180.0, 180.0),
+        corner=12.0,
+        zoom=1.0,
+        cycle=clock.cycle(last + 0.3),
+        time_s=last + 0.3,
+        opacity=1.0,
+    )
+    image = fbo.toImage()
+    fbo.release()
+    assert image.pixelColor(3, 3) == QColor(0, 255, 0)
+    assert image.pixelColor(11, 11) == QColor(0, 255, 0)
+    for x, y in ((100, 100), (30, 30)):
+        inside = image.pixelColor(x, y)
+        assert inside.green() < 200 and inside.red() >= inside.green()
