@@ -52,6 +52,7 @@ from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
+from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.heart_paint import (
     BACKDROPS,
     BPM_COLORS,
@@ -301,7 +302,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         profile_row.addWidget(self._profiles, 1)
         profile_row.addWidget(save_btn)
         profile_row.addWidget(save_as_btn)
-        input_form = QFormLayout()
+        input_form = CenteredForm()
         input_form.addRow("プロファイル", profile_wrap)
         input_form.addRow("マイク", self._mics)
         input_form.addRow("音の大きさ", self._meter)
@@ -328,14 +329,14 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         cal_inner.addLayout(_right(self._reset_cal))
         cal_box.setLayout(cal_inner)
 
-        style_form = QFormLayout()
+        style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
         style_form.addRow("大きさ", scale_row)
         style_form.addRow("透明度", opacity_row)
         style_box = QGroupBox("③ スタイル")
         style_box.setLayout(style_form)
 
-        beat_form = QFormLayout()
+        beat_form = CenteredForm()
         beat_form.addRow("文言", self._text)
         beat_form.addRow("大きさ", beat_scale_row)
         beat_form.addRow("透明度", beat_opacity_row)
@@ -349,7 +350,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             "④ 同期文字", self._show_beat_text, beat_form, self._reset_beat
         )
 
-        bpm_form = QFormLayout()
+        bpm_form = CenteredForm()
         bpm_form.addRow("大きさ", bpm_scale_row)
         bpm_form.addRow("左右", bpm_x_row)
         bpm_form.addRow("上下", bpm_y_row)
@@ -373,7 +374,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         )
         obs_hint.setObjectName("meta")
         obs_hint.setWordWrap(True)
-        other_form = QFormLayout()
+        other_form = CenteredForm()
         other_form.addRow("背景", self._backdrop)
         other_inner = QVBoxLayout()
         other_inner.addLayout(other_form)
@@ -383,7 +384,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._other_box = QGroupBox("⑥ 背景と向き")
         self._other_box.setLayout(other_inner)
 
-        oshi = QFormLayout()
+        oshi = CenteredForm()
         oshi.addRow("心拍ID", self._public_id)
         oshi.addRow("補助 BPM URL", self._bpm_url)
         oshi_inner = QWidget()
