@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +51,7 @@ from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
+from stream_heartbeat.ui.fold import make_fold
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.heart_paint import (
     BACKDROPS,
@@ -90,31 +90,6 @@ NOTICE_MS = 3500
 NO_AUDIO_S = 2.0
 NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
 SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か、空き容量が足りません）"
-
-
-def _make_fold(
-    title: str, inner: QWidget, *, expanded: bool = False
-) -> tuple[QWidget, QToolButton]:
-    toggle = QToolButton()
-    toggle.setObjectName("fold")
-    toggle.setCheckable(True)
-    toggle.setChecked(expanded)
-    toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-    toggle.setArrowType(Qt.ArrowType.NoArrow)
-    inner.setVisible(expanded)
-
-    def _sync(on: bool) -> None:
-        inner.setVisible(on)
-        toggle.setText(f"{'▼' if on else '▶'} {title}")
-
-    toggle.toggled.connect(_sync)
-    _sync(expanded)
-    wrap = QWidget()
-    layout = QVBoxLayout(wrap)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(toggle)
-    layout.addWidget(inner)
-    return wrap, toggle
 
 
 def _right(widget: QWidget) -> QHBoxLayout:
@@ -334,14 +309,35 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         cal_inner.addWidget(self._tap_btn)
         # cal_inner.addWidget(load_cal)
         cal_inner.addLayout(_right(self._reset_cal))
-        cal_wrap, _cal_fold = _make_fold("心拍の補正（数字が合わないときだけ）", cal_inner_widget)
+        cal_wrap, _cal_fold = make_fold("心拍の補正（数字が合わないときだけ）", cal_inner_widget)
 
+        angle_row = QHBoxLayout()
+        angle_row.addWidget(self._angle_locked, 1)
+        angle_row.addWidget(self._reset_angle)
+        self._angle_wrap = QWidget()
+        angle_col = QVBoxLayout(self._angle_wrap)
+        angle_col.setContentsMargins(0, 0, 0, 0)
+        angle_col.addLayout(angle_row)
+        angle_col.addWidget(self._angle_hint)
+        obs_hint = QLabel(
+            f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び、"
+            "クロマキーで背景の色を抜きます。"
+        )
+        obs_hint.setObjectName("meta")
+        obs_hint.setWordWrap(True)
+        # 背景と向き（回せるスタイルだけ）も見た目の一部なので、スタイルの欄にまとめる
         style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
         style_form.addRow("大きさ", scale_row)
         style_form.addRow("透明度", opacity_row)
+        style_form.addRow("背景", self._backdrop)
+        style_inner = QVBoxLayout()
+        style_inner.addLayout(style_form)
+        style_inner.addWidget(self._gl_note)
+        style_inner.addWidget(self._angle_wrap)
+        style_inner.addWidget(obs_hint)
         style_box = QGroupBox("② スタイル")
-        style_box.setLayout(style_form)
+        style_box.setLayout(style_inner)
 
         beat_form = CenteredForm()
         beat_form.addRow("文言", self._text)
@@ -367,38 +363,17 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             "④ 心拍数", self._show_bpm, bpm_form, self._reset_bpm
         )
 
-        angle_row = QHBoxLayout()
-        angle_row.addWidget(self._angle_locked, 1)
-        angle_row.addWidget(self._reset_angle)
-        self._angle_wrap = QWidget()
-        angle_col = QVBoxLayout(self._angle_wrap)
-        angle_col.setContentsMargins(0, 0, 0, 0)
-        angle_col.addLayout(angle_row)
-        angle_col.addWidget(self._angle_hint)
-        obs_hint = QLabel(
-            f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び、"
-            "クロマキーで背景の色を抜きます。"
-        )
-        obs_hint.setObjectName("meta")
-        obs_hint.setWordWrap(True)
-        other_form = CenteredForm()
-        other_form.addRow("背景", self._backdrop)
-        other_inner = QVBoxLayout()
-        other_inner.addLayout(other_form)
-        other_inner.addWidget(obs_hint)
-        other_inner.addWidget(self._angle_wrap)
-        other_inner.addWidget(self._gl_note)
-        self._other_box = QGroupBox("⑤ 背景と向き")
-        self._other_box.setLayout(other_inner)
-
         oshi = CenteredForm()
         oshi.addRow("心拍ID", self._public_id)
         oshi.addRow("補助 BPM URL", self._bpm_url)
         oshi_inner = QWidget()
         oshi_inner.setLayout(oshi)
-        oshi_wrap, _oshi_fold = _make_fold("推しログ(ぬ)連携（未実装）", oshi_inner, expanded=False)
+        oshi_wrap, _oshi_fold = make_fold("推しログ(ぬ)連携（未実装）", oshi_inner, expanded=False)
         self._vts = VtsPanel(self._session, self._data_dir, self._flash)
-        vts_wrap, _vts_fold = _make_fold("VTube Studio 連携", self._vts, expanded=False)
+        vts_layout = QVBoxLayout()
+        vts_layout.addWidget(self._vts)
+        vts_box = QGroupBox("⑤ VTube Studio 連携")
+        vts_box.setLayout(vts_layout)
 
         self._banner = QFrame()
         self._banner.setObjectName("detectBanner")
@@ -418,9 +393,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         layout.addWidget(style_box)
         layout.addWidget(beat_box)
         layout.addWidget(bpm_box)
-        layout.addWidget(self._other_box)
+        layout.addWidget(vts_box)
         layout.addWidget(cal_wrap)
-        layout.addWidget(vts_wrap)
         layout.addWidget(oshi_wrap)
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)

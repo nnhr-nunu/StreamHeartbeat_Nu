@@ -84,13 +84,19 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     titles = [box.title() for box in operator.findChildren(QGroupBox)]
     assert "② スタイル" in titles
     assert "③ 同期文字" in titles and "④ 心拍数" in titles
-    assert "⑤ 背景と向き" in titles
+    # 背景と向きはスタイルの欄にまとめ、⑤ はよく使う VTube Studio 連携
+    assert "⑤ VTube Studio 連携" in titles
+    assert not any("背景と向き" in title for title in titles)
+    style_box = next(b for b in operator.findChildren(QGroupBox) if b.title() == "② スタイル")
+    style_labels = [lab.text() for lab in style_box.findChildren(QLabel)]
+    assert "背景" in style_labels and any("OBS" in text for text in style_labels)
+    assert any(box.text() == "角度を固定" for box in style_box.findChildren(QCheckBox))
     profiles = operator.findChildren(QComboBox)[0]
     assert not profiles.isEditable()
     fold_texts = [btn.text() for btn in operator.findChildren(QToolButton)]
     order = [
         next(i for i, text in enumerate(fold_texts) if key in text)
-        for key in ("心拍の補正", "VTube Studio 連携", "推しログ(ぬ)連携（未実装）")
+        for key in ("使い方・うまくいかないとき", "心拍の補正", "推しログ(ぬ)連携（未実装）")
     ]
     assert order == sorted(order)
     assert not any(btn.isChecked() for btn in operator.findChildren(QToolButton))

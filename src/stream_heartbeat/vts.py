@@ -36,6 +36,8 @@ PARAM_INTERVAL_S = 1.0 / 30.0
 ITEM_SIZE = 0.3
 ITEM_SIZE_MIN = 0.05
 ITEM_SIZE_MAX = 0.8
+# 出したときの位置（画面の真ん中の少し下）
+ITEM_HOME = (0.0, -0.15)
 # 留める場所を選ぶあいだ、心臓がクリックの邪魔をしないよう寄せておく位置（左端寄り）
 PICK_ASIDE_X = -0.75
 # モデル上の場所（ArtMesh の三角形と、その中の重み）。ItemPinRequest の pinInfo に使う
@@ -389,8 +391,8 @@ class VtsHeart:
                 "ItemLoadRequest",
                 {
                     "fileName": ITEM_FOLDER,
-                    "positionX": 0.0,
-                    "positionY": -0.15,
+                    "positionX": ITEM_HOME[0],
+                    "positionY": ITEM_HOME[1],
                     "size": self.size,
                     "rotation": 0,
                     "fadeTime": 0.3,
@@ -527,11 +529,14 @@ class VtsHeart:
         return True
 
     def cancel_pick(self) -> None:
-        """クリック待ちをやめ、覚えている場所があればそこへ戻す。"""
+        """クリック待ちをやめ、覚えている場所があればそこへ、無ければ出したときの位置へ戻す。"""
         if not self.picking:
             return
         self._stop_pick()
-        self._pin_saved()
+        if self.pins.get(self.model_id) is not None:
+            self._pin_saved()
+        elif self.instance_id is not None:
+            self._move(x=ITEM_HOME[0], y=ITEM_HOME[1], seconds=0.3)
 
     def _stop_pick(self) -> None:
         if self._pick_done is not None:

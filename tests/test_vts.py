@@ -360,3 +360,105 @@ def test_events_reach_subscriber_not_reply_handlers(qtbot, fake_vts: FakeVts) ->
     qtbot.wait(100)
     assert events == [{"counter": 1}]
     client.stop()
+
+
+def test_cancel_pick_without_saved_place_returns_home(qtbot, fake_vts: FakeVts) -> None:
+    from stream_heartbeat.vts import ITEM_HOME
+
+    client, heart = _ready_heart(qtbot, fake_vts)
+    shown: list[bool] = []
+    heart.show_item(20, shown.append)
+    qtbot.waitUntil(lambda: shown == [True], timeout=3000)
+    assert heart.start_pick(lambda _pin: None)
+    heart.cancel_pick()
+    # 脇へ寄せたままにせず、出したときの位置へ戻す（覚えた場所が無いので留めない）
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemMoveRequest")) == 2, timeout=3000)
+    back = fake_vts.sent("ItemMoveRequest")[-1]["itemsToMove"][0]
+    assert (back["positionX"], back["positionY"]) == ITEM_HOME
+    assert not any(pin["pin"] for pin in fake_vts.sent("ItemPinRequest"))
+    client.stop()
+
+
+def test_panel_denied_unchecks_and_is_remembered(qapp, tmp_path: Path) -> None:
+    del qapp
+    from stream_heartbeat.profile import load_app_state
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui.vts_panel import STATE_LABELS, VtsPanel
+
+    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+    panel._enable.blockSignals(True)
+    panel._enable.setChecked(True)
+    panel._enable.blockSignals(False)
+    panel._on_state(DENIED)
+    # 次に起動したときに勝手に聞き直さないよう、外したことを覚える。理由は見えるように残す
+    assert not panel._enable.isChecked()
+    assert load_app_state(tmp_path)["vts_enabled"] is False
+    assert not panel._status.isHidden() and panel._status.text() == STATE_LABELS[DENIED]
+    assert panel._status.objectName() == "warn"
+    panel.shutdown()
+
+
+def test_panel_buttons_and_note_follow_connection_and_look(qapp, tmp_path: Path) -> None:
+    del qapp
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import VtsPanel, look_key
+
+    session = HeartSession()
+    profile = session.profile
+    profile.style = "realistic"
+    panel = VtsPanel(session, tmp_path, lambda _text: None)
+    # つながるまでは押せない
+    assert not panel._item_btn.isEnabled() and not panel._pin_btn.isEnabled()
+    panel._client._state = READY
+    panel._refresh()
+    assert panel._item_btn.isEnabled() and panel._item_btn.text() == vts_panel.SHOW_BUTTON
+    assert not panel._pin_btn.isEnabled() and not panel._hide_btn.isEnabled()
+    assert panel._note.text() == vts_panel.NOTE_NOT_SHOWN
+    # 出したら作り直し・留める・しまうを押せる
+    panel._heart.instance_id = "inst1"
+    panel._made_key = look_key(profile)
+    panel._refresh()
+    assert panel._item_btn.text() == vts_panel.REMAKE_BUTTON
+    assert panel._pin_btn.isEnabled() and panel._hide_btn.isEnabled()
+    assert panel._note.text() == vts_panel.NOTE_UNPINNED
+    # 向きを変えたら作り直しを促す
+    profile.heart_yaw_deg += 20.0
+    panel._refresh()
+    assert panel._note.text() == vts_panel.NOTE_STALE and panel._note.objectName() == "warn"
+    # アイテムにできないスタイルでは出せない
+    profile.style = "echo"
+    panel._refresh()
+    assert panel._note.text() == vts_panel.NOTE_BAD_STYLE and not panel._item_btn.isEnabled()
+    profile.style = "realistic"
+    panel._made_key = look_key(profile)
+    panel._heart.model_id = "m1"
+    panel._heart.pins = {"m1": PIN}
+    panel._refresh()
+    assert panel._note.text() == vts_panel.NOTE_PINNED and panel._note.objectName() == "meta"
+    panel.shutdown()
+
+
+def test_panel_folder_must_be_items(qapp, tmp_path: Path, monkeypatch) -> None:
+    del qapp
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import NOT_ITEMS_NOTICE, VtsPanel
+
+    notices: list[str] = []
+    panel = VtsPanel(HeartSession(), tmp_path, notices.append)
+    assets = tmp_path / "StreamingAssets"
+    (assets / "Items").mkdir(parents=True)
+    other = tmp_path / "Desktop"
+    other.mkdir()
+    picks = iter([str(assets), str(other)])
+    monkeypatch.setattr(
+        vts_panel.QFileDialog, "getExistingDirectory", lambda *_args, **_kw: next(picks)
+    )
+    # 一つ上を選んだら中の Items を使う
+    panel._choose_folder()
+    assert panel._items_dir == assets / "Items"
+    # 関係ないフォルダは受け付けない
+    panel._choose_folder()
+    assert panel._items_dir == assets / "Items" and notices == [NOT_ITEMS_NOTICE]
+    panel.shutdown()
