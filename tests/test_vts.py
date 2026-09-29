@@ -481,3 +481,24 @@ def test_panel_guides_are_side_by_side_and_open_one_at_a_time(qapp, tmp_path: Pa
     trouble.setChecked(True)
     assert trouble.isChecked() and not how_to.isChecked()
     panel.shutdown()
+
+
+def test_panel_explains_where_to_click_while_waiting(qapp, tmp_path: Path) -> None:
+    del qapp
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import VtsPanel
+
+    session = HeartSession()
+    session.profile.style = "realistic"
+    panel = VtsPanel(session, tmp_path, lambda _text: None)
+    panel._client._state = READY
+    panel._heart.instance_id = "inst1"
+    panel._heart._pick_done = lambda _pin: None
+    panel._refresh()
+    # 知らせはすぐ消えるので、クリックを待つあいだはどこを押すかを出し続ける
+    assert panel._note.text() == vts_panel.NOTE_PICKING
+    assert "VTube Studio の画面" in panel._note.text() and "左クリック" in panel._note.text()
+    assert panel._pin_btn.text() == vts_panel.PICKING_BUTTON
+    panel._heart._pick_done = None
+    panel.shutdown()
