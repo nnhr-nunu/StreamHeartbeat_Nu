@@ -38,6 +38,7 @@ GL_BLEND = 0x0BE2
 GL_SRC_ALPHA = 0x0302
 GL_ONE_MINUS_SRC_ALPHA = 0x0303
 GL_ONE = 0x0001
+GL_ZERO = 0x0000
 GL_BACK = 0x0405
 GL_DEPTH_BUFFER_BIT = 0x0100
 GL_COLOR_BUFFER_BIT = 0x4000
@@ -60,6 +61,7 @@ _ATTRIBUTES = (
     ("aUv", 9, 2),
     ("aSection", 11, 2),
     ("aMerge", 13, 2),
+    ("aAuricle", 15, 1),
 )
 
 
@@ -146,6 +148,9 @@ class HeartRenderer:
             gl.glDisable(GL_DEPTH_TEST)
             gl.glDisable(GL_CULL_FACE)
             gl.glBlendFunc(GL_ONE, GL_ONE)
+        elif look.cutout:
+            gl.glDisable(GL_DEPTH_TEST)
+            gl.glDisable(GL_CULL_FACE)
         else:
             gl.glEnable(GL_DEPTH_TEST)
             gl.glDepthFunc(GL_LEQUAL)
@@ -179,6 +184,11 @@ class HeartRenderer:
         program.setUniformValue1f("uGloss", float(look.gloss))
         program.setUniformValue1f("uSaturation", float(look.saturation))
         program.setUniformValue1f("uCoronary", float(look.coronary))
+        program.setUniformValue1f("uLively", float(look.lively))
+        program.setUniformValue1f("uAtriaR", float(cycle.atria_r))
+        program.setUniformValue1f("uAtriaL", float(cycle.atria_l))
+        program.setUniformValue1f("uAurR", float(cycle.auricle_r))
+        program.setUniformValue1f("uAurL", float(cycle.auricle_l))
         if look.program == "flesh":
             program.setUniformValue1f("uSection", 1.0 if look.section else 0.0)
         if look.program == "scan":
@@ -186,13 +196,28 @@ class HeartRenderer:
             program.setUniformValue("uTintThin", QVector3D(*look.tint_thin))
             program.setUniformValue1f("uGrain", float(look.grain))
             program.setUniformValue1f("uDensity", float(look.density))
-        count = self._mesh.vertex_count if look.section else self._mesh.body_vertex_count
-        if look.additive:
+            program.setUniformValue1f("uCutout", 0.0)
+        mesh = self._mesh
+        count = mesh.section_end if look.section else mesh.body_vertex_count
+        if look.cutout:
+            # 1 回目: 下の背景を濃さのぶんだけ隠す（透明の窓では不透明さを積む）。
+            # 2 回目: 色を足す（不透明さは変えない）
+            gl.glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+            program.setUniformValue1f("uCutout", 1.0)
+            gl.glDrawArrays(GL_TRIANGLES, 0, count)
+            gl.glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE)
+            program.setUniformValue1f("uCutout", 2.0)
+            gl.glDrawArrays(GL_TRIANGLES, 0, count)
+        elif look.additive:
             gl.glDrawArrays(GL_TRIANGLES, 0, count)
         else:
             # 不透明な所を先に描き、透けて消えていく血管の先は奥行きを書かずに重ねる
             program.setUniformValue1i("uPass", 0)
             gl.glDrawArrays(GL_TRIANGLES, 0, count)
+            if look.lively > 0.0 and mesh.auricle_start >= 0:
+                gl.glDrawArrays(
+                    GL_TRIANGLES, mesh.auricle_start, mesh.vertex_count - mesh.auricle_start
+                )
             gl.glDepthMask(False)
             # 透ける先では管の内側を見せない（断面でも切るのは根元だけ）
             gl.glEnable(GL_CULL_FACE)

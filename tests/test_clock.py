@@ -170,3 +170,26 @@ def test_display_clock_smooths_uneven_audio_steps() -> None:
     assert abs(shown[-1] - audio) < 0.03
     # 大きく飛んだら（止まっていた・巻き戻った）すぐ合わせる
     assert display.at(10.0, 50.0) == 50.0
+
+
+def test_atria_contract_before_the_next_beat_right_then_left() -> None:
+    from stream_heartbeat.clock import BeatClock
+
+    clock = BeatClock()
+    for i in range(8):
+        clock.feed_beat(i * 0.8)
+    last = 7 * 0.8
+    # 心室が縮んでいる間は心房は縮まない
+    early = clock.cycle(last + 0.08)
+    assert early.atria_r == 0.0 and early.atria_l == 0.0
+    samples = [clock.cycle(last + k * 0.005) for k in range(160)]
+    right_peak = max(range(160), key=lambda k: samples[k].atria_r)
+    left_peak = max(range(160), key=lambda k: samples[k].atria_l)
+    assert 0.55 < right_peak * 0.005 < 0.8
+    assert left_peak > right_peak
+    # 心耳は一打ちのあと揺れ、しだいに収まる。左右で揺れ方がずれる
+    flaps_r = [abs(c.auricle_r) for c in samples[:40]]
+    assert max(flaps_r) > 0.3
+    assert abs(samples[100].auricle_r) < max(flaps_r)
+    assert any(abs(a.auricle_r - a.auricle_l) > 0.1 for a in samples[:40])
+

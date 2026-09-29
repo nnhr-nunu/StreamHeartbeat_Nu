@@ -19,6 +19,7 @@ from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.mri_gl import MriRenderer
 from stream_heartbeat.render.orbit import Orbit
+from stream_heartbeat.render.xray_gl import XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
@@ -57,6 +58,7 @@ class OutputCanvas(QOpenGLWidget):
         self._renderer: HeartRenderer | None = None
         self._echo: EchoRenderer | None = None
         self._mri: MriRenderer | None = None
+        self._xray: XrayRenderer | None = None
         self._gl_error: str | None = None
         self._orbit = Orbit(session.profile.heart_yaw_deg, session.profile.heart_pitch_deg)
         self._drag_from: QPointF | None = None
@@ -115,9 +117,19 @@ class OutputCanvas(QOpenGLWidget):
         try:
             self._echo = EchoRenderer(self.context().functions())
             self._mri = MriRenderer(self.context().functions())
+            self._xray = XrayRenderer(self.context().functions())
         except (EchoRendererError, RuntimeError, AttributeError):
             self._echo = None
             self._mri = None
+            self._xray = None
+
+    def _panel_px(self, rect: QRectF) -> tuple[tuple[float, float, float, float], float]:
+        """レントゲン・MRI のパネルの位置と角の丸み（GL の画素）。"""
+        ratio = self.devicePixelRatioF()
+        panel = panel_rect(rect)
+        corner = min(panel.width(), panel.height()) * PANEL_RADIUS_RATIO
+        box = (panel.x() * ratio, panel.y() * ratio, panel.width() * ratio, panel.height() * ratio)
+        return box, corner * ratio
 
     def paintGL(self) -> None:
         painter = QPainter(self)
@@ -133,7 +145,9 @@ class OutputCanvas(QOpenGLWidget):
         style = profile.style
 
         gl_mri = style == "mri" and self._mri is not None
-        if not gl_mri:
+        # レントゲン1 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
+        gl_chest = style == "xray" and self._xray is not None and self.uses_gl
+        if not (gl_mri or gl_chest):
             paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
         if style == "echo" and self._echo is not None:
             painter.beginNativePainting()
@@ -158,18 +172,12 @@ class OutputCanvas(QOpenGLWidget):
         elif gl_mri and self._mri is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
-            panel = panel_rect(rect)
-            corner = min(panel.width(), panel.height()) * PANEL_RADIUS_RATIO
+            box, corner = self._panel_px(rect)
             self._mri.draw(
                 width=int(self.width() * ratio),
                 height=int(self.height() * ratio),
-                panel=(
-                    panel.x() * ratio,
-                    panel.y() * ratio,
-                    panel.width() * ratio,
-                    panel.height() * ratio,
-                ),
-                corner=corner * ratio,
+                panel=box,
+                corner=corner,
                 zoom=profile.scale / 0.7,
                 cycle=cycle,
                 time_s=t,
@@ -179,6 +187,16 @@ class OutputCanvas(QOpenGLWidget):
         elif self.uses_gl and self._renderer is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
+            if gl_chest and self._xray is not None:
+                box, corner = self._panel_px(rect)
+                self._xray.draw(
+                    width=int(self.width() * ratio),
+                    height=int(self.height() * ratio),
+                    panel=box,
+                    corner=corner,
+                    time_s=t,
+                    opacity=profile.opacity,
+                )
             # 回せないスタイルは体の絵と同じ正面から見る
             rotatable = style in ROTATABLE_STYLES
             self._renderer.draw(
@@ -205,7 +223,9 @@ class OutputCanvas(QOpenGLWidget):
                 now=t,
                 look=profile.realistic_look,
             )
-        paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
+        if not gl_chest:
+            # GL で描いた胸は骨まで描き込み済み（重ねると肋骨が二重になる）
+            paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
         paint_bursts(
             painter,
             rect,

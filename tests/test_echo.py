@@ -123,3 +123,30 @@ def test_mri_shader_fills_rounded_panel(qapp: QApplication) -> None:
     for x, y in ((100, 100), (30, 30)):
         inside = image.pixelColor(x, y)
         assert inside.green() < 200 and inside.red() >= inside.green()
+
+
+def test_chest_xray_shader_fills_panel_with_dark_lungs(qapp: QApplication) -> None:
+    del qapp
+    from stream_heartbeat.render.xray_gl import XrayRenderer
+
+    ctx = QOpenGLContext()
+    surface = QOffscreenSurface()
+    surface.create()
+    if not ctx.create() or not ctx.makeCurrent(surface):
+        pytest.skip("OpenGL なし")
+    xray = XrayRenderer(ctx.functions())
+    fbo = QOpenGLFramebufferObject(200, 200)
+    fbo.bind()
+    gl = ctx.functions()
+    gl.glViewport(0, 0, 200, 200)
+    gl.glClearColor(0.0, 1.0, 0.0, 1.0)
+    gl.glClear(0x4000)
+    xray.draw(width=200, height=200, panel=(10.0, 10.0, 180.0, 180.0), corner=12.0,
+              time_s=1.0, opacity=1.0)
+    image = fbo.toImage()
+    fbo.release()
+    assert image.pixelColor(3, 3) == QColor(0, 255, 0)
+    lung = image.pixelColor(50, 90)
+    belly = image.pixelColor(60, 180)
+    assert lung.green() < 200 and belly.lightness() > lung.lightness()
+

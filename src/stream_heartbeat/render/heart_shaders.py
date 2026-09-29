@@ -18,6 +18,7 @@ in float aAxial;
 in vec2 aUv;
 in vec2 aSection;
 in vec2 aMerge;
+in float aAuricle;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -27,6 +28,12 @@ uniform float uEject;
 uniform float uFill;
 uniform float uTime;
 uniform float uAge;
+// 生々しい見た目のときだけ 1。心房の時間差・心耳の揺れ・送り出しを強める
+uniform float uLively;
+uniform float uAtriaR;
+uniform float uAtriaL;
+uniform float uAurR;
+uniform float uAurL;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -40,6 +47,7 @@ out vec3 vSecS;
 out vec3 vSecT;
 out float vJoint;
 out float vFade;
+out float vPulse;
 """
     + SECTION_AXES_GLSL
     + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
@@ -48,6 +56,11 @@ const float TWIST_DEG = 18.0;
 // 拍の波が大動脈を伝わる速さ（道のり/秒）と、波の長さ
 const float PULSE_SPEED = 5.5;
 const float PULSE_WIDTH = 0.42;
+// 心房の中心と、心耳が揺れる向き（心臓の座標）
+const vec3 LA_CENTER = vec3(0.18, 0.50, -0.30);
+const vec3 RA_CENTER = vec3(-0.36, 0.40, -0.02);
+const vec3 LA_FLAP = vec3(0.18, -0.55, 0.82);
+const vec3 RA_FLAP = vec3(0.62, -0.25, 0.74);
 
 float vhash(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -93,6 +106,18 @@ void main() {
     p.xz *= s;
     n.xz /= max(s, 1e-3);
 
+    // 心房は心室より先に、右房・左房の順に縮む。心耳はよく縮み、揺さぶられて別に揺れる
+    float laMask = smoothstep(1.4, 1.6, aRegion) * (1.0 - smoothstep(2.4, 2.6, aRegion));
+    float raMask = smoothstep(2.4, 2.6, aRegion) * (1.0 - smoothstep(3.4, 3.6, aRegion));
+    if (uLively > 0.0) {
+        float kick = laMask * uAtriaL + raMask * uAtriaR;
+        vec3 center = laMask > 0.5 ? LA_CENTER : RA_CENTER;
+        p = center + (p - center) * (1.0 - kick * (0.07 + 0.20 * aAuricle) * uLively);
+        float flap = laMask * uAurL + raMask * uAurR;
+        vec3 flapDir = normalize(laMask > 0.5 ? LA_FLAP : RA_FLAP);
+        p += flapDir * flap * 0.05 * pow(aAuricle, 1.5) * uLively;
+    }
+
     // 房室弁の面が心尖へ下がる。心尖はほぼ動かない
     float descend = uSqueeze * 0.11;
     p.y -= descend * ventricle * (1.0 - ax);
@@ -113,7 +138,10 @@ void main() {
     float front = (uAge - 0.05) * PULSE_SPEED;
     float wave = exp(-pow((dist - front) / PULSE_WIDTH, 2.0)) * step(0.05, uAge);
     wave *= 1.0 - 0.45 * aAxial;
-    p += n * artery * (0.024 * wave + 0.008 * uEject);
+    // 生々しい見た目では送り出しの膨らみを強め、色の波にも使う
+    float surge = 1.0 + 0.7 * uLively;
+    p += n * artery * (0.024 * wave + 0.008 * uEject) * surge;
+    vPulse = artery * wave;
     p += n * vein * 0.007 * uFill;
 
     // 心臓全体が拍ごとに少し揺れる。血管は根元だけ付いてきて、先は動かない
@@ -205,6 +233,7 @@ in vec3 vSecS;
 in vec3 vSecT;
 in float vJoint;
 in float vFade;
+in float vPulse;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -216,6 +245,7 @@ uniform float uGloss;
 uniform float uSaturation;
 uniform float uCoronary;
 uniform float uSection;
+uniform float uLively;
 // 0: 不透明な所だけ描く / 1: 透けて消えていく血管の先だけ描く
 uniform int uPass;
 out vec4 fragColor;
@@ -397,10 +427,25 @@ void main() {
     albedo = mix(albedo, mix(base, fatColor, 0.5) * vec3(1.05, 0.85, 0.85), fatEdge * 0.5);
     float hide = mix(0.45, 0.12, uCoronary);
     float coronaryVis = (trunk * mix(0.55, 1.0, uCoronary) + branches * mix(0.18, 0.82, uCoronary));
-    coronaryVis *= (1.0 - fatMask * hide);
+    coronaryVis *= (1.0 - fatMask * hide * (1.0 - 0.7 * uLively));
+    if (uLively > 0.0) {
+        // 冠動脈は表面から盛り上がった管に見せる。拡張期に血が満ちて少し太り、明るくなる
+        float filled = 0.85 + 0.30 * uFill;
+        float h = clamp(coronaryVis, 0.0, 1.0) * filled * uLively;
+        vec3 dpdx = dFdx(P);
+        vec3 dpdy = dFdy(P);
+        vec3 r1 = cross(dpdy, N);
+        vec3 r2 = cross(N, dpdx);
+        float det = dot(dpdx, r1);
+        vec3 grad = (dFdx(h) * r1 + dFdy(h) * r2) / (abs(det) > 1e-10 ? det : 1e-10);
+        N = normalize(N - 0.018 * grad);
+        coronaryColor = mix(coronaryColor, vec3(0.95, 0.20, 0.20), 0.35 * uFill * uLively);
+    }
     albedo = mix(albedo, coronaryShade, clamp(trunkShade * mix(0.15, 0.7, uCoronary), 0.0, 1.0));
     albedo = mix(albedo, coronaryColor, clamp(coronaryVis, 0.0, 1.0));
     albedo = mix(albedo, vec3(0.12, 0.02, 0.03), isLumen);
+    // 送り出された血の波が大血管を走る。波の所が赤く張る
+    albedo = mix(albedo, vec3(0.86, 0.10, 0.12), isVessel * vPulse * 0.45 * uLively);
 
     // 血管の付け根: 本体と管の両側を脂肪混じりの外膜の色へ寄せ、接する所を影で沈める
     float jointNoise = 0.55 + 0.45 * fbm(P * 5.0 + 50.0);
@@ -415,6 +460,8 @@ void main() {
 
     // 断面の内腔は暗く沈める
     color = mix(color, color * 0.35, isLumen);
+    // 血の波の所は内から照るように少し光る
+    color += vec3(0.20, 0.015, 0.02) * isVessel * vPulse * uLively;
 
     color = pow(color, vec3(0.92));
     fragColor = vec4(color, alpha);
@@ -516,6 +563,8 @@ uniform vec3 uTintDense;
 uniform vec3 uTintThin;
 uniform float uGrain;
 uniform float uDensity;
+// 背景に重ねる（心臓だけのレントゲン）ときの描き分け。0: 足し算だけ / 1: 下を隠す / 2: 色を足す
+uniform float uCutout;
 void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);
@@ -533,6 +582,16 @@ void main() {
     // 室が縮むと壁が厚く濃く写る
     density *= 1.0 + 0.25 * uSqueeze * (1.0 - smoothstep(3.4, 3.6, vRegion));
     vec3 color = mix(uTintThin, uTintDense, clamp(density * 2.2, 0.0, 1.0)) * density;
+    // 背景に重ねるときは 2 回に分けて描く。1 回目は下の背景を濃さのぶんだけ隠し（色は出さない）、
+    // 2 回目はレントゲンと同じく厚みのぶん色を足す（厚い所ほど明るい）
+    if (uCutout > 1.5) {
+        fragColor = vec4(color * 1.5 * uOpacity, 0.0);
+        return;
+    }
+    if (uCutout > 0.5) {
+        fragColor = vec4(0.0, 0.0, 0.0, clamp(1.0 - exp(-density * 5.0), 0.0, 1.0) * uOpacity);
+        return;
+    }
     fragColor = vec4(color * uOpacity, 1.0);
 }
 """
@@ -549,6 +608,8 @@ class Look:
     saturation: float = 1.0
     coronary: float = 0.0
     additive: bool = False
+    # 足し算の代わりに、濃い所ほど下を隠して重ねる（緑や透明の背景にそのまま載せる）
+    cutout: bool = False
     tint_dense: tuple[float, float, float] = (1.0, 1.0, 1.0)
     tint_thin: tuple[float, float, float] = (1.0, 1.0, 1.0)
     grain: float = 0.0
@@ -556,6 +617,8 @@ class Look:
     size_factor: float = 1.0
     # 四腔断面で切って見せる。切り口がカメラへ向くよう向きを足す
     section: bool = False
+    # 心房の時間差・心耳の別の動き・冠動脈の盛り上がり・送り出しの波（リアル2）
+    lively: float = 0.0
     yaw_offset_deg: float = 0.0
     pitch_offset_deg: float = 0.0
     # 画面の上での置き場所のずれ（体の絵に合わせる。右・上が正）
@@ -565,6 +628,16 @@ class Look:
 
 REALISTIC_LOOKS: list[Look] = [
     Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0, coronary=0.22),
+    Look(
+        "vivid",
+        "生々しい",
+        "flesh",
+        fat_amount=0.8,
+        gloss=1.12,
+        saturation=1.05,
+        coronary=0.72,
+        lively=1.0,
+    ),
     Look(
         "anatomy",
         "断面",
@@ -589,11 +662,21 @@ STYLE_LOOKS: dict[str, Look] = {
         tint_dense=(0.80, 0.84, 0.88),
         tint_thin=(0.34, 0.37, 0.42),
         grain=0.35,
-        density=1.35,
+        density=0.95,
         size_factor=0.80,
         # 胸の正面像では心臓の 3 分の 2 が体の左（画面右）にあり、横隔膜に乗る
         shift_x=0.14,
         shift_y=-0.06,
+    ),
+    "xray_heart": Look(
+        "xray_heart",
+        "レントゲン（心臓だけ）",
+        "scan",
+        cutout=True,
+        tint_dense=(0.86, 0.92, 1.0),
+        tint_thin=(0.42, 0.52, 0.66),
+        grain=0.3,
+        density=1.1,
     ),
 }
 
