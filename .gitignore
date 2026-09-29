@@ -39,3 +39,9 @@ Thumbs.db
 # Claude Code
 !.claude/settings.json
 .claude/settings.local.json
+
+# 心音の評価（録音の場所・デコード結果・参照ラベル・結果は手元だけ）
+scripts/heart_eval/recordings.local.json
+scripts/heart_eval/cache/
+scripts/heart_eval/labels/
+scripts/heart_eval/results/
