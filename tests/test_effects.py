@@ -1,4 +1,4 @@
-"""心臓わしづかみ・聴診器の演出（選べるスタイル・動き・描く場所・操作）。"""
+"""心臓わしづかみ・聴診器 1・2 の演出（選べるスタイル・動き・描く場所・操作）。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from stream_heartbeat.render.heart_mesh import (
 )
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.effect_grip import paint_grip_hand
+from stream_heartbeat.ui.effect_grip import hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
     BODY_CENTER,
@@ -27,6 +27,7 @@ from stream_heartbeat.ui.effects import (
     EFFECT_GRIP,
     EFFECT_NONE,
     EFFECT_STETHO,
+    EFFECT_STETHO_FLIP,
     GRIP_MIN_HOLD_S,
     EffectMotion,
     active_effect,
@@ -49,9 +50,12 @@ def _isolate_operator_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 def test_grip_only_for_xray_and_stetho_for_heart_styles() -> None:
     for style in ("xray", "xray_heart"):
         keys = [key for key, _label in effect_choices(style)]
-        assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO]
+        assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
     for style in ("realistic", "mech", "cute"):
-        assert [key for key, _label in effect_choices(style)] == [EFFECT_NONE, EFFECT_STETHO]
+        keys = [key for key, _label in effect_choices(style)]
+        assert keys == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+    labels = [label for _key, label in effect_choices("realistic")]
+    assert labels[1:] == ["聴診器1", "聴診器2"]
     for style in ("echo", "mri", "ecg"):
         assert [key for key, _label in effect_choices(style)] == [EFFECT_NONE]
     # 対応しないスタイルでは描かないが、選んだ値は捨てない
@@ -129,30 +133,48 @@ def _skin_like(color: QColor) -> bool:
 
 def test_hand_and_stetho_paint_on_heart(qapp: QApplication) -> None:
     del qapp
+    # 手の素材は配布物にも入る場所にある
+    assert not hand_image().isNull()
     rect = QRectF(0, 0, 400, 400)
-    frame = gl_heart_frame(rect, 0.7, STYLE_LOOKS["xray_heart"])
+    green = QColor(0, 177, 64)
     cycle = BeatClock().cycle(0.5)
     image = QImage(400, 400, QImage.Format.Format_ARGB32_Premultiplied)
-    image.fill(QColor(0, 177, 64))
-    painter = QPainter(image)
-    paint_grip_hand(painter, frame, cycle, grip=0.0, time_s=0.5, opacity=1.0)
-    painter.end()
-    # 指は心臓の真ん中のあたりに乗り、腕は窓の上の端まで届く
-    center = frame.center
-    assert any(
-        _skin_like(image.pixelColor(int(center.x()) + dx, int(center.y())))
-        for dx in range(-40, 41, 4)
-    )
-    top_row = [image.pixelColor(x, 1) for x in range(0, 400, 4)]
-    assert any(c != QColor(0, 177, 64) for c in top_row)
+    for scale in (0.7, 0.25):
+        frame = gl_heart_frame(rect, scale, STYLE_LOOKS["xray_heart"])
+        for grip in (0.0, 1.0):
+            image.fill(green)
+            painter = QPainter(image)
+            paint_grip_hand(painter, rect, frame, cycle, grip=grip, time_s=0.5, opacity=1.0)
+            painter.end()
+            # 手の甲は心臓の真ん中の少し下に当たり、袖は窓の下（視聴者の側）の端まで届く
+            center = frame.center
+            below = int(center.y() + frame.radius * 0.5)
+            assert any(
+                _skin_like(image.pixelColor(int(center.x()) + dx, below))
+                for dx in range(-30, 31, 3)
+            ), (scale, grip)
+            assert any(image.pixelColor(x, 398) != green for x in range(0, 400, 2)), (scale, grip)
+            assert all(image.pixelColor(x, 1) == green for x in range(0, 400, 8))
 
-    image.fill(QColor(0, 177, 64))
-    painter = QPainter(image)
-    paint_stethoscope(painter, rect, QPointF(220, 240), frame, cycle, time_s=0.5, opacity=1.0)
-    painter.end()
-    # チェストピースは当てた所に描かれ、管は窓の上へ抜ける
-    assert image.pixelColor(220, 240) != QColor(0, 177, 64)
-    assert any(image.pixelColor(x, 1) != QColor(0, 177, 64) for x in range(0, 400, 2))
+    frame = gl_heart_frame(rect, 0.7, STYLE_LOOKS["xray_heart"])
+    for back_view in (True, False):
+        image.fill(green)
+        painter = QPainter(image)
+        paint_stethoscope(
+            painter,
+            rect,
+            QPointF(220, 240),
+            frame,
+            cycle,
+            time_s=0.5,
+            opacity=1.0,
+            back_view=back_view,
+        )
+        painter.end()
+        # チェストピースは当てた所に描かれ、管は窓の下（視聴者の側）へ抜ける
+        assert image.pixelColor(220, 240) != green
+        assert any(image.pixelColor(x, 398) != green for x in range(0, 400, 2))
+        assert all(image.pixelColor(x, 1) == green for x in range(0, 400, 8))
 
 
 def _open(profile: HeartProfile) -> tuple[OperatorWindow, OutputWindow]:
@@ -170,13 +192,13 @@ def test_effect_combo_follows_style_and_keeps_choice(qapp: QApplication) -> None
     del qapp
     profile = HeartProfile(style="xray_heart", effect=EFFECT_GRIP)
     operator, output = _open(profile)
-    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO]
+    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
     assert operator._effect.currentData() == EFFECT_GRIP
     # 掴んでいる間は正面に固定するので、向きの操作は隠す
     assert operator._angle_wrap.isHidden()
     # リアルにすると手は選べない。値は残り、レントゲンへ戻すとまた出る
     operator._select_style("realistic", "surgical")
-    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_STETHO]
+    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP]
     assert operator._effect.currentData() == EFFECT_NONE
     assert profile.effect == EFFECT_GRIP
     assert output.canvas.effect == EFFECT_NONE
@@ -206,7 +228,7 @@ def test_grip_click_squeezes_and_disables_rotation(qapp: QApplication, qtbot) ->
 
 def test_stetho_click_places_rest_position(qapp: QApplication, qtbot) -> None:  # noqa: ANN001
     del qapp
-    profile = HeartProfile(style="cute", effect=EFFECT_STETHO)
+    profile = HeartProfile(style="cute", effect=EFFECT_STETHO_FLIP)
     operator, output = _open(profile)
     canvas = output.canvas
     canvas.resize(400, 400)

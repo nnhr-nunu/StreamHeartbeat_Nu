@@ -1,6 +1,8 @@
-"""聴診器: 心臓に当てたチェストピースと、窓の上の外へ伸びるゴム管。
+"""聴診器: 見ている人（視聴者）が手前から心臓に当てたチェストピースと、手前へ戻るゴム管。
 
-チェストピースは裏（耳管側）から見た姿。黒い縁と金属の円盤、斜め上へ伸びる軸。
+管は窓の下（視聴者の側）の外へ抜ける。チェストピースの見せ方は 2 通り。
+- 聴診器1: 当てている人から見える裏側。金属の頭の真ん中に、黒い縁のベル（小さな椀）が付く
+- 聴診器2: 黒い縁と金属の円盤（膜の面）がこちらを向く姿
 鼓動では心臓に近いほど強く押し返されて手前へ浮き、外へ少しずれ、音の輪が広がる。
 """
 
@@ -30,8 +32,10 @@ RIM_LIGHT = QColor(70, 70, 78)
 METAL_LIGHT = QColor(238, 241, 245)
 METAL_MID = QColor(176, 182, 192)
 METAL_DARK = QColor(112, 118, 130)
-# 軸の向き（画面の右から反時計回りの度）。管は右上へ抜ける
-STEM_DEG = 62.0
+BELL_RIM = QColor(26, 26, 30)
+BELL_INSIDE = QColor(64, 68, 78)
+# 軸の向き（画面の右から反時計回りの度）。管は右下（視聴者の側）へ抜ける
+STEM_DEG = -52.0
 # 音の輪が広がり切って消えるまでの秒
 RING_LIFE_S = 0.42
 
@@ -50,8 +54,12 @@ def paint_stethoscope(
     *,
     time_s: float,
     opacity: float,
+    back_view: bool = True,
 ) -> None:
-    """pos（窓の中の点）に当てた聴診器を描く（心臓の後に描く）。"""
+    """pos（窓の中の点）に当てた聴診器を描く（心臓の後に描く）。
+
+    back_view が真なら裏側（ベルの側）、偽なら膜の面をこちらへ向けた姿で描く。
+    """
     r = stetho_radius(frame)
     heart_r = max(1.0, frame.radius)
     away = pos - frame.center
@@ -75,7 +83,10 @@ def paint_stethoscope(
     painter.save()
     painter.translate(center)
     painter.rotate(tilt)
-    _paint_head(painter, size)
+    if back_view:
+        _paint_back(painter, size)
+    else:
+        _paint_head(painter, size)
     painter.restore()
     _paint_rings(painter, center, size, cycle, near)
     painter.restore()
@@ -90,16 +101,16 @@ def _paint_tube(
     time_s: float,
     lift: float,
 ) -> None:
-    """軸の先から窓の上の外へ抜けるゴム管。ゆっくり揺れ、鼓動で少し跳ねる。"""
+    """軸の先から窓の下（視聴者の側）の外へ抜けるゴム管。ゆっくり揺れ、鼓動で少し跳ねる。"""
     width = max(4.0, size * 0.2)
     sway = rect.width() * (0.012 * math.sin(time_s * 1.3) + 0.01 * lift)
     end = QPointF(
-        start.x() + (rect.right() - start.x()) * 0.35 + sway,
-        rect.top() - width * 3.0,
+        start.x() + (rect.right() - start.x()) * 0.3 + sway,
+        rect.bottom() + width * 3.0,
     )
-    reach = max(size * 2.0, (start.y() - end.y()) * 0.45)
+    reach = max(size * 2.0, (end.y() - start.y()) * 0.45)
     c1 = start + direction * reach
-    c2 = QPointF(end.x() - sway * 1.5, end.y() + (start.y() - end.y()) * 0.4)
+    c2 = QPointF(end.x() - sway * 1.5, end.y() - (end.y() - start.y()) * 0.4)
     path = QPainterPath(start)
     path.cubicTo(c1, c2, end)
     painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -205,6 +216,91 @@ def _paint_head(painter: QPainter, size: float) -> None:
     painter.setPen(QPen(QColor(80, 84, 94), max(1.0, size * 0.02)))
     painter.setBrush(QBrush(boss))
     painter.drawEllipse(origin, disc * 0.22, disc * 0.22)
+
+
+def _paint_back(painter: QPainter, size: float) -> None:
+    """原点を中心に、裏側（当てている人の側）から見たチェストピースを描く。
+
+    膜の側の黒い縁が金属の頭の外周から少しのぞき、真ん中に黒い縁のベル（椀）が手前へ突き出る。
+    """
+    origin = QPointF(0.0, 0.0)
+    # 奥の膜の側の黒い縁（金属の頭より少しだけ大きく、外周にのぞく）
+    painter.setPen(QPen(QColor(8, 8, 10), max(1.0, size * 0.03)))
+    painter.setBrush(RIM_DARK)
+    painter.drawEllipse(origin, size, size)
+    body = size * 0.92
+    metal = QConicalGradient(origin, 120.0)
+    for stop, color in (
+        (0.0, METAL_LIGHT),
+        (0.18, METAL_MID),
+        (0.36, METAL_LIGHT),
+        (0.55, METAL_DARK),
+        (0.74, METAL_LIGHT),
+        (0.9, METAL_MID),
+        (1.0, METAL_LIGHT),
+    ):
+        metal.setColorAt(stop, color)
+    painter.setPen(QPen(QColor(96, 100, 112), max(1.0, size * 0.02)))
+    painter.setBrush(QBrush(metal))
+    painter.drawEllipse(origin, body, body)
+    # 頭の丸み（中ほどが明るく、縁へ向かって落ちる）
+    dome = QRadialGradient(QPointF(-body * 0.25, -body * 0.3), body * 1.25)
+    dome.setColorAt(0.0, QColor(255, 255, 255, 110))
+    dome.setColorAt(0.55, QColor(255, 255, 255, 0))
+    dome.setColorAt(1.0, QColor(0, 0, 0, 90))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(dome))
+    painter.drawEllipse(origin, body, body)
+
+    bell = size * 0.56
+    # ベルが頭に落とす影
+    shade = QRadialGradient(QPointF(bell * 0.12, bell * 0.16), bell * 1.25)
+    shade.setColorAt(0.7, QColor(0, 0, 0, 90))
+    shade.setColorAt(1.0, QColor(0, 0, 0, 0))
+    painter.setBrush(QBrush(shade))
+    painter.drawEllipse(QPointF(bell * 0.12, bell * 0.16), bell * 1.25, bell * 1.25)
+    # ベルの黒い縁（冷たくない樹脂の輪）
+    ring = QRadialGradient(QPointF(-bell * 0.3, -bell * 0.35), bell * 1.4)
+    ring.setColorAt(0.0, QColor(84, 84, 92))
+    ring.setColorAt(1.0, BELL_RIM)
+    painter.setPen(QPen(QColor(6, 6, 8), max(1.0, size * 0.025)))
+    painter.setBrush(QBrush(ring))
+    painter.drawEllipse(origin, bell, bell)
+    # 椀の内側（奥ほど暗い金属）と、底の穴
+    inside = bell * 0.74
+    cup = QRadialGradient(QPointF(inside * 0.18, inside * 0.22), inside)
+    cup.setColorAt(0.0, QColor(22, 23, 27))
+    cup.setColorAt(0.55, BELL_INSIDE)
+    cup.setColorAt(0.9, METAL_MID)
+    cup.setColorAt(1.0, METAL_DARK)
+    painter.setPen(QPen(QColor(40, 42, 48), max(1.0, size * 0.015)))
+    painter.setBrush(QBrush(cup))
+    painter.drawEllipse(origin, inside, inside)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(4, 4, 6))
+    painter.drawEllipse(QPointF(inside * 0.06, inside * 0.08), inside * 0.16, inside * 0.16)
+    # 縁と椀の照り返し
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(
+        QPen(
+            QColor(255, 255, 255, 110),
+            max(1.0, size * 0.035),
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+    )
+    painter.drawArc(QRectF(-bell * 0.9, -bell * 0.9, bell * 1.8, bell * 1.8), 105 * 16, 65 * 16)
+    painter.setPen(
+        QPen(
+            QColor(255, 255, 255, 70),
+            max(1.0, size * 0.025),
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        )
+    )
+    painter.drawArc(
+        QRectF(-inside * 0.8, -inside * 0.8, inside * 1.6, inside * 1.6), 280 * 16, 70 * 16
+    )
 
 
 def _paint_rings(

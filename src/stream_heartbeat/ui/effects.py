@@ -1,7 +1,10 @@
 """心臓に重ねる演出（心臓わしづかみ・聴診器）の選び方と動き。
 
-- 心臓わしづかみ: レントゲン 1〜3 で、ふつうの手が心臓を握る。鼓動で揺れ、配信用の窓を押すと強く握る
-- 聴診器: 心臓の形が出るスタイルで、マウスの所にチェストピースが来て鼓動で揺れる。
+どちらも見ている人（視聴者）が手前から触れる向きで描く（手も聴診器の管も窓の下から来る）。
+- 心臓わしづかみ: レントゲン 1〜3 で、ふつうの手が心臓に触れて掴む。鼓動で揺れ、
+  配信用の窓を押すと強く握る
+- 聴診器1・2: 心臓の形が出るスタイルで、マウスの所にチェストピースが来て鼓動で揺れる。
+  1 は当てている人から見える裏側（ベルの側）、2 は膜の面をこちらへ向けた姿。
   クリックした所に置いておけ、マウスが窓の外へ出るとそこへ戻る
 
 絵は effect_grip / effect_stetho が描く。ここは描く場所（心臓の画面上の位置と大きさ）と、
@@ -21,22 +24,30 @@ from stream_heartbeat.render.heart_shaders import Look
 EFFECT_NONE = ""
 EFFECT_GRIP = "grip"
 EFFECT_STETHO = "stethoscope"
+EFFECT_STETHO_FLIP = "stethoscope_flip"
+# 聴診器の演出（1: 裏側のベルを見せる / 2: 膜の面を見せる）
+STETHO_EFFECTS = frozenset({EFFECT_STETHO, EFFECT_STETHO_FLIP})
 EFFECT_LABELS = {
     EFFECT_NONE: "なし",
     EFFECT_GRIP: "心臓わしづかみ",
-    EFFECT_STETHO: "聴診器",
+    EFFECT_STETHO: "聴診器1",
+    EFFECT_STETHO_FLIP: "聴診器2",
 }
+_STETHO_HINT = (
+    "配信用の窓の上でマウスを動かすと聴診器がついてきます。"
+    "クリックした所に置いておけます（マウスが窓の外へ出るとそこへ戻ります）。"
+)
 EFFECT_HINTS = {
     EFFECT_GRIP: "配信用の窓をクリックすると、ぎゅっと強く握ります（押している間は握ったまま）。",
-    EFFECT_STETHO: (
-        "配信用の窓の上でマウスを動かすと聴診器がついてきます。"
-        "クリックした所に置いておけます（マウスが窓の外へ出るとそこへ戻ります）。"
-    ),
+    EFFECT_STETHO: _STETHO_HINT,
+    EFFECT_STETHO_FLIP: _STETHO_HINT,
 }
 # 手はレントゲン 1〜3 だけ。聴診器は心臓の形が出るスタイル（断面・波形のスタイルは除く）
+_HEART_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart", "cute"})
 EFFECT_STYLES = {
     EFFECT_GRIP: frozenset({"xray", "xray_heart"}),
-    EFFECT_STETHO: frozenset({"realistic", "mech", "xray", "xray_heart", "cute"}),
+    EFFECT_STETHO: _HEART_STYLES,
+    EFFECT_STETHO_FLIP: _HEART_STYLES,
 }
 
 # 立体の心臓（正面から見たとき）の胴の真ん中と半分の幅・高さ。拡大 1 のときの世界の長さ。
