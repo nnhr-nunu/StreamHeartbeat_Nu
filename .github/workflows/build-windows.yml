@@ -46,9 +46,115 @@ jobs:
           name: windows-zip
           path: StreamHeartbeat-windows.zip
 
+  # Mac は Apple チップ版と Intel 版を別々に作る。どちらも macOS 12 以降で開ける形にする
+  # （2016 年の MacBook Pro など、macOS 12 までしか入らない Mac があるため）
+  macos:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: macos-zip
+            zip: StreamHeartbeat-macOS.zip
+            python_from: actions
+          - os: macos-15-intel
+            artifact: macos-intel-zip
+            zip: StreamHeartbeat-macOS-intel.zip
+            python_from: python.org
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        if: matrix.python_from == 'actions'
+        with:
+          python-version: "3.10"
+      # Intel の Mac 用は、macOS 11 から動く python.org の Python で作る
+      - name: Install python.org 3.10 for macOS 12
+        if: matrix.python_from == 'python.org'
+        run: |
+          curl -fsSL -o /tmp/python-3.10.11-macos11.pkg \
+            https://www.python.org/ftp/python/3.10.11/python-3.10.11-macos11.pkg
+          sudo installer -pkg /tmp/python-3.10.11-macos11.pkg -target /
+          PYBIN="/Library/Frameworks/Python.framework/Versions/3.10/bin"
+          if [ ! -e "$PYBIN/python" ]; then
+            ln -sf python3 "$PYBIN/python"
+          fi
+          echo "$PYBIN" >> "$GITHUB_PATH"
+      - name: Show CPU and Python
+        run: |
+          uname -m
+          python --version
+          python -c "import sys; print(sys.executable)"
+      - run: python -m pip install -U pip
+      - run: python scripts/ci_macos_install.py
+      - name: Show Qt version
+        run: python -c "import PySide6; print('PySide6', PySide6.__version__)"
+      - name: Test
+        env:
+          PYTHONFAULTHANDLER: "1"
+          QT_QPA_PLATFORM: "offscreen"
+        run: python -m pytest -q --tb=short
+      # offscreen では OpenGL が使えないので、描画のテストだけ Mac の本物の画面で回す
+      # （GPU が無い Mac では skip になる。-rs で skip の理由を出す）
+      - name: Test OpenGL
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: python -m pytest -q -rs --tb=short tests/test_gl_platform.py tests/test_heart_render.py tests/test_echo.py
+      - name: Build app
+        if: github.event_name != 'pull_request'
+        run: pyinstaller --noconfirm --clean packaging/StreamHeartbeat-macos.spec
+      - name: Check app
+        if: github.event_name != 'pull_request'
+        run: |
+          app=dist/StreamHeartbeat.app
+          file "$app/Contents/MacOS/StreamHeartbeat"
+          lipo -info "$app/Contents/MacOS/StreamHeartbeat"
+          plutil -extract NSMicrophoneUsageDescription raw "$app/Contents/Info.plist"
+          plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "$app"
+      - name: Confirm macOS 12 binaries
+        if: github.event_name != 'pull_request'
+        run: python scripts/ci_macos_minos.py
+      # 作ったアプリを実際に開き、15 秒たっても落ちていないか・Python のエラーが出ていないかを見る
+      - name: Launch app
+        if: github.event_name != 'pull_request'
+        run: |
+          dist/StreamHeartbeat.app/Contents/MacOS/StreamHeartbeat > launch.log 2>&1 &
+          pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2>/dev/null; then
+            code=0
+            wait "$pid" || code=$?
+            cat launch.log
+            echo "::error::アプリが起動してすぐ終了した（終了コード ${code}）"
+            exit 1
+          fi
+          kill "$pid"
+          cat launch.log
+          if grep -q "Traceback" launch.log; then
+            echo "::error::起動中に Python のエラーが出た"
+            exit 1
+          fi
+      # zip -r だとアプリの中のリンクが実体に置き換わり「壊れている」と出ることがあるので ditto で固める
+      - name: Zip
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir pkg
+          ditto dist/StreamHeartbeat.app pkg/StreamHeartbeat.app
+          cp packaging/HOW_TO_RUN.txt pkg/使いかた.txt
+          ditto -c -k --sequesterRsrc pkg "${{ matrix.zip }}"
+          ls -l "${{ matrix.zip }}"
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.zip }}
+
   release:
-    needs: [windows]
-    if: github.event_name != 'pull_request' && needs.windows.result == 'success'
+    needs: [windows, macos]
+    if: github.event_name != 'pull_request' && needs.windows.result == 'success' && needs.macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -61,13 +167,51 @@ jobs:
             ## ダウンロード手順
 
             1. このページ下部の **Assets** を開く
-            2. `StreamHeartbeat-windows.zip` をダウンロードする
-            3. zip を展開して `StreamHeartbeat.exe` を開く
+            2. 下の表から、使っている PC に合う zip をダウンロードする
+            3. ダウンロードした zip を展開する
+            4. Windows は `StreamHeartbeat.exe`、Mac は `StreamHeartbeat.app` を開く
 
-            OBS の「ウィンドウの取り込み」で `StreamHeartbeat(ぬ) - 配信出力` を選び、クロマキーで緑を抜いてください。
+            | PC | ダウンロードするファイル |
+            | -- | ------------ |
+            | Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
+            | Mac（M1 / M2 / M3 など Apple チップ） | `StreamHeartbeat-macOS.zip` |
+            | Mac（Intel。2016 年の MacBook Pro など） | `StreamHeartbeat-macOS-intel.zip` |
 
-            起動時の警告は署名していないためです。ウイルスではありません。Windows は「詳細情報」→「実行」。
+            Mac は macOS 12 以降で動きます。どれか分からないときは、左上のリンゴマーク → **この Mac について** を見てください。「チップ」が Apple なら `macOS.zip`、「プロセッサ」が Intel なら `macOS-intel.zip` です。
+
+            ## OBS への取り込み
+
+            OBS で `StreamHeartbeat(ぬ) - 配信出力` の窓を取り込み、クロマキーで緑を抜いてください。
+
+            - Windows: ソース「ウィンドウキャプチャ」
+            - Mac: ソース「macOS 画面キャプチャ」→ 方法「ウィンドウキャプチャ」
+
+            ## 起動時の警告（署名していないため出ます）
+
+            ウイルスではありません。ストア経由の配布ではないので、OS が初回だけ止めます。
+
+            **Windows** 「Windows によって PC が保護されました」と出たら、**詳細情報** → **実行** を選んでください。
+
+            **Mac** 「開けません」「開発元を確認できません」などと出たら:
+
+            1. いったん **完了**（または **キャンセル**）で閉じる
+            2. **システム設定 → プライバシーとセキュリティ**（macOS 12 は **システム環境設定 → セキュリティとプライバシー → 一般**）を開き、「StreamHeartbeat」の横の **このまま開く** を押す
+            3. もう一度 `StreamHeartbeat.app` を開き、確認が出たら **開く** を押す
+
+            「このアプリケーションはこの Mac ではサポートされていません」と出たら zip を間違えています。Intel の Mac は `StreamHeartbeat-macOS-intel.zip` を使ってください。
+
+            ## マイクの許可（Mac）
+
+            初回にマイクの使用を聞かれたら **許可** を押してください。断ってしまったときは **システム設定 → プライバシーとセキュリティ → マイク**（macOS 12 は **システム環境設定 → セキュリティとプライバシー → プライバシー → マイク**）で StreamHeartbeat をオンにして、アプリを開き直してください。新しい版に入れ替えたあとは、もう一度聞かれることがあります。
+
+            ## 設定の引き継ぎ
+
+            プロファイルや補正は zip の中ではなく PC 側（Windows は `%LOCALAPPDATA%\StreamHeartbeat_Nu`、Mac は `~/Library/Application Support/StreamHeartbeat_Nu`）に保存するので、新しい版の zip に入れ替えても消えません。
+
+            詳しい使い方はリポジトリの README を見てください。
           files: |
             windows-zip/StreamHeartbeat-windows.zip
+            macos-zip/StreamHeartbeat-macOS.zip
+            macos-intel-zip/StreamHeartbeat-macOS-intel.zip
           fail_on_unmatched_files: true
           make_latest: true

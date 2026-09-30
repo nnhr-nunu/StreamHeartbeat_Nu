@@ -2,15 +2,30 @@ StreamHeartbeat(ぬ)
 
 起動するもの:
 - Windows: StreamHeartbeat.exe
+- Mac: StreamHeartbeat.app
 
 1. この ZIP を展開する
-2. StreamHeartbeat.exe を開く（インストール不要）
+2. 上の「起動するもの」を開く（インストール不要）
 3. マイクを選び、必要ならキャリブする
-4. OBS「ウィンドウの取り込み」で次の名前を選ぶ
+4. OBS で次の名前の窓を取り込む
    StreamHeartbeat(ぬ) - 配信出力
+   Windows: ソース「ウィンドウキャプチャ」
+   Mac: ソース「macOS 画面キャプチャ」→ 方法「ウィンドウキャプチャ」
 5. クロマキーで緑を抜く
 
-操作画面を閉じると配信出力も終わります。設定は Windows のアプリデータに残るので、
+操作画面を閉じると配信出力も終わります。設定は PC 側に残るので、
 zip を入れ直してもプロファイルは残ります。
+  Windows: %LOCALAPPDATA%\StreamHeartbeat_Nu
+  Mac: ~/Library/Application Support/StreamHeartbeat_Nu
+
+Mac で「開けません」と出たら、いったん閉じてから
+システム設定 → プライバシーとセキュリティ
+（macOS 12 はシステム環境設定 → セキュリティとプライバシー → 一般）で
+「このまま開く」を押し、もう一度開いてください。
+初回にマイクの使用を聞かれたら「許可」を押してください。
+
+Windows: StreamHeartbeat-windows.zip の StreamHeartbeat.exe
+Mac（Apple チップ）: StreamHeartbeat-macOS.zip の StreamHeartbeat.app
+Mac（Intel）: StreamHeartbeat-macOS-intel.zip の StreamHeartbeat.app
 
 詳しくは GitHub の README を見てください。
