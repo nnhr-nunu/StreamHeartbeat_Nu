@@ -65,7 +65,10 @@ DENIED = "denied"
 Reply = Callable[[dict], None]
 
 
-def _steam_libraries() -> list[Path]:
+def _steam_roots() -> list[Path]:
+    """Steam 本体の場所の候補。"""
+    if sys.platform == "darwin":
+        return [Path.home() / "Library" / "Application Support" / "Steam"]
     roots: list[Path] = []
     if sys.platform == "win32":
         try:
@@ -77,8 +80,12 @@ def _steam_libraries() -> list[Path]:
         except OSError:
             pass
     roots += [Path("C:/Program Files (x86)/Steam"), Path("C:/Program Files/Steam")]
+    return roots
+
+
+def _steam_libraries() -> list[Path]:
     libraries: list[Path] = []
-    for root in roots:
+    for root in _steam_roots():
         libraries.append(root)
         vdf = root / "steamapps" / "libraryfolders.vdf"
         try:
@@ -91,12 +98,19 @@ def _steam_libraries() -> list[Path]:
 
 
 def find_items_dir() -> Path | None:
-    """VTube Studio のアイテムのフォルダ（Steam 版）。見つからなければ None。"""
-    tail = Path("steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Items")
+    """VTube Studio のアイテムのフォルダ（Steam 版）。見つからなければ None。
+
+    Windows 版は VTube Studio_Data の中、Mac 版はアプリ（.app）の中にある。
+    """
+    items = Path("StreamingAssets/Items")
     for library in _steam_libraries():
-        candidate = library / tail
-        if candidate.is_dir():
-            return candidate
+        game = library / "steamapps/common/VTube Studio"
+        candidates = [game / "VTube Studio_Data" / items]
+        bundles = sorted(game.glob("*.app"))
+        candidates += [app / "Contents/Resources/Data" / items for app in bundles]
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
     return None
 
 

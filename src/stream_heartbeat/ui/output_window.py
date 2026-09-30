@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QMainWindow
 
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
+from stream_heartbeat.render.gl_platform import core_profile
 from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.mri_gl import MriRenderer
@@ -46,7 +47,7 @@ def gl_surface_format() -> QSurfaceFormat:
     fmt.setSamples(4)
     fmt.setSwapInterval(1)
     fmt.setAlphaBufferSize(8)
-    return fmt
+    return core_profile(fmt)
 
 
 class OutputCanvas(QOpenGLWidget):

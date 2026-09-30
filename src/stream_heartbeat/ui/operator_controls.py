@@ -119,7 +119,7 @@ class ProfileControlsMixin:
         combo.setCurrentIndex(combo.count() - 1)
 
     def _select_mic(self, mic_id: str) -> None:
-        """保存したマイクを選ぶ。つながっていなければ Windows の既定のマイクを開く。"""
+        """保存したマイクを選ぶ。つながっていなければ OS の既定のマイクを開く。"""
         self._mic_chosen = False
         for wanted in (mic_id, default_mic_id()):
             index = self._mics.findData(wanted) if wanted else -1
