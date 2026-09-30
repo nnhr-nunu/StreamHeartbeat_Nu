@@ -32,6 +32,7 @@ from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
     EFFECT_GRIP,
     EFFECT_STETHO,
+    STETHO_EFFECTS,
     EffectMotion,
     HeartFrame,
     active_effect,
@@ -311,9 +312,9 @@ class OutputCanvas(QOpenGLWidget):
         if effect == EFFECT_GRIP:
             frame = self._heart_frame(rect)
             paint_grip_hand(
-                painter, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
+                painter, rect, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
             )
-        elif effect == EFFECT_STETHO:
+        elif effect in STETHO_EFFECTS:
             rel = self._motion.stetho or (profile.stetho_x, profile.stetho_y)
             pos = QPointF(rect.left() + rel[0] * rect.width(), rect.top() + rel[1] * rect.height())
             paint_stethoscope(
@@ -324,6 +325,7 @@ class OutputCanvas(QOpenGLWidget):
                 cycle,
                 time_s=self._now,
                 opacity=profile.opacity,
+                back_view=effect == EFFECT_STETHO,
             )
 
     # ---------------------------------------------------------------- 回転・演出の操作
@@ -338,7 +340,7 @@ class OutputCanvas(QOpenGLWidget):
 
     def _idle_cursor(self) -> Qt.CursorShape:
         effect = self.effect
-        if effect == EFFECT_STETHO:
+        if effect in STETHO_EFFECTS:
             # マウスの所に聴診器を描くので、矢印は隠す
             return Qt.CursorShape.BlankCursor
         if effect == EFFECT_GRIP:
@@ -357,7 +359,7 @@ class OutputCanvas(QOpenGLWidget):
                 self._drag_from = event.position()
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
                 return
-            if effect == EFFECT_STETHO:
+            if effect in STETHO_EFFECTS:
                 return
         super().mousePressEvent(event)
 
@@ -373,7 +375,7 @@ class OutputCanvas(QOpenGLWidget):
             self._store_orbit()
             self.update()
             return
-        if self.effect == EFFECT_STETHO:
+        if self.effect in STETHO_EFFECTS:
             self._motion.hover(self._relative(event.position()))
         self.setCursor(self._idle_cursor())
         super().mouseMoveEvent(event)
@@ -386,7 +388,7 @@ class OutputCanvas(QOpenGLWidget):
             event.button() == Qt.MouseButton.LeftButton
             and pressed_at is not None
             and not self._dragged
-            and self.effect == EFFECT_STETHO
+            and self.effect in STETHO_EFFECTS
         ):
             # クリックした所に聴診器を置く（マウスが窓の外へ出るとここへ戻る）
             profile = self._session.profile
