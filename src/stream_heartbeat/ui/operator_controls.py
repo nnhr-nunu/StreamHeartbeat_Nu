@@ -10,6 +10,7 @@ from stream_heartbeat.audio import default_mic_id
 from stream_heartbeat.config import DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_COLOR
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.ui.combo import MarkedComboBox
+from stream_heartbeat.ui.effects import EFFECT_HINTS, active_effect, effect_choices
 
 if TYPE_CHECKING:
     from stream_heartbeat.session import HeartSession
@@ -170,6 +171,35 @@ class ProfileControlsMixin:
         self._output.apply_backdrop()
         if self._output.needs_rebuild():
             self._rebuild_output()
+
+    def _sync_effect_choices(self) -> None:
+        """演出の一覧を今のスタイルで選べるものにそろえ、保存した演出を選ぶ。
+
+        スタイルが対応しない演出は「なし」と見せるが、プロファイルの値は消さない
+        （対応するスタイルへ戻せば、また出る）。
+        """
+        style, _look = self._style_choice()
+        effect = self._session.profile.effect
+        choices = effect_choices(style)
+        keys = [key for key, _label in choices]
+        self._effect.blockSignals(True)
+        try:
+            if [self._effect.itemData(i) for i in range(self._effect.count())] != keys:
+                self._effect.clear()
+                for key, label in choices:
+                    self._effect.addItem(label, key)
+            self._effect.setCurrentIndex(keys.index(effect) if effect in keys else 0)
+        finally:
+            self._effect.blockSignals(False)
+        has_choice = len(keys) > 1
+        self._style_form.setRowVisible(self._effect, has_choice)
+        hint = EFFECT_HINTS.get(active_effect(style, effect), "")
+        self._effect_hint.setText(hint)
+        self._effect_hint.setVisible(has_choice and bool(hint))
+
+    def _on_effect_picked(self, _index: int = 0) -> None:
+        self._session.profile.effect = str(self._effect.currentData() or "")
+        self._refresh_style_controls()
 
     def _reset_beat_look(self) -> None:
         blank = HeartProfile()

@@ -1,28 +1,33 @@
-"""操作用と配信用の 2 窓を起動する。"""
+"""操作用と配信用の 2 窓を起動する。
+
+起動は数秒かかるので、Qt が動き出したらまず「お待ちください」の小窓を出す。
+重い部品（操作画面・音の処理・心臓の形）はその後で読み込む。
+"""
 
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QApplication
 
-from stream_heartbeat.paths import resolve_data_dir
-from stream_heartbeat.profile import (
-    HeartProfile,
-    load_app_state,
-    load_last_profile_name,
-    load_profile,
-    profiles_dir,
-)
 from stream_heartbeat.render.gl_platform import set_default_format
-from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
-from stream_heartbeat.ui.operator_window import OperatorWindow
-from stream_heartbeat.ui.output_window import OutputWindow
-from stream_heartbeat.ui.placement import apply_window_geom, place_side_by_side
+
+if TYPE_CHECKING:
+    from stream_heartbeat.session import HeartSession
 
 
 def _initial_session() -> HeartSession:
+    from stream_heartbeat.paths import resolve_data_dir
+    from stream_heartbeat.profile import (
+        HeartProfile,
+        load_last_profile_name,
+        load_profile,
+        profiles_dir,
+    )
+    from stream_heartbeat.session import HeartSession
+
     data = resolve_data_dir()
     name = load_last_profile_name(data)
     path = profiles_dir(data) / f"{name}.json"
@@ -36,7 +41,29 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("StreamHeartbeat(ぬ)")
     apply_app_icon(app)
+
+    from stream_heartbeat.ui.splash import StartupSplash
+
+    splash = StartupSplash()
+    splash.show_now()
+    splash.step("設定を読み込んでいます")
+
+    from stream_heartbeat.paths import cache_dir, resolve_data_dir
+    from stream_heartbeat.profile import load_app_state
+    from stream_heartbeat.render.mesh_cache import has_cached_mesh, shared_heart_mesh
+    from stream_heartbeat.ui.operator_window import OperatorWindow
+    from stream_heartbeat.ui.output_window import OutputWindow
+    from stream_heartbeat.ui.placement import apply_window_geom, place_side_by_side
+
     session = _initial_session()
+    cache = cache_dir()
+    if has_cached_mesh(cache):
+        splash.step("心臓を用意しています")
+    else:
+        splash.step("心臓の形を作っています（初回だけ少しかかります）")
+    # 配信用の窓が OpenGL を始めるときに使う形を、先に読んでおく（2 回目からは保存した形を読むだけ）
+    shared_heart_mesh(cache)
+    splash.step("画面を組み立てています")
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
     output.set_quit_handler(operator.close)
@@ -64,4 +91,5 @@ def run() -> int:
     output.raise_()
     operator.raise_()
     operator.activateWindow()
+    splash.finish(operator)
     return app.exec()

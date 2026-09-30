@@ -126,11 +126,15 @@ class HeartRenderer:
         scale: float,
         opacity: float,
         time_s: float,
+        squash_x: float = 1.0,
+        squash_y: float = 1.0,
     ) -> None:
         gl = self._gl
         program = self._programs[look.program]
         model = QMatrix4x4()
         model.translate(look.shift_x, look.shift_y, 0.0)
+        # 手で握られて潰れる（画面の横に縮み、縦に伸びる）。心臓の真ん中を中心に潰す
+        model.scale(squash_x, squash_y, 1.0)
         model.scale(BASE_SCALE * max(0.05, scale) * look.size_factor)
         model.rotate(pitch_deg + look.pitch_offset_deg, 1.0, 0.0, 0.0)
         model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)
@@ -239,7 +243,7 @@ class HeartRenderer:
 class OffscreenHeart:
     """窓なしで心臓を画像にする。確認用。"""
 
-    def __init__(self) -> None:
+    def __init__(self, mesh: HeartMesh | None = None) -> None:
         self._context = QOpenGLContext()
         if not self._context.create():
             raise HeartRendererError("OpenGL コンテキストを作れません")
@@ -247,7 +251,7 @@ class OffscreenHeart:
         self._surface.create()
         if not self._context.makeCurrent(self._surface):
             raise HeartRendererError("オフスクリーン面を使えません")
-        self._renderer = HeartRenderer(self._context.functions())
+        self._renderer = HeartRenderer(self._context.functions(), mesh)
 
     def render(
         self,

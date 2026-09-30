@@ -75,9 +75,12 @@ def render_frames(profile: HeartProfile, size: int = FRAME_SIZE) -> list[QImage]
             frames.append(image)
         return frames
 
+    from stream_heartbeat.paths import cache_dir
     from stream_heartbeat.render.heart_gl import OffscreenHeart
+    from stream_heartbeat.render.mesh_cache import shared_heart_mesh
 
-    heart = OffscreenHeart()
+    # 配信用の窓と同じ形を使い回す（作り直すと 1.5 秒ほど止まる）
+    heart = OffscreenHeart(shared_heart_mesh(cache_dir()))
     look = _look(profile)
     frames = []
     for k, cycle in enumerate(cycles):

@@ -51,6 +51,7 @@ from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
+from stream_heartbeat.ui.effects import EFFECT_GRIP, active_effect
 from stream_heartbeat.ui.fold import make_fold
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.heart_paint import (
@@ -168,6 +169,11 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._style = MarkedComboBox(wheel=True)
         for key, look, label in STYLES:
             self._style.addItem(label, (key, look))
+        # 演出（心臓わしづかみ・聴診器）。選べるものはスタイルで変わる
+        self._effect = MarkedComboBox()
+        self._effect_hint = QLabel("")
+        self._effect_hint.setObjectName("meta")
+        self._effect_hint.setWordWrap(True)
         self._angle_locked = QCheckBox("角度を固定")
         self._angle_locked.setToolTip("配信用の窓をドラッグしても回さない")
         self._reset_angle = QPushButton("角度をリセット")
@@ -246,6 +252,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         save_as_btn.clicked.connect(self._save_as)
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
+        self._effect.currentIndexChanged.connect(self._on_effect_picked)
         self._angle_locked.toggled.connect(self._apply_controls)
         self._reset_angle.clicked.connect(lambda: self._output.canvas.reset_angle())
         self._scale.valueChanged.connect(self._apply_controls)
@@ -328,11 +335,14 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         # 背景と向き（回せるスタイルだけ）も見た目の一部なので、スタイルの欄にまとめる
         style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
+        style_form.addRow("演出", self._effect)
+        self._style_form = style_form
         style_form.addRow("大きさ", scale_row)
         style_form.addRow("透明度", opacity_row)
         style_form.addRow("背景", self._backdrop)
         style_inner = QVBoxLayout()
         style_inner.addLayout(style_form)
+        style_inner.addWidget(self._effect_hint)
         style_inner.addWidget(self._gl_note)
         style_inner.addWidget(self._angle_wrap)
         style_inner.addWidget(obs_hint)
@@ -504,11 +514,13 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
 
     def _refresh_style_controls(self) -> None:
         style, _look = self._style_choice()
-        rotatable = style in ROTATABLE_STYLES
-        self._angle_wrap.setVisible(rotatable)
+        # 手で掴んでいる間は正面に固定するので、向きの操作は出さない
+        gripped = active_effect(style, self._session.profile.effect) == EFFECT_GRIP
+        self._angle_wrap.setVisible(style in ROTATABLE_STYLES and not gripped)
         failed = style in GL_STYLES and self._output.canvas.gl_error is not None
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
+        self._sync_effect_choices()
 
     def _set_banner_kind(self, kind: str) -> None:
         if self._banner.property("kind") != kind:
