@@ -11,6 +11,7 @@ from PySide6.QtGui import QImage
 from PySide6.QtNetwork import QHostAddress
 from PySide6.QtWebSockets import QWebSocket, QWebSocketServer
 
+from stream_heartbeat import vts
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.heart_frames import (
     FRAME_PREFIX,
@@ -27,6 +28,7 @@ from stream_heartbeat.vts import (
     VtsClient,
     VtsHeart,
     clicked_pin,
+    find_items_dir,
     item_framerate,
 )
 
@@ -189,6 +191,20 @@ def test_framerate_follows_systole_and_is_clamped() -> None:
     assert item_framerate(30.0, 0.30, 0.30) == pytest.approx(30.0)
     assert item_framerate(30.0, 0.20, 0.30) == pytest.approx(45.0)
     assert item_framerate(300.0, 0.05, 0.30) == 120.0
+
+
+def test_mac_steam_items_folder_inside_app_is_found(tmp_path: Path, monkeypatch) -> None:
+    """Mac の Steam 版は、アイテムのフォルダが VTube Studio のアプリ（.app）の中にある。"""
+    steam = tmp_path / "Library" / "Application Support" / "Steam"
+    items = (
+        steam
+        / "steamapps/common/VTube Studio/VTube Studio.app/Contents/Resources/Data"
+        / "StreamingAssets/Items"
+    )
+    items.mkdir(parents=True)
+    monkeypatch.setattr(vts.sys, "platform", "darwin")
+    monkeypatch.setattr(vts.Path, "home", lambda: tmp_path)
+    assert find_items_dir() == items
 
 
 def test_frames_are_transparent_and_numbered(qapp, tmp_path: Path) -> None:

@@ -22,6 +22,7 @@ from PySide6.QtOpenGL import (
 )
 
 from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.render.gl_platform import glsl
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
     FLOATS_PER_VERTEX,
@@ -95,9 +96,10 @@ class HeartRenderer:
 
     def _compile(self, fragment: str) -> QOpenGLShaderProgram:
         program = QOpenGLShaderProgram()
-        if not program.addShaderFromSourceCode(QOpenGLShader.ShaderTypeBit.Vertex, VERTEX):
+        stage = QOpenGLShader.ShaderTypeBit
+        if not program.addShaderFromSourceCode(stage.Vertex, glsl(VERTEX)):
             raise HeartRendererError(f"頂点シェーダー: {program.log()}")
-        if not program.addShaderFromSourceCode(QOpenGLShader.ShaderTypeBit.Fragment, fragment):
+        if not program.addShaderFromSourceCode(stage.Fragment, glsl(fragment)):
             raise HeartRendererError(f"断片シェーダー: {program.log()}")
         for name, _offset, _size in _ATTRIBUTES:
             program.bindAttributeLocation(name, _ATTRIBUTES.index((name, _offset, _size)))

@@ -19,6 +19,7 @@ from PySide6.QtOpenGL import (
 )
 
 from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.render.gl_platform import glsl
 
 GL_TRIANGLES = 0x0004
 GL_FLOAT = 0x1406
@@ -223,9 +224,10 @@ class SliceShader:
         self._vbo.allocate(quad, len(quad))
         self._vao.release()
         program = QOpenGLShaderProgram()
-        if not program.addShaderFromSourceCode(QOpenGLShader.ShaderTypeBit.Vertex, QUAD_VERTEX):
+        stage = QOpenGLShader.ShaderTypeBit
+        if not program.addShaderFromSourceCode(stage.Vertex, glsl(QUAD_VERTEX)):
             raise SliceShaderError(f"頂点シェーダー: {program.log()}")
-        if not program.addShaderFromSourceCode(QOpenGLShader.ShaderTypeBit.Fragment, fragment):
+        if not program.addShaderFromSourceCode(stage.Fragment, glsl(fragment)):
             raise SliceShaderError(f"断片シェーダー: {program.log()}")
         program.bindAttributeLocation("aPos", 0)
         if not program.link():

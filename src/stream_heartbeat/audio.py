@@ -30,7 +30,7 @@ def list_mics() -> list[MicDevice]:
 
 
 def default_mic_id() -> str:
-    """Windows の既定の録音デバイス。無ければ空。"""
+    """OS の既定の録音デバイス。無ければ空。"""
     device = QMediaDevices.defaultAudioInput()
     if device.isNull():
         return ""

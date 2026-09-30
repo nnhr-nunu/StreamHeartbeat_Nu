@@ -14,6 +14,7 @@ from stream_heartbeat.profile import (
     load_profile,
     profiles_dir,
 )
+from stream_heartbeat.render.gl_platform import set_default_format
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
 from stream_heartbeat.ui.operator_window import OperatorWindow
@@ -31,6 +32,7 @@ def _initial_session() -> HeartSession:
 
 def run() -> int:
     configure_process_identity()
+    set_default_format()
     app = QApplication(sys.argv)
     app.setApplicationName("StreamHeartbeat(ぬ)")
     apply_app_icon(app)

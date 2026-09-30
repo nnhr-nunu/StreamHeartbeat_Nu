@@ -25,6 +25,13 @@ def resolve_data_dir(
     if portable.is_dir():
         return portable
     if localappdata is None:
-        env = os.environ.get("LOCALAPPDATA")
-        localappdata = Path(env) if env else Path.home() / "AppData" / "Local"
+        localappdata = _user_data_root()
     return localappdata / APP_DIR_NAME
+
+
+def _user_data_root() -> Path:
+    """OS ごとのアプリの保存場所（Windows は %LOCALAPPDATA%、Mac は Application Support）。"""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    env = os.environ.get("LOCALAPPDATA")
+    return Path(env) if env else Path.home() / "AppData" / "Local"
