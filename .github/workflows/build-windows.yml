@@ -96,12 +96,16 @@ jobs:
           PYTHONFAULTHANDLER: "1"
           QT_QPA_PLATFORM: "offscreen"
         run: python -m pytest -q --tb=short
-      # offscreen では OpenGL が使えないので、描画のテストだけ Mac の本物の画面で回す
-      # （GPU が無い Mac では skip になる。-rs で skip の理由を出す）
+      # offscreen では OpenGL が使えないので、描画のテストだけ Mac の本物の画面で回す。
+      # GPU が無い Mac では skip になるので、結果の行を注釈に出してログインなしでも見えるようにする
       - name: Test OpenGL
         env:
           PYTHONFAULTHANDLER: "1"
-        run: python -m pytest -q -rs --tb=short tests/test_gl_platform.py tests/test_heart_render.py tests/test_echo.py
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs --tb=short tests/test_gl_platform.py tests/test_heart_render.py tests/test_echo.py | tee gl-test.log
+          summary=$(grep -E "SKIPPED|passed|failed" gl-test.log | tail -n 6 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=OpenGL のテスト (${{ matrix.artifact }})::${summary}"
       - name: Build app
         if: github.event_name != 'pull_request'
         run: pyinstaller --noconfirm --clean packaging/StreamHeartbeat-macos.spec
@@ -133,6 +137,8 @@ jobs:
           fi
           kill "$pid"
           cat launch.log
+          head=$(head -n 8 launch.log | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=起動の確認 (${{ matrix.artifact }})::15 秒動いた。ログ $(wc -l < launch.log | tr -d ' ') 行%0A${head}"
           if grep -q "Traceback" launch.log; then
             echo "::error::起動中に Python のエラーが出た"
             exit 1
