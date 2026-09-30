@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QToolButton,
+    QWidget,
 )
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE
@@ -347,3 +348,17 @@ def test_text_details_fold_when_unchecked(qapp: QApplication) -> None:
     assert not operator._bpm_details.isHidden()
     operator.close()
     output.close()
+
+
+def test_startup_splash_shows_steps_and_closes(qapp: QApplication) -> None:
+    from stream_heartbeat.ui.splash import StartupSplash
+
+    splash = StartupSplash()
+    splash.show_now()
+    splash.step("心臓の形を作っています（初回だけ少しかかります）")
+    assert splash.step_text.startswith("心臓の形")
+    image = splash.grab()
+    assert not image.isNull()
+    splash.finish(QWidget())
+    qapp.processEvents()
+    assert not splash.isVisible()

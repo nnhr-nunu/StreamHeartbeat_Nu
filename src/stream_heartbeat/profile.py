@@ -60,6 +60,11 @@ class HeartProfile:
     heart_yaw_deg: float = -18.0
     heart_pitch_deg: float = 12.0
     backdrop: str = DEFAULT_BACKDROP
+    # 演出（"grip": 心臓わしづかみ / "stethoscope": 聴診器）。今のスタイルが対応しないときは描かない
+    effect: str = ""
+    # 聴診器を置いておく場所（配信用の窓の中の割合。マウスが窓の外にあるときはここへ戻る）
+    stetho_x: float = 0.56
+    stetho_y: float = 0.64
     calibration: list[list[float]] = field(default_factory=list)
 
 

@@ -29,6 +29,11 @@ def resolve_data_dir(
     return localappdata / APP_DIR_NAME
 
 
+def cache_dir(data_dir: Path | None = None) -> Path:
+    """計算に時間のかかる結果（立体心臓の形など）を残す場所。消しても次の起動で作り直す。"""
+    return (data_dir if data_dir is not None else resolve_data_dir()) / "cache"
+
+
 def _user_data_root() -> Path:
     """OS ごとのアプリの保存場所（Windows は %LOCALAPPDATA%、Mac は Application Support）。"""
     if sys.platform == "darwin":

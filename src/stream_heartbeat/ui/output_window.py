@@ -6,23 +6,39 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtGui import QCloseEvent, QMouseEvent, QPainter, QShowEvent, QSurfaceFormat
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMainWindow
 
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
+from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.paths import cache_dir
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.gl_platform import core_profile
 from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
+from stream_heartbeat.render.mesh_cache import shared_heart_mesh
 from stream_heartbeat.render.mri_gl import MriRenderer
 from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
+from stream_heartbeat.ui.effect_grip import paint_grip_hand
+from stream_heartbeat.ui.effect_stetho import paint_stethoscope
+from stream_heartbeat.ui.effects import (
+    EFFECT_GRIP,
+    EFFECT_STETHO,
+    EffectMotion,
+    HeartFrame,
+    active_effect,
+    flat_heart_frame,
+    gl_heart_frame,
+    grip_squash,
+)
 from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
 from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_rect
 from stream_heartbeat.ui.heart_paint import (
@@ -65,6 +81,10 @@ class OutputCanvas(QOpenGLWidget):
         self._drag_from: QPointF | None = None
         # 角度の固定は保存しない。起動のたびにオフ
         self.angle_locked = False
+        # 演出（握る強さ・聴診器の位置）。聴診器はドラッグで回したときは置き直さない
+        self._motion = EffectMotion()
+        self._press_at: QPointF | None = None
+        self._dragged = False
         self.setMouseTracking(True)
 
     # ---------------------------------------------------------------- 状態
@@ -79,6 +99,8 @@ class OutputCanvas(QOpenGLWidget):
 
     def set_now(self, t: float) -> None:
         self._now = t
+        profile = self._session.profile
+        self._motion.step(time.perf_counter(), (profile.stetho_x, profile.stetho_y))
         self.update()
         host = self.window()
         if host is not None:
@@ -105,11 +127,30 @@ class OutputCanvas(QOpenGLWidget):
             return realistic_look(self._session.profile.realistic_look)
         return STYLE_LOOKS[style]
 
+    @property
+    def effect(self) -> str:
+        """今描いている演出（スタイルが対応しなければ無し）。"""
+        profile = self._session.profile
+        return active_effect(profile.style, profile.effect)
+
+    def _heart_frame(self, rect: QRectF) -> HeartFrame:
+        profile = self._session.profile
+        if self.uses_gl:
+            return gl_heart_frame(rect, profile.scale, self._look())
+        return flat_heart_frame(rect, profile.style, profile.scale)
+
+    def _relative(self, pos: QPointF) -> tuple[float, float]:
+        w = max(1.0, float(self.width()))
+        h = max(1.0, float(self.height()))
+        return max(0.0, min(1.0, pos.x() / w)), max(0.0, min(1.0, pos.y() / h))
+
     # ---------------------------------------------------------------- GL
 
     def initializeGL(self) -> None:
         try:
-            self._renderer = HeartRenderer(self.context().functions())
+            # 形は起動時に読み込み済み（2 回目からは保存した形を読むだけで済む）
+            mesh = shared_heart_mesh(cache_dir())
+            self._renderer = HeartRenderer(self.context().functions(), mesh)
             self._gl_error = None
         except (HeartRendererError, RuntimeError, AttributeError) as exc:
             self._renderer = None
@@ -144,6 +185,9 @@ class OutputCanvas(QOpenGLWidget):
         t = self._now
         cycle = clock.cycle(t)
         style = profile.style
+        effect = self.effect
+        grip = self._motion.grip if effect == EFFECT_GRIP else 0.0
+        squash_x, squash_y = grip_squash(grip)
 
         gl_mri = style == "mri" and self._mri is not None
         # レントゲン1・2 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
@@ -199,8 +243,8 @@ class OutputCanvas(QOpenGLWidget):
                     opacity=profile.opacity,
                     female=profile.realistic_look == XRAY_FEMALE,
                 )
-            # 回せないスタイルは体の絵と同じ正面から見る
-            rotatable = style in ROTATABLE_STYLES
+            # 回せないスタイルは体の絵と同じ正面から見る。手で掴んでいる間も正面（手の絵に合わせる）
+            rotatable = style in ROTATABLE_STYLES and effect != EFFECT_GRIP
             self._renderer.draw(
                 width=int(self.width() * ratio),
                 height=int(self.height() * ratio),
@@ -211,9 +255,17 @@ class OutputCanvas(QOpenGLWidget):
                 scale=profile.scale,
                 opacity=profile.opacity,
                 time_s=t,
+                squash_x=squash_x,
+                squash_y=squash_y,
             )
             painter.endNativePainting()
         else:
+            painter.save()
+            if grip > 0.0:
+                middle = self._heart_frame(rect).center
+                painter.translate(middle)
+                painter.scale(squash_x, squash_y)
+                painter.translate(-middle)
             paint_heart(
                 painter,
                 rect,
@@ -225,9 +277,11 @@ class OutputCanvas(QOpenGLWidget):
                 now=t,
                 look=profile.realistic_look,
             )
+            painter.restore()
         if not gl_chest:
             # GL で描いた胸は骨まで描き込み済み（重ねると肋骨が二重になる）
             paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
+        self._paint_effect(painter, rect, effect, cycle, grip)
         paint_bursts(
             painter,
             rect,
@@ -250,23 +304,68 @@ class OutputCanvas(QOpenGLWidget):
             )
         painter.end()
 
-    # ---------------------------------------------------------------- 回転
+    def _paint_effect(
+        self, painter: QPainter, rect: QRectF, effect: str, cycle: CardiacCycle, grip: float
+    ) -> None:
+        profile = self._session.profile
+        if effect == EFFECT_GRIP:
+            frame = self._heart_frame(rect)
+            paint_grip_hand(
+                painter, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
+            )
+        elif effect == EFFECT_STETHO:
+            rel = self._motion.stetho or (profile.stetho_x, profile.stetho_y)
+            pos = QPointF(rect.left() + rel[0] * rect.width(), rect.top() + rel[1] * rect.height())
+            paint_stethoscope(
+                painter,
+                rect,
+                pos,
+                self._heart_frame(rect),
+                cycle,
+                time_s=self._now,
+                opacity=profile.opacity,
+            )
+
+    # ---------------------------------------------------------------- 回転・演出の操作
 
     def _can_rotate(self) -> bool:
         return (
             self.uses_gl
             and self._session.profile.style in ROTATABLE_STYLES
             and not self.angle_locked
+            and self.effect != EFFECT_GRIP
         )
 
+    def _idle_cursor(self) -> Qt.CursorShape:
+        effect = self.effect
+        if effect == EFFECT_STETHO:
+            # マウスの所に聴診器を描くので、矢印は隠す
+            return Qt.CursorShape.BlankCursor
+        if effect == EFFECT_GRIP:
+            return Qt.CursorShape.PointingHandCursor
+        return Qt.CursorShape.OpenHandCursor if self._can_rotate() else Qt.CursorShape.ArrowCursor
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._can_rotate():
-            self._drag_from = event.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            effect = self.effect
+            if effect == EFFECT_GRIP:
+                self._motion.press(time.perf_counter())
+                return
+            self._press_at = event.position()
+            self._dragged = False
+            if self._can_rotate():
+                self._drag_from = event.position()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                return
+            if effect == EFFECT_STETHO:
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._press_at is not None:
+            moved = event.position() - self._press_at
+            if abs(moved.x()) + abs(moved.y()) > 4.0:
+                self._dragged = True
         if self._drag_from is not None and self._can_rotate():
             delta = event.position() - self._drag_from
             self._drag_from = event.position()
@@ -274,19 +373,35 @@ class OutputCanvas(QOpenGLWidget):
             self._store_orbit()
             self.update()
             return
-        self.setCursor(
-            Qt.CursorShape.OpenHandCursor if self._can_rotate() else Qt.CursorShape.ArrowCursor
-        )
+        if self.effect == EFFECT_STETHO:
+            self._motion.hover(self._relative(event.position()))
+        self.setCursor(self._idle_cursor())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._motion.release()
+        pressed_at = self._press_at
+        self._press_at = None
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and pressed_at is not None
+            and not self._dragged
+            and self.effect == EFFECT_STETHO
+        ):
+            # クリックした所に聴診器を置く（マウスが窓の外へ出るとここへ戻る）
+            profile = self._session.profile
+            profile.stetho_x, profile.stetho_y = self._relative(event.position())
+            self._motion.hover(self._relative(event.position()))
         if self._drag_from is not None:
             self._drag_from = None
-            self.setCursor(
-                Qt.CursorShape.OpenHandCursor if self._can_rotate() else Qt.CursorShape.ArrowCursor
-            )
+            self.setCursor(self._idle_cursor())
             return
         super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        self._motion.hover(None)
+        self._motion.release()
+        super().leaveEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if self._can_rotate():
