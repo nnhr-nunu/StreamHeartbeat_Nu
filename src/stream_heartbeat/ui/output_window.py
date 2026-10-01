@@ -30,7 +30,7 @@ from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.effect_burst import paint_heart_pops
-from stream_heartbeat.ui.effect_grip import hand_image, paint_grip_hand
+from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_monitor import (
     monitor_screen,
     paint_monitor_back,
@@ -375,7 +375,7 @@ class OutputCanvas(QOpenGLWidget):
         painter.beginNativePainting()
         try:
             if self._hand is None:
-                self._hand = HandRenderer(self.context().functions(), hand_image())
+                self._hand = HandRenderer(self.context().functions(), hand_image(), grip_image())
             ratio = self.devicePixelRatioF()
             self._hand.draw(
                 width=int(self.width() * ratio),

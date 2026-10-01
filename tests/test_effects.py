@@ -23,7 +23,7 @@ from stream_heartbeat.render.heart_mesh import (
 )
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.effect_grip import hand_image, paint_grip_hand
+from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
     BODY_CENTER,
@@ -183,7 +183,8 @@ def _skin_like(color: QColor) -> bool:
 def test_hand_and_stetho_paint_on_heart(qapp: QApplication) -> None:
     del qapp
     # 手の素材は配布物にも入る場所にある
-    assert not hand_image().isNull()
+    assert not hand_image().isNull() and not grip_image().isNull()
+    assert hand_image().size() == grip_image().size()
     rect = QRectF(0, 0, 400, 400)
     green = QColor(0, 177, 64)
     cycle = BeatClock().cycle(0.5)

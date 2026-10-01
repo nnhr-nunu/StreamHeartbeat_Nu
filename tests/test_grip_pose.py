@@ -12,6 +12,7 @@ from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.render.grip_pose import (
     BODY_CENTER,
     BODY_DEPTH,
+    FINGERS,
     HandPose,
     arc_angle,
     arc_length,
@@ -24,6 +25,7 @@ from stream_heartbeat.render.grip_pose import (
     wrap,
     wrap_weight,
 )
+from stream_heartbeat.render.hand_morph import CLAW_PAIRS, MORPH_LIMIT_V, claw_point
 from stream_heartbeat.render.heart_gl import ANATOMY_YAW_DEG
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
@@ -92,7 +94,7 @@ def test_wrap_and_unwrap_are_inverse_and_keep_true_size_in_front() -> None:
     assert wrap(0.05, 0.0)[0] == pytest.approx(0.05, rel=0.01)
 
 
-def test_fingers_hook_over_the_rim_and_grip_pulls_them_further() -> None:
+def test_fingers_hook_over_the_rim_and_grip_turns_into_the_claw() -> None:
     rest = _pose(_rest())
     held = _pose(_rest(), grip=1.0)
     for i in range(1, 5):
@@ -101,11 +103,29 @@ def test_fingers_hook_over_the_rim_and_grip_pulls_them_further() -> None:
         assert rest.finger_facing(i, 1.0) < 0.3, i
     # 長い人差し指・中指は輪郭を越えて奥へ回り込む
     assert rest.finger_facing(1, 1.0) < 0.0 and rest.finger_facing(2, 1.0) < 0.0
-    # 握ると指先がさらに奥へ回り込む（中指）
-    assert held.finger_facing(2, 1.0) < rest.finger_facing(2, 1.0) - 0.1
-    # 親指は左の縁へ回り込む
+    # 親指は左の縁まで届く
     tip = rest.sheet_point(*rest.finger_tip(0))
-    assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.3
+    assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.5
+    # 握り切ると握った手の絵で描き、巻き付けを弱める。鉤に曲げた指先は縁の手前（動脈の付け根の下）
+    assert held.morph == 1.0 and held.blend == pytest.approx(1.0) and held.flatten > 0.5
+    for i in range(1, 5):
+        assert 0.0 < held.finger_facing(i, 1.0) < 0.6, i
+    assert held.anchor[1] < rest.anchor[1]
+    # 鼓動の握り直し程度では絵は替わらない（開いた手のまま指が少し曲がる）
+    systole = _pose(BeatClock().cycle(0.05))
+    assert 0.2 < systole.morph < 0.4 and systole.blend == 0.0
+
+
+def test_claw_morph_follows_the_outline_pairs() -> None:
+    """開いた手の対応点は握った手の対応点へ動き、袖は動かない。"""
+    for (u, v), (cu, cv) in CLAW_PAIRS:
+        mu, mv = claw_point(u, v)
+        assert math.hypot(mu - cu, mv - cv) < 4.0, (u, v)
+    assert claw_point(500.0, MORPH_LIMIT_V + 10.0) == (500.0, MORPH_LIMIT_V + 10.0)
+    # 指先は握った手の指の上の端（付け根より上）へ寄る
+    for (kx, ky), (tx, ty), _half in FINGERS[1:]:
+        assert claw_point(tx, ty)[1] > ty + 40.0
+        assert claw_point(tx, ty)[1] < claw_point(kx, ky)[1] - 120.0
 
 
 def test_hand_follows_the_heart_beat() -> None:
@@ -130,13 +150,13 @@ def test_hand_follows_the_heart_beat() -> None:
 
 
 def test_skin_ties_each_finger_and_leaves_the_back_of_the_hand() -> None:
-    weights, along, _knuckle, main = skin(465.0, 250.0)
+    weights, along, _knuckle, main = skin(400.0, 250.0)
     assert main == 2 and weights[2] > 0.95 and 0.3 < along < 0.7
-    weights, _along, _knuckle, main = skin(262.0, 420.0)
+    weights, _along, _knuckle, main = skin(226.0, 400.0)
     assert main == 0 and weights[0] > 0.9
-    weights, along, _knuckle, main = skin(505.0, 620.0)
+    weights, along, _knuckle, main = skin(420.0, 620.0)
     assert main == -1 and sum(weights) == 0.0 and along == 0.0
-    for u, v in ((410.0, 200.0), (600.0, 380.0), (330.0, 500.0)):
+    for u, v in ((330.0, 200.0), (540.0, 330.0), (270.0, 480.0)):
         assert sum(skin(u, v)[0]) <= 1.0 + 1e-9
     # 手の甲より上は表面に沿い、手首から下（袖）は平らなまま
     assert wrap_weight(400.0) == 1.0 and wrap_weight(900.0) == 0.0
@@ -169,12 +189,12 @@ def test_gl_hand_wraps_the_heart(qapp: QApplication) -> None:
 
     from stream_heartbeat.render.hand_gl import HandRenderer
     from stream_heartbeat.render.heart_gl import HeartRenderer, camera_matrices
-    from stream_heartbeat.ui.effect_grip import hand_image
+    from stream_heartbeat.ui.effect_grip import grip_image, hand_image
 
     size = 260
     gl = ctx.functions()
     heart = HeartRenderer(gl, build_heart_mesh(rows=36, cols=56))
-    hand = HandRenderer(gl, hand_image())
+    hand = HandRenderer(gl, hand_image(), grip_image())
     fbo = QOpenGLFramebufferObject(
         size, size, QOpenGLFramebufferObject.Attachment.CombinedDepthStencil
     )

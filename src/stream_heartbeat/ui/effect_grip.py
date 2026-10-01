@@ -1,10 +1,11 @@
 """心臓わしづかみ: 見ている人（視聴者）の手が、手前から心臓に触れて掴む絵（2D の代わり）。
 
 立体の心臓を GL で描けるときは render/hand_gl が手を心臓へ巻き付けて描く。ここは GL が使えない
-ときの代わりで、平らな手を重ねる。手は絵の素材（assets/hand_touch.png。手の甲がこちらを向き、袖は窓の下の外へ伸びる）。
+ときの代わりで、平らな手を重ねる。手は絵の素材 2 枚（assets/hand_touch.png が開いた手、
+hand_grip.png が握った手。どちらも手の甲がこちらを向き、袖は窓の下の外へ伸びる）。
 心臓の真ん中より少し下に手の甲を当て、指は心臓の前を上へ伸びる。
-鼓動では手前へ押し返されて揺れる。握ると指が奥へ曲がって短く見え、指先が陰り、
-関節が白み、手が細かく震える。素材を差し替えるときは下の目印の画素も合わせる。
+鼓動では手前へ押し返されて揺れる。握ると握った手の絵へ替わり、手が細かく震える。
+素材を差し替えるときは下の目印の画素も合わせる。
 """
 
 from __future__ import annotations
@@ -12,66 +13,63 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (
-    QBrush,
-    QColor,
-    QImage,
-    QLinearGradient,
-    QPainter,
-    QRadialGradient,
-    QTransform,
-)
+from PySide6.QtGui import QImage, QPainter, QTransform
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.ui.app_icon import assets_dir
 from stream_heartbeat.ui.effects import HeartFrame, beat_jolt
 
 HAND_IMAGE = "hand_touch.png"
-# 素材の中の目印（素材の画素）
-IMG_SIZE = (1024.0, 1536.0)
-IMG_PALM = (505.0, 560.0)  # 手の甲の真ん中（心臓に当てる所）
-IMG_KNUCKLE_Y = 440.0  # 指の付け根の関節の高さ。握るとここから先が奥へ曲がる
-IMG_CENTER_X = 500.0  # 握ったときに指が寄っていく中心
-IMG_HAND_WIDTH = 463.0  # 親指の先から小指の縁までの幅
-IMG_KNUCKLES = ((405.0, 445.0), (478.0, 432.0), (560.0, 445.0), (628.0, 468.0))
-IMG_ARM_SLOPE = 0.227  # 袖の傾き（下へ 1 進むと右へ進む量）
-IMG_TAIL = 60.0  # 袖を窓の下まで伸ばすときに引き伸ばす下端の帯の高さ
+GRIP_IMAGE = "hand_grip.png"
+# 素材の中の目印（素材の画素。2 枚とも同じ大きさ・同じ袖）
+IMG_SIZE = (843.0, 1264.0)
+IMG_PALM = (420.0, 560.0)  # 手の甲の真ん中（心臓に当てる所）
+IMG_HAND_WIDTH = 409.0  # 親指の先から小指の縁まで
+IMG_ARM_SLOPE = 0.175  # 袖の傾き（下へ 1 進むと右へ進む量）
+IMG_TAIL = 50.0  # 袖を窓の下まで伸ばすときに引き伸ばす下端の帯の高さ
 
 # 心臓の半径に対する手の幅と、手の甲を当てる所（心臓の真ん中から、半径を単位に）
 HAND_WIDTH_R = 1.5
 HAND_ANCHOR = (0.04, 0.55)
-# 握り切ったとき: 指の見かけの縮み・指先の寄り
-CURL_SHRINK = 0.36
-CURL_GATHER = 0.12
-_STRIPS = 28
+# 握った手の絵へ替わる所（握る強さ）
+GRIP_SWAP = (0.2, 0.8)
 
-_source: QImage | None = None
-_cache: tuple[int, QImage] | None = None
+_sources: dict[str, QImage] = {}
+_cache: dict[str, tuple[int, QImage]] = {}
 
 
-def hand_image() -> QImage:
+def _load(name: str) -> QImage:
     """素材を読む（読めなければ空の絵。描かずに済ませる）。"""
-    global _source
-    if _source is None:
-        path = assets_dir() / HAND_IMAGE
+    if name not in _sources:
+        path = assets_dir() / name
         image = QImage(str(path)) if path.is_file() else QImage()
         if not image.isNull():
             image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        _source = image
-    return _source
+        _sources[name] = image
+    return _sources[name]
 
 
-def _scaled(width_px: int) -> QImage:
+def hand_image() -> QImage:
+    """開いた手の素材。"""
+    return _load(HAND_IMAGE)
+
+
+def grip_image() -> QImage:
+    """握った手の素材。"""
+    return _load(GRIP_IMAGE)
+
+
+def _scaled(name: str, width_px: int) -> QImage:
     """画面の画素に近い大きさへ縮めた素材（毎回縮めると重いので、幅が変わるまで使い回す）。"""
-    global _cache
-    source = hand_image()
     width_px = max(16, min(int(IMG_SIZE[0]), width_px))
     # 鼓動の揺れ程度の違いでは作り直さない
     width_px -= width_px % 8
-    if _cache is None or _cache[0] != width_px:
-        scaled = source.scaledToWidth(width_px, Qt.TransformationMode.SmoothTransformation)
-        _cache = (width_px, scaled)
-    return _cache[1]
+    cached = _cache.get(name)
+    if cached is None or cached[0] != width_px:
+        scaled = _load(name).scaledToWidth(width_px, Qt.TransformationMode.SmoothTransformation)
+        cached = (width_px, scaled)
+        _cache[name] = cached
+    return cached[1]
 
 
 def paint_grip_hand(
@@ -93,7 +91,11 @@ def paint_grip_hand(
     jolt = beat_jolt(cycle.squeeze, cycle.fill)
     base = HAND_WIDTH_R * radius / IMG_HAND_WIDTH
     ratio = painter.device().devicePixelRatioF() if painter.device() is not None else 1.0
-    image = _scaled(round(IMG_SIZE[0] * base * ratio))
+    width_px = round(IMG_SIZE[0] * base * ratio)
+    image = _scaled(HAND_IMAGE, width_px)
+    swap = _smoothstep(GRIP_SWAP[0], GRIP_SWAP[1], g)
+    if swap > 0.0 and not grip_image().isNull():
+        image = _blended(image, _scaled(GRIP_IMAGE, width_px), swap)
     # 鼓動: 手前へ押し返されて少し大きく・下へ。握ると奥へ押し込んで少し小さく、震える
     scale = base * (1.0 + 0.035 * jolt - 0.035 * g)
     shake = radius * 0.012 * g
@@ -116,10 +118,7 @@ def paint_grip_hand(
     # ここから先は素材の画素の座標
     bottom = painter.transform().inverted()[0].map(QPointF(anchor.x(), rect.bottom())).y()
     _paint_sleeve_tail(painter, image, bottom)
-    if g > 0.01:
-        painter.drawImage(QRectF(0.0, 0.0, *IMG_SIZE), _curled(image, g))
-    else:
-        painter.drawImage(QRectF(0.0, 0.0, *IMG_SIZE), image)
+    painter.drawImage(QRectF(0.0, 0.0, *IMG_SIZE), image)
     painter.restore()
 
 
@@ -142,52 +141,29 @@ def _paint_sleeve_tail(painter: QPainter, image: QImage, bottom: float) -> None:
     painter.restore()
 
 
-def _curl_y(y: float, g: float) -> float:
-    """握ったときの指の行の行き先（関節より上だけ縮む）。"""
-    if y >= IMG_KNUCKLE_Y:
-        return y
-    return IMG_KNUCKLE_Y - (IMG_KNUCKLE_Y - y) * (1.0 - CURL_SHRINK * g)
+def _blended(open_hand: QImage, grip_hand: QImage, t: float) -> QImage:
+    """開いた手と握った手を t の割合で混ぜた絵（重なる所が薄くならないよう足し合わせる）。"""
+    if t >= 1.0:
+        return grip_hand
+    layer = _faded(open_hand, 1.0 - t)
+    p = QPainter(layer)
+    # 足し合わせに不透明度を掛けると元の絵との間を取ってしまうので、薄めた絵を足す
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+    p.drawImage(0, 0, _faded(grip_hand, t))
+    p.end()
+    return layer
 
 
-def _curled(image: QImage, g: float) -> QImage:
-    """指を奥へ曲げた絵（指の部分を縦に縮めて中へ寄せ、指先を陰らせ、関節を白ませる）。"""
-    k = image.width() / IMG_SIZE[0]
+def _faded(image: QImage, t: float) -> QImage:
     layer = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
     layer.fill(Qt.GlobalColor.transparent)
     p = QPainter(layer)
-    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-    p.scale(k, k)
-    knuckle = IMG_KNUCKLE_Y
-    # 関節から下はそのまま
-    p.drawImage(
-        QRectF(0.0, knuckle, IMG_SIZE[0], IMG_SIZE[1] - knuckle),
-        image,
-        QRectF(0.0, knuckle * k, image.width(), (IMG_SIZE[1] - knuckle) * k),
-    )
-    for i in range(_STRIPS):
-        y0 = knuckle * i / _STRIPS
-        y1 = knuckle * (i + 1) / _STRIPS
-        t = 1.0 - (y0 + y1) * 0.5 / knuckle
-        gather = 1.0 - CURL_GATHER * g * t
-        top = _curl_y(y0, g)
-        # 帯の境目に隙間が出ないよう少し重ねる
-        height = _curl_y(y1, g) - top + 0.8
-        left = IMG_CENTER_X - IMG_CENTER_X * gather
-        p.drawImage(
-            QRectF(left, top, IMG_SIZE[0] * gather, height),
-            image,
-            QRectF(0.0, y0 * k, image.width(), (y1 - y0) * k),
-        )
-    # 描いた手の上にだけ色を重ねる
-    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceAtop)
-    tips = QLinearGradient(QPointF(0.0, knuckle), QPointF(0.0, _curl_y(40.0, g)))
-    tips.setColorAt(0.0, QColor(70, 30, 20, 0))
-    tips.setColorAt(1.0, QColor(70, 30, 20, int(95 * g)))
-    p.fillRect(QRectF(0.0, 0.0, IMG_SIZE[0], knuckle), QBrush(tips))
-    for x, y in IMG_KNUCKLES:
-        glow = QRadialGradient(QPointF(x, y), 42.0)
-        glow.setColorAt(0.0, QColor(255, 244, 236, int(150 * g)))
-        glow.setColorAt(1.0, QColor(255, 244, 236, 0))
-        p.fillRect(QRectF(x - 42.0, y - 42.0, 84.0, 84.0), QBrush(glow))
+    p.setOpacity(t)
+    p.drawImage(0, 0, image)
     p.end()
     return layer
+
+
+def _smoothstep(a: float, b: float, x: float) -> float:
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3.0 - 2.0 * t)
