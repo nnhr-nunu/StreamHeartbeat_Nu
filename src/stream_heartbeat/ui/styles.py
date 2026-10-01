@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_COMBO_ARROW_URL = (
-    "file:///"
-    + (Path(__file__).resolve().parent.parent / "assets" / "combo_down.svg").as_posix()
-)
+_ASSETS = Path(__file__).resolve().parent.parent / "assets"
+_COMBO_ARROW_URL = "file:///" + (_ASSETS / "combo_down.svg").as_posix()
+# スタイルシートの url() は file:/// の形を読めないので、ふつうのパスで渡す
+_CHECK_URL = (_ASSETS / "check.svg").as_posix()
 
 DARK_QSS = """
 QMainWindow, QDialog {
@@ -64,7 +64,22 @@ QSlider::handle:horizontal {
   background: #c9a0ff;
   border-radius: 8px;
 }
-QCheckBox { spacing: 6px; padding: 2px 6px 2px 2px; }
+QCheckBox { spacing: 8px; padding: 2px 6px 2px 2px; }
+QCheckBox::indicator {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #777;
+  border-radius: 4px;
+  background: #1b1b1b;
+}
+QCheckBox::indicator:hover {
+  border-color: #c9a0ff;
+}
+QCheckBox::indicator:checked {
+  background: #c9a0ff;
+  border-color: #c9a0ff;
+  image: url("__CHECK__");
+}
 QComboBox, QLineEdit {
   background: #1b1b1b;
   color: #e8e8e8;
@@ -179,4 +194,4 @@ QLabel#meta {
   color: #9a9a9a;
   font-size: 12px;
 }
-""".replace("__COMBO_ARROW__", _COMBO_ARROW_URL)
+""".replace("__COMBO_ARROW__", _COMBO_ARROW_URL).replace("__CHECK__", _CHECK_URL)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import fields
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -40,6 +41,7 @@ from stream_heartbeat.oshilog import AuxBpmPoller
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
     HeartProfile,
+    clean_profile_name,
     load_last_profile_name,
     load_profile,
     profiles_dir,
@@ -72,9 +74,13 @@ from stream_heartbeat.ui.vts_panel import VtsPanel
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
 CAL_START = "補正開始"
 CAL_SAVE = "補正を保存"
-CAL_DISCARD = "補正を破棄"
-CAL_RESET = "設定を初期化"
+CAL_DISCARD = "中止"
+CAL_RESET = "保存した補正を消す"
 NOTICE_MS = 3500
+# 設定を変えたら、この間隔で見回ってプロファイルへ自動で書く（保存ボタンを押さなくてよい）
+AUTOSAVE_MS = 2000
+# OBS で背景を抜く方法（背景の色ごと）
+OBS_KEYS = {"green": "クロマキーで緑", "white": "カラーキーで白", "black": "カラーキーで黒"}
 # この秒数マイクから何も届かなければ、抜けたか止まったとみなして知らせる
 NO_AUDIO_S = 2.0
 NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
@@ -86,6 +92,13 @@ def _right(widget: QWidget) -> QHBoxLayout:
     row.addStretch(1)
     row.addWidget(widget)
     return row
+
+
+def obs_hint(backdrop: str) -> str:
+    """OBS への取り込み方。背景の色で抜き方が変わる（透明なら抜かなくてよい）。"""
+    base = f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び"
+    key = OBS_KEYS.get(backdrop)
+    return f"{base}、{key}を抜きます。" if key else f"{base}ます。"
 
 
 def _toggle_box(
@@ -116,6 +129,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._t0 = time.perf_counter()
         self._display_clock = DisplayClock()
         self._closing = False
+        self._saved_snapshot: tuple = ()
         self._last_audio = 0.0
         self._no_audio = False
         self._mic_open = False
@@ -138,9 +152,11 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._notice_timer = QTimer(self)
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(self._clear_notice)
-        self._aux = QLabel("推しログ(ぬ) 補助: —")
+        # 推しログ(ぬ)の補助の値は、届いているときだけ出す
+        self._aux = QLabel("")
         self._aux.setObjectName("meta")
         self._aux.setWordWrap(True)
+        self._aux.hide()
         self._warn = QLabel("")
         self._warn.setObjectName("warn")
         self._warn.setWordWrap(True)
@@ -153,12 +169,12 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._profiles = MarkedComboBox()
         self._profiles.setEditable(False)
         self._mics = MarkedComboBox()
-        # スタイルはよく切り替えるので、これだけホイールでも変えられる
+        # スタイルと演出はよく切り替えるので、この 2 つだけホイールでも変えられる
         self._style = MarkedComboBox(wheel=True)
         for key, look, label in STYLES:
             self._style.addItem(label, (key, look))
         # 演出（心臓わしづかみ・聴診器）。選べるものはスタイルで変わる
-        self._effect = MarkedComboBox()
+        self._effect = MarkedComboBox(wheel=True)
         self._effect_hint = QLabel("")
         self._effect_hint.setObjectName("meta")
         self._effect_hint.setWordWrap(True)
@@ -174,7 +190,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._scale, scale_row = labeled_slider(20, 120, "小", "大")
         self._opacity, opacity_row = labeled_slider(10, 100, "透明", "不透明")
         self._text = QLineEdit()
-        self._show_beat_text = QCheckBox("同期文字を配信用に出す")
+        self._show_beat_text = QCheckBox("鼓動に合わせて文字を出す")
         self._beat_scale, beat_scale_row = labeled_slider(50, 200, "小", "大")
         self._beat_opacity, beat_opacity_row = labeled_slider(10, 100, "透明", "不透明")
         self._beat_x, beat_x_row = labeled_slider(0, 100, "左", "右")
@@ -183,7 +199,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._beat_tilt, beat_tilt_row = labeled_slider(0, 100, "なし", "強")
         self._beat_color = MarkedComboBox()
         self._beat_outline = MarkedComboBox()
-        self._show_bpm = QCheckBox("心拍数を配信用に出す")
+        self._show_bpm = QCheckBox("心拍数（BPM）を出す")
         self._bpm_scale, bpm_scale_row = labeled_slider(50, 200, "小", "大")
         self._bpm_x, bpm_x_row = labeled_slider(0, 100, "左", "右")
         self._bpm_y, bpm_y_row = labeled_slider(0, 100, "上", "下")
@@ -222,10 +238,10 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._tap_btn.setEnabled(False)
         # 心音ファイル追加はいったん出さない。
         # load_cal = QPushButton("心音ファイルを追加")
-        save_btn = QPushButton("上書き保存")
-        save_btn.setToolTip("今の見た目と補正を、選んでいるプロファイルに保存します")
+        # 変更は自動で保存するので、上書き保存のボタンは置かない
+        self._profiles.setToolTip("設定は変えるたびに自動で保存されます")
         save_as_btn = QPushButton("名前を付けて保存")
-        save_as_btn.setToolTip("別の名前で保存します（配信ごとに見た目を切り替えたいとき）")
+        save_as_btn.setToolTip("今の設定を別の名前で残します（配信ごとに見た目を切り替えたいとき）")
 
         self._cal_btn.clicked.connect(self._on_cal_primary)
         self._discard_cal.clicked.connect(self._discard_current_cal)
@@ -236,7 +252,6 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._tap_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self._tap_shortcut.activated.connect(self._tap_now)
         self._tap_shortcut.setEnabled(False)
-        save_btn.clicked.connect(self._save_current)
         save_as_btn.clicked.connect(self._save_as)
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
@@ -271,28 +286,28 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._reset_bpm.clicked.connect(self._reset_bpm_look)
 
         # 入れ子の枠を重ねると横幅が足りなくなるので、枠は 1 段だけにする。
+        # プロファイルは見た目・補正のまとまりなので、どの欄にも入れず一番上に置く
         profile_wrap = QWidget()
         profile_row = QHBoxLayout(profile_wrap)
         profile_row.setContentsMargins(0, 0, 0, 0)
         profile_row.addWidget(self._profiles, 1)
-        profile_row.addWidget(save_btn)
         profile_row.addWidget(save_as_btn)
+        profile_form = CenteredForm()
+        profile_form.addRow("プロファイル", profile_wrap)
         input_form = CenteredForm()
-        input_form.addRow("プロファイル", profile_wrap)
         input_form.addRow("マイク", self._mics)
         input_form.addRow("音の大きさ", self._meter)
         input_box = QGroupBox("① マイク")
         input_box.setLayout(input_form)
 
         cal_row = QHBoxLayout()
-        cal_row.addWidget(self._cal_btn)
+        cal_row.addWidget(self._cal_btn, 1)
         cal_row.addWidget(self._discard_cal)
         cal_hint = QLabel(
-            "・ふだんはしなくても大丈夫です。心拍数が半分や倍に出るなど、"
-            "数字が合わないときだけ試してください。\n"
-            "・補正開始ボタンを押下後、マイクが拾った自分の心音が再生されるので、"
-            "その鼓動を聴きながら拍動に合わせて「拍」ボタン（またはスペース）を10回程度押して下さい。\n"
-            "・補正を破棄ボタンで補正を中断することができます。"
+            "心拍数が半分や倍に出るときだけ使います。"
+            f"「{CAL_START}」を押すと自分の心音が聞こえるので（ヘッドホン推奨）、"
+            "鼓動に合わせて「拍」かスペースキーを10回ほど押し、"
+            f"「{CAL_SAVE}」を押します。"
         )
         cal_hint.setObjectName("meta")
         cal_hint.setWordWrap(True)
@@ -314,12 +329,9 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         angle_col.setContentsMargins(0, 0, 0, 0)
         angle_col.addLayout(angle_row)
         angle_col.addWidget(self._angle_hint)
-        obs_hint = QLabel(
-            f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び、"
-            "クロマキーで背景の色を抜きます。"
-        )
-        obs_hint.setObjectName("meta")
-        obs_hint.setWordWrap(True)
+        self._obs_hint = QLabel(obs_hint(self._session.profile.backdrop))
+        self._obs_hint.setObjectName("meta")
+        self._obs_hint.setWordWrap(True)
         # 背景と向き（回せるスタイルだけ）も見た目の一部なので、スタイルの欄にまとめる
         style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
@@ -333,7 +345,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         style_inner.addWidget(self._effect_hint)
         style_inner.addWidget(self._gl_note)
         style_inner.addWidget(self._angle_wrap)
-        style_inner.addWidget(obs_hint)
+        style_inner.addWidget(self._obs_hint)
         style_box = QGroupBox("② スタイル")
         style_box.setLayout(style_inner)
 
@@ -367,6 +379,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         oshi_inner = QWidget()
         oshi_inner.setLayout(oshi)
         oshi_wrap, _oshi_fold = make_fold("推しログ(ぬ)連携（未実装）", oshi_inner, expanded=False)
+        # 未実装のうちは画面に出さない（保存した値はそのまま使う）
+        oshi_wrap.hide()
         self._vts = VtsPanel(self._session, self._data_dir, self._flash)
         vts_layout = QVBoxLayout()
         vts_layout.addWidget(self._vts)
@@ -386,7 +400,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setSpacing(10)
-        layout.addWidget(disclaimer)
+        layout.addLayout(profile_form)
         layout.addWidget(input_box)
         layout.addWidget(style_box)
         layout.addWidget(beat_box)
@@ -397,7 +411,10 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         layout.addWidget(self._aux)
         layout.addWidget(self._warn)
         layout.addStretch(1)
-        layout.addWidget(version)
+        footer = QHBoxLayout()
+        footer.addWidget(disclaimer, 1)
+        footer.addWidget(version, 0, Qt.AlignmentFlag.AlignBottom)
+        layout.addLayout(footer)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -427,6 +444,27 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._aux_timer.timeout.connect(self._poll_aux)
         self._aux_timer.start()
         self._poll_aux()
+        # 配信用の窓で回した向きや聴診器を置いた所も、操作画面の変更と同じく自動で保存する
+        self._saved_snapshot = self._profile_snapshot()
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(AUTOSAVE_MS)
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
+
+    def _profile_snapshot(self) -> tuple:
+        """補正の音を除いた設定の値。変わったかを見るだけなので、長い音の並びは比べない。"""
+        profile = self._session.profile
+        return tuple(
+            getattr(profile, item.name) for item in fields(profile) if item.name != "calibration"
+        )
+
+    def _autosave(self) -> None:
+        snapshot = self._profile_snapshot()
+        if self._closing or snapshot == self._saved_snapshot:
+            return
+        # 保存に失敗しても知らせを出し続けないよう、試した値を覚えておく（次に変えたらまた試す）
+        self._saved_snapshot = snapshot
+        self._save_current(notice=None)
 
     def _fill_mics(self) -> None:
         self._mics.blockSignals(True)
@@ -482,6 +520,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._session.rebuild_detector()
         self._load_into_controls(self._session.profile)
         self._restart_mic()
+        self._saved_snapshot = self._profile_snapshot()
 
     def _rebuild_output(self) -> None:
         """配信用の窓を同じ場所に作り直す（背景を透明にしたとき）。"""
@@ -508,6 +547,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         failed = style in GL_STYLES and self._output.canvas.gl_error is not None
         self._gl_note.setText(GL_FAIL_LABEL if failed else "")
         self._gl_note.setVisible(failed)
+        self._obs_hint.setText(obs_hint(self._session.profile.backdrop))
         self._sync_effect_choices()
 
     def _set_banner_kind(self, kind: str) -> None:
@@ -592,11 +632,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         if on:
             self._monitor.start()
             self._tap_btn.setFocus()
-            self._warn.setText("ヘッドホン推奨。補正中の音は操作画面だけに聞こえます。")
             return
         self._monitor.stop()
-        if self._warn.text().startswith("ヘッドホン"):
-            self._warn.setText("")
 
     def _on_cal_primary(self) -> None:
         if self._session.recording:
@@ -611,7 +648,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _discard_current_cal(self) -> None:
         self._session.discard_calibration()
         self._sync_cal_ui()
-        self._flash("補正を破棄しました")
+        self._flash("補正を中止しました")
 
     def _tap_now(self) -> None:
         if self._session.tap(self._session.now):
@@ -628,7 +665,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _confirm_reset(self) -> bool:
         answer = QMessageBox.question(
             self,
-            "設定を初期化",
+            CAL_RESET,
             "保存した心拍の補正を全部消して、最初からやり直しますか？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -640,7 +677,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             return
         self._session.reset_calibration()
         self._sync_cal_ui()
-        self._save_current(notice="補正の設定を初期化しました")
+        self._save_current(notice="保存した補正を消しました")
 
     def _add_audio_sample(self) -> None:
         path, _ok = QFileDialog.getOpenFileName(self, "心音ファイルを追加", "", AUDIO_FILTER)
@@ -666,6 +703,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         except OSError:
             self._flash(SAVE_FAIL_LABEL)
             return False
+        if profile is self._session.profile:
+            self._saved_snapshot = self._profile_snapshot()
         return True
 
     def _save_current(self, *, notice: str | None = "プロファイルを保存しました") -> bool:
@@ -692,8 +731,11 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         )
         if not ok:
             return
-        name = name.strip()
+        name = clean_profile_name(name)
         if not name:
+            return
+        exists = self._profile_path(name).is_file()
+        if exists and name != self._session.profile.name and not self._confirm_overwrite(name):
             return
         # 保存は一覧で選んでいる名前を使うので、先に新しい名前を一覧に足して選ぶ
         self._profiles.blockSignals(True)
@@ -703,15 +745,24 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._profiles.blockSignals(False)
         self._save_current(notice=f"「{name}」として保存しました")
 
+    def _confirm_overwrite(self, name: str) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "名前を付けて保存",
+            f"「{name}」はもうあります。今の設定で置き換えますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _poll_aux(self) -> None:
         profile = self._session.profile
         profile.oshilog_public_id = self._public_id.text().strip()
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
         bpm = self._aux_poller.poll(profile.oshilog_bpm_url)
         self._session.clock.oshilog_bpm = bpm
-        if bpm is None:
-            self._aux.setText("推しログ(ぬ) 補助: —")
-        else:
+        self._aux.setVisible(bpm is not None)
+        if bpm is not None:
             self._aux.setText(f"推しログ(ぬ) 補助: {bpm}（遅延のことがあります）")
 
     def _on_tick(self) -> None:
@@ -749,6 +800,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._closing = True
         self._timer.stop()
         self._aux_timer.stop()
+        self._autosave_timer.stop()
         self._save_current(notice=None)
         # 保存に失敗しても、マイクや配信用の窓を残したまま終われなくならないようにする
         try:

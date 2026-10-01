@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE
 from stream_heartbeat.profile import load_app_state
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.operator_window import OperatorWindow
+from stream_heartbeat.ui.operator_window import CAL_DISCARD, CAL_RESET, OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 
 
@@ -42,7 +42,7 @@ def test_two_windows_have_obs_titles(qapp: QApplication) -> None:
     output.close()
 
 
-def test_only_style_combo_changes_on_wheel(qapp: QApplication) -> None:
+def test_only_style_and_effect_combos_change_on_wheel(qapp: QApplication) -> None:
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtGui import QWheelEvent
 
@@ -67,9 +67,11 @@ def test_only_style_combo_changes_on_wheel(qapp: QApplication) -> None:
         return combo.currentIndex() != 0
 
     combos = [c for c in operator.findChildren(QComboBox) if c.count() > 1]
-    style = operator._style
-    assert spin(style)
-    assert combos and not any(spin(c) for c in combos if c is not style)
+    wheeled = (operator._style, operator._effect)
+    assert spin(operator._style)
+    # どのスタイルにも演出が 2 つ以上（なし＋はじけるハートなど）あるので、ホイールで変わる
+    assert operator._effect.count() > 1 and spin(operator._effect)
+    assert combos and not any(spin(c) for c in combos if c not in wheeled)
     operator.close()
     output.close()
 
@@ -97,16 +99,23 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     fold_texts = [btn.text() for btn in operator.findChildren(QToolButton)]
     order = [
         next(i for i, text in enumerate(fold_texts) if key in text)
-        for key in ("上手くいかない時", "心拍の補正", "推しログ(ぬ)連携（未実装）")
+        for key in ("上手くいかない時", "心拍の補正")
     ]
     assert order == sorted(order)
+    # 未実装の推しログ連携は出さない
+    assert not any(
+        "推しログ" in btn.text() and btn.isVisibleTo(operator)
+        for btn in operator.findChildren(QToolButton)
+    )
     assert not any(btn.isChecked() for btn in operator.findChildren(QToolButton))
     assert not any("試験的" in text for text in fold_texts)
+    # 設定は自動で保存するので、上書き保存のボタンは無い
+    assert not any(btn.text() == "上書き保存" for btn in operator.findChildren(QPushButton))
     tap = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "拍")
     assert not tap.isEnabled()
     primary = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正開始")
-    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正を破棄")
-    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "設定を初期化")
+    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == CAL_DISCARD)
+    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == CAL_RESET)
     assert not discard.isEnabled()
     assert not reset.isEnabled()
     primary.click()
@@ -118,9 +127,7 @@ def test_operator_labels_and_not_always_on_top(qapp: QApplication) -> None:
     assert "スペース" in guides
     assert "10回" in guides
     assert "拍" in guides
-    assert "補正開始" in guides
-    assert "補正を破棄" in guides
-    assert any(btn.text() == "設定を初期化" for btn in operator.findChildren(QPushButton))
+    assert "補正開始" in guides and "補正を保存" in guides
     assert "wav" not in guides
     buttons = operator.findChildren(QPushButton)
     assert not any(btn.text() == "心音ファイルを追加" and btn.isVisible() for btn in buttons)
@@ -164,10 +171,33 @@ def test_save_notice_survives_tick(qapp: QApplication) -> None:
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
-    save = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "上書き保存")
-    save.click()
+    operator._save_current()
     operator._on_tick()
     assert any("保存しました" in label.text() for label in operator.findChildren(QLabel))
+    operator.close()
+    output.close()
+
+
+def test_changes_are_saved_automatically(qapp: QApplication) -> None:
+    from stream_heartbeat.profile import load_profile
+
+    del qapp
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    path = operator._data_dir / "profiles" / "default.json"
+    operator._scale.setValue(42)
+    # 配信用の窓で変えた値（向き）も拾う
+    session.profile.heart_yaw_deg = 33.0
+    operator._autosave()
+    saved = load_profile(path)
+    assert saved.scale == pytest.approx(0.42)
+    assert saved.heart_yaw_deg == pytest.approx(33.0)
+    # 黙って保存する（知らせは出さない）。変わっていなければ書き直さない
+    assert not operator._notice.isVisibleTo(operator)
+    mtime = path.stat().st_mtime_ns
+    operator._autosave()
+    assert path.stat().st_mtime_ns == mtime
     operator.close()
     output.close()
 
@@ -238,7 +268,7 @@ def test_discard_aborts_current_correction(qapp: QApplication) -> None:
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
     primary = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正開始")
-    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "補正を破棄")
+    discard = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == CAL_DISCARD)
     saved = [list(chunk) for chunk in session.profile.calibration]
     primary.click()
     session.tick(session.now + 0.1, [0.2] * 80, sample_rate=1000.0)
@@ -247,7 +277,7 @@ def test_discard_aborts_current_correction(qapp: QApplication) -> None:
     assert not discard.isEnabled()
     assert session.recording is False
     assert [list(chunk) for chunk in session.profile.calibration] == saved
-    assert any("破棄" in label.text() for label in operator.findChildren(QLabel))
+    assert any("中止" in label.text() for label in operator.findChildren(QLabel))
     operator.close()
     output.close()
 
@@ -260,12 +290,12 @@ def test_reset_clears_saved_heart_sound(qapp: QApplication) -> None:
     operator._confirm_reset = lambda: True  # type: ignore[method-assign]
     session.profile.calibration.append([0.2] * 20)
     operator._sync_cal_ui()
-    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == "設定を初期化")
+    reset = next(btn for btn in operator.findChildren(QPushButton) if btn.text() == CAL_RESET)
     assert reset.isEnabled()
     reset.click()
     assert session.profile.calibration == []
     assert not reset.isEnabled()
-    assert any("初期化" in label.text() for label in operator.findChildren(QLabel))
+    assert any("消しました" in label.text() for label in operator.findChildren(QLabel))
     operator.close()
     output.close()
 

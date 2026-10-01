@@ -159,6 +159,24 @@ def load_profile(path: Path) -> HeartProfile:
     return HeartProfile(**filtered)
 
 
+_BAD_NAME_CHARS = '\\/:*?"<>|'
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def clean_profile_name(name: str) -> str:
+    """ファイル名に使えない文字を _ に替える（「配信/雑談」などでも保存できるように）。"""
+    cleaned = "".join("_" if c in _BAD_NAME_CHARS or ord(c) < 32 else c for c in name)
+    # Windows は末尾の点や空白を落とすので、別の名前に化けないよう先に削る
+    cleaned = cleaned.strip().rstrip(". ")
+    if cleaned.split(".")[0].upper() in _RESERVED_NAMES:
+        cleaned += "_"
+    return cleaned
+
+
 def list_profiles(data_dir: Path | None = None) -> list[Path]:
     folder = profiles_dir(data_dir)
     return sorted(folder.glob("*.json"))
