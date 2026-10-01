@@ -194,4 +194,8 @@ QLabel#meta {
   color: #9a9a9a;
   font-size: 12px;
 }
+QLabel#guide {
+  color: #c8c8c8;
+  font-size: 13px;
+}
 """.replace("__COMBO_ARROW__", _COMBO_ARROW_URL).replace("__CHECK__", _CHECK_URL)

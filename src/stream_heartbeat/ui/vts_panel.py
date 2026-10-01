@@ -35,6 +35,7 @@ from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
+from stream_heartbeat.ui.style_catalog import STYLES
 from stream_heartbeat.vts import (
     CONNECTING,
     DEFAULT_PORT,
@@ -82,7 +83,33 @@ HIDE_BUTTON = "しまう"
 PIN_BUTTON = "心臓を付ける場所を選ぶ"
 PICKING_BUTTON = "クリック待ち…（もう一度押すとやめる）"
 SIZE_LABEL = "大きさ"
-ITEM_STYLE_NAMES = "リアル1〜3・レントゲン3・かわいい・機械"
+PARAMS_CHECK = "心拍を VTube Studio のパラメータにも送る（上級者向け）"
+
+
+def style_names(keys: frozenset[str]) -> str:
+    """スタイルの一覧から、keys に入るものの表示名を短くまとめる（例: リアル1〜3、機械）。
+
+    手で書くとスタイルを足したときに古くなるので、一覧から作る。
+    """
+    groups: dict[str, list[str]] = {}
+    for key, _look, label in STYLES:
+        if key in keys:
+            base = label.rstrip("0123456789")
+            groups.setdefault(base, []).append(label[len(base) :])
+    parts = []
+    for base, nums in groups.items():
+        if not nums[0]:
+            parts.append(base)
+        elif len(nums) == 1:
+            parts.append(base + nums[0])
+        elif len(nums) == 2:
+            parts.append(f"{base}{nums[0]}・{nums[1]}")
+        else:
+            parts.append(f"{base}{nums[0]}〜{nums[-1]}")
+    return "、".join(parts)
+
+
+ITEM_STYLE_NAMES = style_names(ITEM_STYLES)
 NOTE_BAD_STYLE = f"このスタイルは VTube Studio に出せません。出せるのは{ITEM_STYLE_NAMES}です"
 NOTE_NOT_SHOWN = f"次は「{SHOW_BUTTON}」を押してください"
 NOTE_STALE = (
@@ -106,31 +133,61 @@ NOT_ITEMS_NOTICE = (
     "Items フォルダを選んでください"
     "（VTube Studio のフォルダ → VTube Studio_Data → StreamingAssets → Items）"
 )
-# 手順ごとの案内は欄の中の一文（NOTE_*）が出すので、ここは流れが分かる程度に短くする
+# はじめての人がこれだけ読めば最後まで進めるよう、各手順で「何をして、何が見えるか」まで書く
 HOW_TO = (
-    "【はじめて使うとき】\n"
-    f"1. VTube Studio の設定（歯車）→ プラグインの欄の「{API_SWITCH}」をオン\n"
-    "2. 「VTube Studio とつなぐ」にチェック → VTube Studio に出る確認で「許可」"
-    "（はじめの 1 回だけ）\n"
-    f"3. 「{SHOW_BUTTON}」→「{PIN_BUTTON}」→ VTube Studio の画面でモデルの胸を左クリック"
-    "（肩や頭など、クリックした所に付きます）\n"
+    "【準備（はじめの 1 回だけ）】\n"
+    "1. VTube Studio を起動して、モデルを表示しておきます。\n"
+    "2. VTube Studio の設定（歯車のアイコン）を開き、プラグインの欄にある"
+    f"「{API_SWITCH}」をオンにします。ポート番号は {DEFAULT_PORT} のままにします。\n"
+    "　歯車が見えないときは、VTube Studio の画面をダブルクリックすると出ます。\n"
+    "3. この欄の「VTube Studio とつなぐ」にチェックを入れます。\n"
+    "4. VTube Studio の画面に、このアプリ（StreamHeartbeat）をつないでよいかの確認が出るので、"
+    "「許可」を押します。この欄に「VTube Studio とつながりました」と出れば準備完了です。\n"
     "\n"
-    "【普段】\n"
-    "付けた場所と大きさはモデルごとに覚えるので、チェックを入れたままなら起動するだけで"
-    "同じ所に出ます。スタイルや向きを変えたら「作り直す」で同じ見た目にそろえます。\n"
+    "【心臓をモデルに付ける】\n"
+    f"5. 「{SHOW_BUTTON}」を押します。VTube Studio の画面に心臓が出ます"
+    "（スタイルによっては数秒かかります）。\n"
+    f"6. 「{PIN_BUTTON}」を押します。心臓はクリックの邪魔にならないよう、"
+    "いったん VTube Studio の画面の左端へよけます。\n"
+    "7. VTube Studio の画面に切り替えて、モデルの胸（心臓を付けたい所）を左クリックします。"
+    "心臓がそこへ移り、以後はモデルが動いても一緒についていきます。\n"
+    "　肩や頭など、モデルの上ならどこにでも付けられます。モデルの無い所や右クリックでは"
+    "決まりません。やめるときはボタンをもう一度押します。\n"
+    f"8. 「{SIZE_LABEL}」のつまみで、心臓の大きさを合わせます。\n"
+    "\n"
+    "【次からは】\n"
+    "・付けた場所はモデルごとに、大きさは全体で覚えています。"
+    "「VTube Studio とつなぐ」にチェックを入れたままにしておけば、"
+    "次からはこのアプリと VTube Studio を起動するだけで、同じ所に心臓が出ます。"
+    "VTube Studio をあとから起動しても、自動でつながります。\n"
+    "・スタイルや心臓の向きを変えたときは「作り直す（今の見た目で）」を押すと、"
+    "VTube Studio の心臓も同じ見た目になります（押すまでは前の見た目のままです）。\n"
+    f"・心臓を消すときは「{HIDE_BUTTON}」を押します。次に起動しても出ません"
+    f"（また出すときは「{SHOW_BUTTON}」）。\n"
+    f"・VTube Studio に出せるスタイル: {ITEM_STYLE_NAMES}\n"
     "\n"
     "【パラメータ（上級者向け）】\n"
-    f"{PARAM_BEAT}（拍の瞬間に 1、拍のあいだは 0 に近い）と {PARAM_BPM}（心拍数）を送ります。"
-    "モデル設定で入力に選ぶと、拍に合わせてモデルを動かせます。"
+    f"「{PARAMS_CHECK}」にチェックを入れると、次の 2 つを送ります。\n"
+    f"・{PARAM_BEAT}: 拍の瞬間に 1、拍と拍のあいだは 0 に近い値\n"
+    f"・{PARAM_BPM}: 心拍数\n"
+    "VTube Studio のモデル設定で、パラメータの入力にこれを選ぶと、"
+    "拍に合わせてモデルの体や表情を動かせます。"
 )
 TROUBLE = (
-    f"・つながらない → VTube Studio が起動しているか、「{API_SWITCH}」がオンか、"
-    f"ポート番号が {DEFAULT_PORT} のままかを確かめる\n"
-    "・「許可されなかった」と出る → もう一度チェックを入れ、VTube Studio の確認で「許可」を押す\n"
-    "・心臓が出ない → 下の「書き出し先」が VTube Studio の Items フォルダか確かめる"
-    "（Steam 以外で入れたときは「フォルダを選ぶ」で選び直す）\n"
-    f"・VTube Studio 側で心臓を消した → 「{SHOW_BUTTON}」をもう一度押す\n"
-    f"・付ける場所を変えたい → 「{PIN_BUTTON}」を押してモデルをクリックし直す"
+    "・「VTube Studio とつながりません」と出る\n"
+    f"　→ VTube Studio が起動しているか、「{API_SWITCH}」がオンか、"
+    f"ポート番号が {DEFAULT_PORT} のままかを確かめてください\n"
+    "・「確認が出ています」のまま進まない\n"
+    "　→ VTube Studio の画面を前に出すと、確認が出ています。「許可」を押してください\n"
+    "・「許可されなかった」と出る\n"
+    "　→ もう一度チェックを入れ、VTube Studio に出た確認で「許可」を押してください\n"
+    "・心臓が出ない\n"
+    "　→ 下の「書き出し先」が VTube Studio の Items フォルダになっているか確かめてください。"
+    "Steam 以外で入れた場合は「フォルダを選ぶ」で選び直します\n"
+    "・VTube Studio 側で心臓を消してしまった\n"
+    f"　→ 「{SHOW_BUTTON}」をもう一度押してください\n"
+    "・心臓の位置がずれた・別の所に付け直したい\n"
+    f"　→ 「{PIN_BUTTON}」を押して、VTube Studio の画面でモデルをクリックし直してください"
 )
 
 
@@ -220,16 +277,16 @@ class VtsPanel(QWidget):
             round(ITEM_SIZE_MIN * 100), round(ITEM_SIZE_MAX * 100), "小さく", "大きく"
         )
         self._size.setValue(round(self._heart.size * 100))
-        self._params = QCheckBox("心拍を VTube Studio のパラメータにも送る（上級者向け）")
+        self._params = QCheckBox(PARAMS_CHECK)
         self._folder = QLabel("")
         self._folder.setObjectName("meta")
         self._folder.setWordWrap(True)
         self._folder_btn = QPushButton("フォルダを選ぶ")
         how_to = QLabel(HOW_TO)
-        how_to.setObjectName("meta")
+        how_to.setObjectName("guide")
         how_to.setWordWrap(True)
         trouble = QLabel(TROUBLE)
-        trouble.setObjectName("meta")
+        trouble.setObjectName("guide")
         trouble.setWordWrap(True)
 
         item_row = QHBoxLayout()

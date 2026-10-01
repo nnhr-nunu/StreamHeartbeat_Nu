@@ -204,4 +204,4 @@ def test_save_as_cleans_name_and_asks_before_replacing(
 def test_obs_hint_follows_backdrop() -> None:
     assert "クロマキーで緑" in obs_hint("green")
     assert "カラーキーで白" in obs_hint("white")
-    assert "キー" not in obs_hint("transparent")
+    assert "透けないときは" in obs_hint("transparent")

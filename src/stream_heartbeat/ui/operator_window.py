@@ -95,10 +95,15 @@ def _right(widget: QWidget) -> QHBoxLayout:
 
 
 def obs_hint(backdrop: str) -> str:
-    """OBS への取り込み方。背景の色で抜き方が変わる（透明なら抜かなくてよい）。"""
+    """OBS への取り込み方。背景の色で抜き方が変わる。
+
+    透明は OBS の取り込み方によっては透けないので、そのときの逃げ道も書く。
+    """
     base = f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び"
     key = OBS_KEYS.get(backdrop)
-    return f"{base}、{key}を抜きます。" if key else f"{base}ます。"
+    if key:
+        return f"{base}、{key}を抜きます。"
+    return f"{base}ます（透けないときは背景を緑にして、クロマキーで抜きます）。"
 
 
 def _toggle_box(
@@ -309,7 +314,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             "鼓動に合わせて「拍」かスペースキーを10回ほど押し、"
             f"「{CAL_SAVE}」を押します。"
         )
-        cal_hint.setObjectName("meta")
+        cal_hint.setObjectName("guide")
         cal_hint.setWordWrap(True)
         cal_inner_widget = QWidget()
         cal_inner = QVBoxLayout(cal_inner_widget)
