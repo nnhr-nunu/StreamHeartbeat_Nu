@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QOpenGLContext,
     QOpenGLFunctions,
     QVector3D,
+    QVector4D,
 )
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
@@ -23,6 +24,7 @@ from PySide6.QtOpenGL import (
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.gl_platform import glsl
+from stream_heartbeat.render.grip_pose import HandPose
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
     FLOATS_PER_VERTEX,
@@ -66,6 +68,38 @@ _ATTRIBUTES = (
     ("aAuricle", 15, 1),
     ("aCoronary", 16, 1),
 )
+
+
+def camera_matrices(
+    width: int, height: int, lift: float = 0.0
+) -> tuple[QMatrix4x4, QMatrix4x4, QVector3D]:
+    """心臓を見るカメラ（見る行列・写す行列・カメラの位置）。手も同じカメラで描く。"""
+    view = QMatrix4x4()
+    cam = QVector3D(0.0, CAMERA_TARGET_Y, CAMERA_DISTANCE)
+    view.lookAt(cam, QVector3D(0.0, CAMERA_TARGET_Y, 0.0), QVector3D(0.0, 1.0, 0.0))
+    proj = QMatrix4x4()
+    # 画面の上でそのまま持ち上げる（見る向きは変えない）。正規化した画面の高さは 2
+    proj.translate(0.0, 2.0 * lift, 0.0)
+    aspect = width / max(1, height)
+    proj.perspective(FOV_DEG, aspect, 0.5, 20.0)
+    return view, proj, cam
+
+
+def set_dent_uniforms(program: QOpenGLShaderProgram, pose: HandPose | None) -> None:
+    """心臓のシェーダーへ、掴んでいる指の所を渡す（pose が無ければ凹ませない）。"""
+    if pose is None:
+        program.setUniformValue1f("uHandOn", 0.0)
+        return
+    for name, value in pose.dent_uniforms().items():
+        location = program.uniformLocation(name)
+        if location < 0:
+            continue
+        if isinstance(value, tuple) and len(value) == 3:
+            program.setUniformValue(location, QVector3D(*value))
+        elif isinstance(value, tuple) and len(value) == 4:
+            program.setUniformValue(location, QVector4D(*value))
+        else:
+            program.setUniformValue1f(location, float(value))  # type: ignore[arg-type]
 
 
 class HeartRendererError(RuntimeError):
@@ -144,8 +178,12 @@ class HeartRenderer:
         squash_x: float = 1.0,
         squash_y: float = 1.0,
         lift: float = 0.0,
+        hand: HandPose | None = None,
     ) -> None:
-        """lift は画面の上へずらす量（窓の高さに対する割合）。"""
+        """lift は画面の上へずらす量（窓の高さに対する割合）。
+
+        hand は心臓を掴んでいる手の形（指の所が凹む）。
+        """
         gl = self._gl
         program = self._programs[look.program]
         model = QMatrix4x4()
@@ -157,14 +195,7 @@ class HeartRenderer:
         model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)
         model.rotate(ANATOMY_YAW_DEG, 0.0, 1.0, 0.0)
         model.rotate(ANATOMY_ROLL_DEG, 0.0, 0.0, 1.0)
-        view = QMatrix4x4()
-        cam = QVector3D(0.0, CAMERA_TARGET_Y, CAMERA_DISTANCE)
-        view.lookAt(cam, QVector3D(0.0, CAMERA_TARGET_Y, 0.0), QVector3D(0.0, 1.0, 0.0))
-        proj = QMatrix4x4()
-        # 画面の上でそのまま持ち上げる（見る向きは変えない）。正規化した画面の高さは 2
-        proj.translate(0.0, 2.0 * lift, 0.0)
-        aspect = width / max(1, height)
-        proj.perspective(FOV_DEG, aspect, 0.5, 20.0)
+        view, proj, cam = camera_matrices(width, height, lift)
 
         gl.glViewport(0, 0, width, height)
         gl.glEnable(GL_MULTISAMPLE)
@@ -216,6 +247,7 @@ class HeartRenderer:
         program.setUniformValue1f("uAtriaL", float(cycle.atria_l))
         program.setUniformValue1f("uAurR", float(cycle.auricle_r))
         program.setUniformValue1f("uAurL", float(cycle.auricle_l))
+        set_dent_uniforms(program, hand)
         if look.program == "flesh":
             program.setUniformValue1f("uSection", 1.0 if look.section else 0.0)
         if look.program == "scan":
