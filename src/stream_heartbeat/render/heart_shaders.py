@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from stream_heartbeat.render.grip_pose import GRIP_DENT_GLSL
 from stream_heartbeat.render.heart_mesh import PATH_SCALE
 from stream_heartbeat.render.heart_section import SECTION_AXES_GLSL, SECTION_GLSL
 from stream_heartbeat.render.poly_shader import POLY_BODY
@@ -52,8 +53,11 @@ out float vFade;
 out float vPulse;
 out float vCoronary;
 out float vAuricle;
+// 掴んでいる手の指の影と、指の間の盛り上がり（心臓わしづかみ）
+out vec2 vGrip;
 """
     + SECTION_AXES_GLSL
+    + GRIP_DENT_GLSL
     + f"const float PATH_SCALE = {PATH_SCALE:.4f};\n"
     + """
 const float TWIST_DEG = 18.0;
@@ -181,8 +185,15 @@ void main() {
     p += n * 0.003 * sin(uTime * 5.0 + aPos.x * 17.0 + aPos.y * 11.0);
 
     vec4 world = uModel * vec4(p, 1.0);
-    vWorldPos = world.xyz;
     vNormal = normalize(mat3(uModel) * normalize(n));
+    // 手で掴まれた所は、指の下が凹んで指の間が盛り上がる
+    vGrip = vec2(0.0);
+    if (uHandOn > 0.5) {
+        vec3 grip = gripContact(world.xyz);
+        world.xyz += vNormal * grip.x;
+        vGrip = grip.yz;
+    }
+    vWorldPos = world.xyz;
     vRegion = aRegion;
     vFat = aFat;
     vAxial = aAxial;
@@ -621,6 +632,7 @@ uniform float uGrain;
 uniform float uDensity;
 // 背景に重ねる（心臓だけのレントゲン）ときの描き分け。0: 足し算だけ / 1: 下を隠す / 2: 色を足す
 uniform float uCutout;
+in vec2 vGrip;
 void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);
@@ -637,7 +649,10 @@ void main() {
     density *= 1.0 + uGrain * (grain - 0.5) + uGrain * 0.35 * (grain2 - 0.5);
     // 室が縮むと壁が厚く濃く写る
     density *= 1.0 + 0.25 * uSqueeze * (1.0 - smoothstep(3.4, 3.6, vRegion));
+    // 指の間に押し出された所は厚く写り、指の影は暗い（下を隠す濃さは変えず、緑が透けない）
+    density *= 1.0 + 1.6 * vGrip.y;
     vec3 color = mix(uTintThin, uTintDense, clamp(density * 2.2, 0.0, 1.0)) * density;
+    color *= 1.0 - clamp(vGrip.x, 0.0, 0.9);
     // 背景に重ねるときは 2 回に分けて描く。1 回目は下の背景を濃さのぶんだけ隠し（色は出さない）、
     // 2 回目はレントゲンと同じく厚みのぶん色を足す（厚い所ほど明るい）
     if (uCutout > 1.5) {

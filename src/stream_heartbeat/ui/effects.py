@@ -1,8 +1,8 @@
 """心臓に重ねる演出の選び方と動き。どのスタイルにも 1 つ以上の演出がある。
 
 手と聴診器は、見ている人（視聴者）が手前から触れる向きで描く（手も聴診器の管も窓の下から来る）。
-- 心臓わしづかみ: レントゲン 1〜3 で、ふつうの手が心臓に触れて掴む。鼓動で揺れ、
-  配信用の窓を押すと強く握る
+- 心臓わしづかみ: レントゲン 1〜3 で、ふつうの手が心臓を掴む。指は心臓の丸みに沿って奥へ回り込み、
+  指の下が凹んで指の間が盛り上がる。鼓動で心臓と一緒に動き、配信用の窓を押すと強く握る
 - 聴診器1・2: 心臓の形が出るスタイルで、マウスの所にチェストピースが来て鼓動で揺れる。
   1 は当てている人から見える裏側（ベルの側）、2 は膜の面をこちらへ向けた姿。
   クリックした所に置いておけ、マウスが窓の外へ出るとそこへ戻る
@@ -11,7 +11,8 @@
 - モニター画面（心電図）: ベッドサイドのモニターの画面に映す（effect_monitor）
 - はじけるハート（どのスタイルでも）: 配信用の窓をクリックした所からハートがはじける
 
-手・聴診器・ハートの絵は effect_grip / effect_stetho / effect_burst が描く。ここは描く場所
+手・聴診器・ハートの絵は effect_grip（GL では render/hand_gl）/ effect_stetho / effect_burst が
+描く。ここは描く場所
 （心臓の画面上の位置と大きさ）と、時間で滑らかに追う値（握る強さ・聴診器の位置・はじけた時刻）を
 受け持つ。
 """
@@ -23,6 +24,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF
 
+from stream_heartbeat.render.grip_pose import BODY_CENTER as GRIP_BODY_CENTER
+from stream_heartbeat.render.grip_pose import grip_squash as grip_squash  # 配信用の窓も使う
 from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG
 from stream_heartbeat.render.heart_shaders import Look
 from stream_heartbeat.ui.heart_paint import heart_lift
@@ -75,7 +78,7 @@ EFFECT_STYLES: dict[str, frozenset[str] | None] = {
 
 # 立体の心臓（正面から見たとき）の胴の真ん中と半分の幅・高さ。拡大 1 のときの世界の長さ。
 # heart_mesh の胴の頂点の範囲から測った値（tests/test_effects.py で確かめる）
-BODY_CENTER = (-0.03, -0.01)
+BODY_CENTER = (GRIP_BODY_CENTER[0], GRIP_BODY_CENTER[1])
 BODY_HALF = (0.86, 0.94)
 
 # 握る強さの追い方（秒）。握るのは速く、緩めるのはゆっくり
@@ -83,9 +86,6 @@ GRIP_ATTACK_S = 0.06
 GRIP_RELEASE_S = 0.22
 # 一瞬のクリックでも握ったと分かるよう、この秒数は握り続ける
 GRIP_MIN_HOLD_S = 0.28
-# 握り切ったときの心臓の潰れ（横の縮み・縦の伸び）
-GRIP_SQUASH_X = 0.13
-GRIP_SQUASH_Y = 0.06
 # 聴診器がマウスへ追いつく速さ・置いた所へ戻る速さ（秒）
 STETHO_FOLLOW_S = 0.045
 STETHO_RETURN_S = 0.25
@@ -112,11 +112,6 @@ def active_effect(style: str, effect: str) -> str:
 def beat_jolt(squeeze: float, fill: float) -> float:
     """鼓動の揺れの強さ（0〜1 程度）。ドッ（収縮）を強く、クン（拡張）を弱く。"""
     return max(0.0, min(1.2, squeeze + 0.35 * fill))
-
-
-def grip_squash(grip: float) -> tuple[float, float]:
-    g = max(0.0, min(1.0, grip))
-    return 1.0 - GRIP_SQUASH_X * g, 1.0 + GRIP_SQUASH_Y * g
 
 
 @dataclass(frozen=True)

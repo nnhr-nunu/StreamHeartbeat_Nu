@@ -19,7 +19,9 @@ from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.paths import cache_dir
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.gl_platform import core_profile
-from stream_heartbeat.render.heart_gl import HeartRenderer, HeartRendererError
+from stream_heartbeat.render.grip_pose import HandPose, grip_pose, held_grip
+from stream_heartbeat.render.hand_gl import HandRenderer, HandRendererError
+from stream_heartbeat.render.heart_gl import BASE_SCALE, HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.mesh_cache import shared_heart_mesh
 from stream_heartbeat.render.mri_gl import MriRenderer
@@ -28,7 +30,7 @@ from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.effect_burst import paint_heart_pops
-from stream_heartbeat.ui.effect_grip import paint_grip_hand
+from stream_heartbeat.ui.effect_grip import hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_monitor import (
     monitor_screen,
     paint_monitor_back,
@@ -93,6 +95,9 @@ class OutputCanvas(QOpenGLWidget):
         self._echo: EchoRenderer | None = None
         self._mri: MriRenderer | None = None
         self._xray: XrayRenderer | None = None
+        # 心臓わしづかみの手。初めて掴んだときに作る（作れなければ 2D の手で描く）
+        self._hand: HandRenderer | None = None
+        self._hand_failed = False
         self._gl_error: str | None = None
         self._orbit = Orbit(session.profile.heart_yaw_deg, session.profile.heart_pitch_deg)
         self._drag_from: QPointF | None = None
@@ -164,6 +169,9 @@ class OutputCanvas(QOpenGLWidget):
     # ---------------------------------------------------------------- GL
 
     def initializeGL(self) -> None:
+        # 手は初めて掴んだときに今のコンテキストで作り直す
+        self._hand = None
+        self._hand_failed = False
         try:
             # 形は起動時に読み込み済み（2 回目からは保存した形を読むだけで済む）
             mesh = shared_heart_mesh(cache_dir())
@@ -204,7 +212,11 @@ class OutputCanvas(QOpenGLWidget):
         style = profile.style
         effect = self.effect
         grip = self._motion.grip if effect == EFFECT_GRIP else 0.0
-        squash_x, squash_y = grip_squash(grip)
+        # 掴んでいる間は、鼓動に合わせて握り直す強さで心臓が潰れる
+        squash_x, squash_y = grip_squash(held_grip(grip, cycle) if effect == EFFECT_GRIP else 0.0)
+        # 立体の心臓を掴むときは、手と心臓が同じ形を使う（指の所が凹む）
+        gl_hand = effect == EFFECT_GRIP and self.uses_gl and not self._hand_failed
+        pose = self._grip_pose(cycle, grip) if gl_hand else None
 
         gl_mri = style == "mri" and self._mri is not None
         # レントゲン1・2 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
@@ -289,6 +301,7 @@ class OutputCanvas(QOpenGLWidget):
                 squash_x=squash_x,
                 squash_y=squash_y,
                 lift=heart_lift(style),
+                hand=pose,
             )
             painter.endNativePainting()
         else:
@@ -320,7 +333,7 @@ class OutputCanvas(QOpenGLWidget):
             painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
             paint_monitor_front(painter, rect, flash)
             painter.restore()
-        self._paint_effect(painter, rect, effect, cycle, grip)
+        self._paint_effect(painter, rect, effect, cycle, grip, pose)
         paint_bursts(
             painter,
             rect,
@@ -343,11 +356,54 @@ class OutputCanvas(QOpenGLWidget):
             )
         painter.end()
 
+    def _grip_pose(self, cycle: CardiacCycle, grip: float) -> HandPose:
+        profile = self._session.profile
+        look = self._look()
+        return grip_pose(
+            shift=(look.shift_x, look.shift_y),
+            size=BASE_SCALE * max(0.05, profile.scale) * look.size_factor,
+            cycle=cycle,
+            grip=grip,
+            time_s=self._now,
+        )
+
+    def _paint_gl_hand(self, painter: QPainter, pose: HandPose) -> bool:
+        """立体の心臓を掴む手を GL で描く。描けなければ False（2D の手で描く）。"""
+        if self._hand_failed:
+            return False
+        profile = self._session.profile
+        painter.beginNativePainting()
+        try:
+            if self._hand is None:
+                self._hand = HandRenderer(self.context().functions(), hand_image())
+            ratio = self.devicePixelRatioF()
+            self._hand.draw(
+                width=int(self.width() * ratio),
+                height=int(self.height() * ratio),
+                pose=pose,
+                lift=heart_lift(profile.style),
+                opacity=profile.opacity,
+            )
+        except (HandRendererError, RuntimeError, AttributeError):
+            self._hand = None
+            self._hand_failed = True
+        finally:
+            painter.endNativePainting()
+        return not self._hand_failed
+
     def _paint_effect(
-        self, painter: QPainter, rect: QRectF, effect: str, cycle: CardiacCycle, grip: float
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        effect: str,
+        cycle: CardiacCycle,
+        grip: float,
+        pose: HandPose | None = None,
     ) -> None:
         profile = self._session.profile
         if effect == EFFECT_GRIP:
+            if pose is not None and self._paint_gl_hand(painter, pose):
+                return
             frame = self._heart_frame(rect)
             paint_grip_hand(
                 painter, rect, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
