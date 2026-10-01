@@ -4,6 +4,9 @@
 深さの減衰と対数圧縮を通して白黒にする。スペックルは組織に貼り付いて一緒に動き、
 血液の中の粒は毎フレーム入れ替わる。扇の外は描かない（背景色が見える）。
 
+描くのは 2 回。1 回目は粗い画へ明るさ（とカラードプラの速さ）を書き、2 回目で
+走査線の横向きに広くにじませて窓へ重ねる（深いほど横に広がる。実機の横方向の分解能）。
+
 座標は扇の半径を 1 とし、探触子（扇の要）を原点に x が画面右、y が深さ。
 心臓の形は chamber_glsl の長軸座標 (a, l) で共有する。
 """
@@ -14,29 +17,36 @@ from PySide6.QtGui import QOpenGLFunctions
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.chamber_glsl import (
-    SliceShader,
+    DEFAULT_INTERVAL,
     SliceShaderError,
     fragment_program,
-    valve_open,
+    motion_uniforms,
 )
+from stream_heartbeat.render.slice_post import BlurredSlice
 
-# 実機のフレームレートに近い間隔で粒を入れ替える
+# 実機のフレームレートに近い間隔で粒を入れ替える。カラードプラはもっと遅い
 ECHO_FPS = 45.0
+DOPPLER_FPS = 18.0
+# 1 回目に描く粗い画の大きさ（窓に対して）
+COARSE_FACTOR = 0.55
+# カラードプラの箱（扇の中の小さな扇）: 角度の範囲（扇の半角に対する割合）と深さの範囲
+DOPPLER_BOX = (-0.62, 0.58, 0.22, 0.94)
 
-_UNIFORMS = """
+_COARSE_UNIFORMS = """
 uniform vec2 uViewport;
+uniform vec2 uCoarseScale;
 uniform vec2 uApex;
 uniform float uRadius;
 uniform float uHalf;
 uniform float uZoom;
-uniform float uSqueeze;
-uniform float uOpen;
 uniform float uFrame;
-uniform float uOpacity;
+uniform float uColorFrame;
+uniform float uDoppler;
+uniform vec4 uBox;
 out vec4 fragColor;
 """
 
-_BODY = """
+_COARSE_BODY = """
 // 扇の中の心臓の置き場所。APEX は心外膜の心尖、AX_U は長軸（心基部へ）、AX_V は左室側
 const vec2 APEX = vec2(0.035, 0.115);
 const vec2 AX_U = vec2(0.1392, 0.9903);
@@ -56,9 +66,9 @@ float speckle(vec2 c) {
     return (g1 * g1 + g2 * g2) * 2.8;
 }
 
-vec2 toRest(vec2 p) {
+vec2 toLocal(vec2 p) {
     vec2 d = p - APEX;
-    return restLocal(vec2(dot(d, AX_U), dot(d, AX_V)), uSqueeze);
+    return vec2(dot(d, AX_U), dot(d, AX_V));
 }
 
 vec2 restToScreen(vec2 q) {
@@ -67,9 +77,8 @@ vec2 restToScreen(vec2 q) {
 
 // 反射の強さ（スペックル前）。detail=false は境界の鏡面反射を測る用の滑らかな版
 float echogenicity(vec2 p, bool detail) {
-    vec2 q = toRest(p);
-    float sq = uSqueeze;
-    Heart h = heartAt(q, sq);
+    vec2 q = restLocal(toLocal(p));
+    Heart h = heartAt(q);
     float inHeart = 1.0 - smoothstep(-0.003, 0.003, h.env);
     float wall = inHeart * smoothstep(-0.005, 0.009, h.cav);
 
@@ -88,8 +97,12 @@ float echogenicity(vec2 p, bool detail) {
     float atrial = smoothstep(MITRAL_A - 0.02, MITRAL_A + 0.07, q.x);
     // 心房中隔は薄く、真ん中が抜けて見える
     float fossa = exp(-pow((q.x - 0.62) / 0.05, 2.0)) * exp(-pow((q.y + 0.125) / 0.03, 2.0));
-    float myo = 0.105 * (0.75 + 0.5 * nz(q * 26.0 + 11.0, detail));
+    // 心筋のきめは組織に貼る（縮むと壁と一緒に寄る）
+    vec2 m = materialLocal(q);
+    float myo = 0.105 * (0.72 + 0.56 * nz(m * 26.0 + 11.0, detail));
     myo *= (1.0 - 0.4 * atrial) * (1.0 - 0.8 * fossa);
+    // 縮んで厚くなった壁は少し明るい
+    myo *= 1.0 + 0.25 * mix(gSq, gSqLat, step(0.0, q.y));
     // 血液はほぼ黒。心尖寄りは近距離の反響でわずかにもやがかかる
     e = mix(e, 0.008 + 0.02 * exp(-r / 0.22), inHeart);
     e = mix(e, myo, wall);
@@ -99,10 +112,18 @@ float echogenicity(vec2 p, bool detail) {
     e += 0.12 * exp(-dot(cruxD, cruxD) / 0.0009) * inHeart;
 
     if (detail) {
-        e = max(e, 0.42 * valves(q, sq, h.mitralHalf, uOpen) * inHeart);
+        float chord;
+        float vd = valveDist(q, h.mitralHalf, chord);
+        // 弁尖は明るい帯。先の厚い所ほど強く返る
+        float leaf = 1.0 - smoothstep(0.0, 0.007, vd);
+        e = max(e, 0.48 * leaf * inHeart);
+        // 腱索は細くかすかに、ときどき光る
+        float cord = 1.0 - smoothstep(0.0, 0.004, chord);
+        float glint = smoothstep(0.35, 0.8, vnoise(q * 70.0 + uFrame * 0.21));
+        e += 0.05 * cord * inHeart * (1.0 - wall) * glint;
         // 右室心尖の肉柱のざらつき
         float trab = (1.0 - smoothstep(0.18, 0.30, q.x)) * (1.0 - smoothstep(-0.004, 0.004, h.rv));
-        e += trab * 0.03 * vnoise(q * 60.0);
+        e += trab * 0.03 * vnoise(m * 60.0);
     }
 
     // 胸壁（皮膚・脂肪・筋の層）と近距離のもや
@@ -113,16 +134,39 @@ float echogenicity(vec2 p, bool detail) {
     return e;
 }
 
+// カラードプラ。探触子へ向かう血を正（赤）、遠ざかる血を負（青）。速すぎると折り返す
+vec2 doppler(vec2 p, vec2 ps, float e) {
+    float r = length(ps);
+    float th = atan(ps.x, ps.y) / uHalf;
+    float inBox = step(uBox.x, th) * step(th, uBox.y) * step(uBox.z, r) * step(r, uBox.w);
+    if (inBox < 0.5) {
+        return vec2(0.0, 0.0);
+    }
+    vec2 q = restLocal(toLocal(p));
+    Heart h = heartAt(q);
+    float blood = (1.0 - smoothstep(-0.006, 0.0, h.cav)) * (1.0 - smoothstep(-0.003, 0.003, h.env));
+    // 走査線の向きと長軸のなす角で速さが目減りする
+    vec2 beam = p / max(length(p), 1e-4);
+    float v = inflow(q) * abs(dot(beam, AX_U)) * 1.2;
+    // 流れの乱れ（ドプラの画の更新ごとに入れ替わる）
+    float t = uColorFrame;
+    float turb = vnoise(q * 38.0 + vec2(t * 1.7, t * 0.9)) - 0.5;
+    v *= 0.85 + 0.6 * turb;
+    v += 0.12 * (vnoise(q * 90.0 + vec2(t * 3.1, 7.0)) - 0.5) * step(0.25, abs(v));
+    // 遅い動き（壁）は消す。組織が明るい所には色を載せない
+    float power = blood * smoothstep(0.07, 0.16, abs(v)) * (1.0 - smoothstep(0.05, 0.12, e));
+    float wrapped = v - 2.0 * sign(v) * floor((abs(v) + 1.0) * 0.5);
+    return vec2(wrapped, power);
+}
+
 void main() {
-    vec2 frag = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y);
+    setMotion();
+    vec2 frag = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y) / uCoarseScale;
     vec2 ps = (frag - uApex) / uRadius;
     float r = length(ps);
     float th = atan(ps.x, ps.y);
-    float px = 1.0 / uRadius;
-    float mask = 1.0 - smoothstep(1.0 - 1.5 * px, 1.0, r);
-    mask *= smoothstep(0.0, 1.5 * px, (uHalf - abs(th)) * r);
-    mask *= smoothstep(0.012, 0.012 + 1.5 * px, r);
-    if (mask <= 0.0) {
+    // 扇の少し外まで描いておく（2 回目のにじみで縁が黒く欠けないように）
+    if (r > 1.06 || abs(th) > uHalf + 0.06) {
         discard;
     }
 
@@ -135,7 +179,7 @@ void main() {
     e += 0.8 * spec;
 
     // スペックルは組織の位置に貼る（粒の大きさは画面の上で一定）
-    vec2 m = restToScreen(toRest(p)) * (uZoom * FIT);
+    vec2 m = restToScreen(materialLocal(restLocal(toLocal(p)))) * (uZoom * FIT);
     vec2 cell = vec2(atan(m.x, m.y) / SPK_TH, length(m) / SPK_R);
     float s = speckle(cell) * 0.8 + speckle(cell * vec2(1.9, 2.2) + 7.0) * 0.2;
     vec2 jitter = vec2(hash12(vec2(uFrame, 1.7)), hash12(vec2(uFrame, 9.1))) * 400.0;
@@ -155,12 +199,90 @@ void main() {
     float intensity = e * s * gain + 0.004 * fresh;
     float v = log(1.0 + 55.0 * intensity) / log(56.0);
     v = clamp((v - 0.08) / 0.9, 0.0, 1.0);
+
+    vec2 dop = uDoppler > 0.5 ? doppler(p, ps, e) : vec2(0.0);
+    fragColor = vec4(v, 0.5 + 0.5 * clamp(dop.x, -1.0, 1.0), dop.y, 1.0);
+}
+"""
+
+_FINAL = """#version 130
+uniform vec2 uViewport;
+uniform vec2 uCoarseSize;
+uniform sampler2D uCoarse;
+uniform vec2 uApex;
+uniform float uRadius;
+uniform float uHalf;
+uniform float uOpacity;
+uniform float uDoppler;
+uniform vec4 uBox;
+out vec4 fragColor;
+
+vec3 dopplerColor(float v) {
+    // 赤（暗い赤 → 赤 → 橙黄）と青（紺 → 青 → 水色）
+    float a = abs(v);
+    vec3 toward = mix(vec3(0.45, 0.0, 0.02), vec3(1.0, 0.12, 0.05), smoothstep(0.05, 0.45, a));
+    toward = mix(toward, vec3(1.0, 0.86, 0.25), smoothstep(0.55, 1.0, a));
+    vec3 away = mix(vec3(0.02, 0.04, 0.45), vec3(0.08, 0.30, 1.0), smoothstep(0.05, 0.45, a));
+    away = mix(away, vec3(0.45, 0.95, 1.0), smoothstep(0.55, 1.0, a));
+    return v >= 0.0 ? toward : away;
+}
+
+void main() {
+    vec2 frag = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y);
+    vec2 ps = (frag - uApex) / uRadius;
+    float r = length(ps);
+    float th = atan(ps.x, ps.y);
+    float px = 1.0 / uRadius;
+    float mask = 1.0 - smoothstep(1.0 - 1.5 * px, 1.0, r);
+    mask *= smoothstep(0.0, 1.5 * px, (uHalf - abs(th)) * r);
+    mask *= smoothstep(0.012, 0.012 + 1.5 * px, r);
+    if (mask <= 0.0) {
+        discard;
+    }
+
+    // 走査線の横向きに広くにじませる（深いほど広い）。縦（深さ）は少しだけ
+    vec2 beam = ps / max(r, 1e-4);
+    vec2 lat = vec2(beam.y, -beam.x);
+    vec2 toUv = vec2(1.0, -1.0) / uViewport;
+    vec2 uv = gl_FragCoord.xy / uViewport;
+    float spread = uRadius * (0.0030 + 0.0105 * r);
+    float axial = uRadius * 0.0028;
+    vec4 acc = vec4(0.0);
+    float wsum = 0.0;
+    for (int i = -3; i <= 3; i++) {
+        for (int j = -1; j <= 1; j++) {
+            float w = exp(-0.5 * float(i * i) / 2.6 - 0.5 * float(j * j) / 0.8);
+            vec2 off = (lat * float(i) * spread / 3.0 + beam * float(j) * axial) * toUv;
+            acc += texture(uCoarse, uv + off) * w;
+            wsum += w;
+        }
+    }
+    acc /= wsum;
+    // 真ん中は少しだけ強めに残して、ぼけすぎないようにする
+    vec4 here = texture(uCoarse, uv);
+    vec4 c = mix(acc, here, 0.18);
+
+    float v = c.r;
     vec3 color = vec3(v) * vec3(0.94, 0.97, 1.0);
+    if (uDoppler > 0.5) {
+        float tn = th / uHalf;
+        float inBox = step(uBox.x, tn) * step(tn, uBox.y) * step(uBox.z, r) * step(r, uBox.w);
+        float vel = c.g * 2.0 - 1.0;
+        float pw = smoothstep(0.22, 0.48, c.b) * inBox;
+        color = mix(color, dopplerColor(vel), pw);
+        // 箱の縁（細い灰色の線）
+        float edgeT = min(abs(tn - uBox.x), abs(tn - uBox.y)) * uHalf * r / px;
+        float edgeR = min(abs(r - uBox.z), abs(r - uBox.w)) / px;
+        float onT = (1.0 - smoothstep(0.6, 1.6, edgeT)) * step(uBox.z, r) * step(r, uBox.w);
+        float onR = (1.0 - smoothstep(0.6, 1.6, edgeR)) * step(uBox.x, tn) * step(tn, uBox.y);
+        color = mix(color, vec3(0.62, 0.66, 0.72), max(onT, onR) * 0.75);
+    }
     fragColor = vec4(color, mask * uOpacity);
 }
 """
 
-ECHO_FRAGMENT = fragment_program(_UNIFORMS, _BODY)
+ECHO_COARSE = fragment_program(_COARSE_UNIFORMS, _COARSE_BODY)
+ECHO_FINAL = _FINAL
 
 EchoRendererError = SliceShaderError
 
@@ -169,7 +291,7 @@ class EchoRenderer:
     """現在のコンテキストで扇形の心エコーを描く。作成時にカレントなコンテキストが必要。"""
 
     def __init__(self, functions: QOpenGLFunctions) -> None:
-        self._shader = SliceShader(functions, ECHO_FRAGMENT)
+        self._slice = BlurredSlice(functions, ECHO_COARSE, ECHO_FINAL)
 
     def draw(
         self,
@@ -183,20 +305,24 @@ class EchoRenderer:
         cycle: CardiacCycle,
         time_s: float,
         opacity: float,
+        interval: float = DEFAULT_INTERVAL,
+        doppler: bool = False,
     ) -> None:
-        """apex と radius は画面の画素（左上が原点）。"""
-        self._shader.draw(
-            width,
-            height,
-            {
-                "uApex": (float(apex[0]), float(apex[1])),
-                "uRadius": max(1.0, radius),
-                "uHalf": half_angle,
-                "uZoom": max(0.2, zoom),
-                "uSqueeze": cycle.squeeze,
-                "uOpen": valve_open(cycle),
-                # 長時間でも精度が落ちないよう小さな番号に折り返す
-                "uFrame": float(int(time_s * ECHO_FPS) % 4096),
-                "uOpacity": max(0.0, min(1.0, opacity)),
-            },
-        )
+        """apex と radius は画面の画素（左上が原点）。doppler でカラードプラを重ねる。"""
+        sector = {
+            "uApex": (float(apex[0]), float(apex[1])),
+            "uRadius": max(1.0, radius),
+            "uHalf": half_angle,
+            "uDoppler": 1.0 if doppler else 0.0,
+            "uBox": DOPPLER_BOX,
+        }
+        coarse = {
+            **sector,
+            **motion_uniforms(cycle, interval, time_s),
+            "uZoom": max(0.2, zoom),
+            # 長時間でも精度が落ちないよう小さな番号に折り返す
+            "uFrame": float(int(time_s * ECHO_FPS) % 4096),
+            "uColorFrame": float(int(time_s * DOPPLER_FPS) % 4096),
+        }
+        final = {**sector, "uOpacity": max(0.0, min(1.0, opacity))}
+        self._slice.draw(width, height, COARSE_FACTOR, coarse, final)

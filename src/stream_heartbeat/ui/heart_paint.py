@@ -35,6 +35,10 @@ GL_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart"})
 # レントゲン3（心臓だけ）は体の絵が無いので回せる
 ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray_heart"})
 PANEL_STYLES = frozenset({"xray", "mri"})
+# 心臓の形を 1 つ描くスタイルは、下の心拍数の文字と合わせて真ん中に見えるよう少し上へ寄せる
+# （窓の高さに対する割合）。胸・パネル・扇・波形・窓いっぱいの絵は動かさない
+HEART_LIFT = 0.04
+LIFTED_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute"})
 BPM_COLORS = (
     ("#FFFFFF", "白"),
     ("#FFECA0", "黄"),
@@ -52,6 +56,11 @@ BACKDROPS = (
     ("black", "黒"),
     ("transparent", "透明"),
 )
+
+
+def heart_lift(style: str) -> float:
+    """このスタイルの心臓を上へ寄せる量（窓の高さに対する割合）。"""
+    return HEART_LIFT if style in LIFTED_STYLES else 0.0
 
 
 def backdrop_color(key: str) -> QColor:

@@ -5,6 +5,10 @@
 （下行大動脈と背骨の前）に来る。血液が明るく心筋が暗いシネ MRI の見え方で、
 色は赤みを帯びた白黒。パネル（角丸の四角）の外は描かない。
 
+描くのは 2 回。1 回目は撮像の格子くらいの粗い画へ信号を書き、2 回目で引き伸ばして
+なめらかにつなぐ（実機の画の柔らかさ）。タギング（演出）は、拍の頭に格子の縞を組織へ
+焼き付け、縞が組織と一緒に曲がりながら薄れていく撮り方。血の中の縞はすぐ流れて消える。
+
 座標はパネルの高さの半分を 1 とし、中心が原点、x が画面右、y が画面下（体の後ろ）。
 """
 
@@ -13,20 +17,29 @@ from __future__ import annotations
 from PySide6.QtGui import QOpenGLFunctions
 
 from stream_heartbeat.clock import CardiacCycle
-from stream_heartbeat.render.chamber_glsl import SliceShader, fragment_program, valve_open
+from stream_heartbeat.render.chamber_glsl import (
+    DEFAULT_INTERVAL,
+    fragment_program,
+    motion_uniforms,
+)
+from stream_heartbeat.render.slice_post import BlurredSlice
 
 # シネ MRI は 1 拍を 20〜30 コマで撮る。粒の入れ替わりもそのくらい
 MRI_FPS = 24.0
+# 撮像の格子（パネルの高さを何画素で撮るか）
+MRI_MATRIX = 230.0
+# タギングの縞の間隔（パネルの高さの半分を 1 とした長さ）
+TAG_SPACING = 0.062
 
 _UNIFORMS = """
 uniform vec2 uViewport;
+uniform vec2 uCoarseScale;
 uniform vec4 uPanel;
 uniform float uCorner;
 uniform float uZoom;
-uniform float uSqueeze;
-uniform float uOpen;
 uniform float uFrame;
-uniform float uOpacity;
+uniform float uTag;
+uniform float uTagSpacing;
 out vec4 fragColor;
 """
 
@@ -76,8 +89,14 @@ float bone(float s, vec2 p, vec2 c, vec2 r, float marrow) {
     return mix(s, marrow, inside(d + 0.012, 0.004));
 }
 
+// タギングの縞（0〜1、縞の真ん中で 1）。斜め 45 度の格子
+float tagGrid(vec2 pm) {
+    vec2 g = vec2(pm.x + pm.y, pm.x - pm.y) * 0.70711 / uTagSpacing;
+    vec2 c = 0.5 + 0.5 * cos(6.2832 * g);
+    return max(pow(c.x, 5.0), pow(c.y, 5.0));
+}
+
 float signal(vec2 p) {
-    float sq = uSqueeze;
     float s = 0.0;
 
     // 体の外形。皮下脂肪（明るい）→ 胸壁の筋 → 胸の中
@@ -93,8 +112,8 @@ float signal(vec2 p) {
     // 心臓（長軸座標へ移して形を求める）
     vec2 d = p - APEX;
     vec2 al = vec2(dot(d, AX_U), dot(d, AX_V)) / HEART_K;
-    vec2 q = restLocal(al, sq);
-    Heart h = heartAt(q, sq);
+    vec2 q = restLocal(al);
+    Heart h = heartAt(q);
     float env = h.env * HEART_K;
 
     // 肺（信号なし）。心臓と縦隔に押されて凹む
@@ -139,17 +158,69 @@ float signal(vec2 p) {
     float peri = abs(env - (fatW + 0.005) * HEART_K);
     s = mix(s, 0.10, (1.0 - smoothstep(0.0, 0.004, peri)) * 0.8);
 
-    // 心筋と血液
-    s = mix(s, S_MYO * (0.9 + 0.2 * vnoise(q * 30.0)), inside(env, 0.004));
-    float blood = inside(h.cav * HEART_K, 0.004) * inside(env, 0.004);
-    // 速い流れの所は少し暗む（弁の先と心尖の肉柱）
-    float flow = 0.12 * uOpen * exp(-pow((q.x - 0.40) / 0.08, 2.0)) * exp(-pow(q.y / 0.06, 2.0));
+    // 心筋と血液。心筋のきめは組織に貼る（縮むと壁と一緒に寄る）
+    vec2 qm = materialLocal(q);
+    float heart = inside(env, 0.004);
+    s = mix(s, S_MYO * (0.88 + 0.24 * vnoise(qm * 30.0)), heart);
+    float blood = inside(h.cav * HEART_K, 0.004) * heart;
+    // 速い流れの所は暗む（弁を抜ける血・押し出される血）。乱れた所はむらになる
+    float flow = abs(inflow(q));
+    float dephase = smoothstep(0.55, 1.45, flow) * (0.75 + 0.5 * vnoise(q * 18.0 + uFrame * 0.23));
     float trab = (1.0 - smoothstep(0.16, 0.32, q.x)) * inside(h.rv, 0.01);
-    trab *= 0.35 * smoothstep(0.55, 0.85, vnoise(q * 70.0));
-    s = mix(s, S_BLOOD - flow - trab, blood);
-    // 弁は明るい血液の中の暗い線
-    s = mix(s, 0.16, valves(q, sq, h.mitralHalf, uOpen) * inside(env, 0.004));
+    trab *= 0.35 * smoothstep(0.55, 0.85, vnoise(qm * 70.0));
+    s = mix(s, S_BLOOD - 0.30 * dephase - trab, blood);
+    // 弁は明るい血液の中の暗い線（腱索は細すぎて写らない）
+    float chord;
+    float vd = valveDist(q, h.mitralHalf, chord);
+    s = mix(s, 0.16, (1.0 - smoothstep(0.0, 0.0055, vd)) * heart);
+
+    if (uTag > 0.5) {
+        // 縞は拍の頭に焼き付け、組織と一緒に曲がりながら薄れる。血の中はすぐ流れて消える
+        vec2 pm = APEX + HEART_K * (AX_U * qm.x + AX_V * qm.y);
+        pm = mix(p, pm, smoothstep(-0.02, 0.06, -env));
+        float fade = mix(exp(-uAge / 0.95), exp(-uAge / 0.07), blood);
+        s *= 1.0 - 0.82 * tagGrid(pm) * fade;
+    }
     return s;
+}
+
+void main() {
+    setMotion();
+    vec2 frag = vec2(gl_FragCoord.x, uViewport.y - gl_FragCoord.y) / uCoarseScale;
+    vec2 extent = uPanel.zw * 0.5;
+    vec2 center = uPanel.xy + extent;
+    // パネルの少し外まで描いておく（2 回目のにじみで縁が黒く欠けないように）
+    if (sdRoundBox(frag - center, extent, uCorner) > 6.0 / uCoarseScale.x) {
+        discard;
+    }
+    float unit = uPanel.w * 0.5;
+    vec2 ps = (frag - center) / unit;
+    vec2 p = ZOOM_C + (ps - ZOOM_C) / uZoom;
+
+    float s = signal(p);
+    // 受信コイルの近く（体の表面）ほど明るい
+    s *= 0.80 + 0.30 * smoothstep(0.25, 0.85, length(p - vec2(0.0, 0.05)));
+    // 雑音（撮像ごとに入れ替わる）。撮像の格子ごとに 1 つ。信号が無い所にも薄く残る
+    vec2 cell = floor(gl_FragCoord.xy);
+    float n1 = hash12(cell * vec2(1.37, 0.91) + vec2(uFrame * 3.1, uFrame * 1.7)) - 0.5;
+    float n2 = hash12(cell * vec2(0.83, 1.29) + vec2(uFrame * 2.3 + 11.7, 5.9)) - 0.5;
+    float v = length(vec2(s + n1 * 0.08, n2 * 0.08));
+    fragColor = vec4(clamp(v, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+"""
+
+_FINAL = """#version 130
+uniform vec2 uViewport;
+uniform vec2 uCoarseSize;
+uniform sampler2D uCoarse;
+uniform vec4 uPanel;
+uniform float uCorner;
+uniform float uOpacity;
+out vec4 fragColor;
+
+float sdRoundBox(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
 void main() {
@@ -161,20 +232,17 @@ void main() {
     if (mask <= 0.0) {
         discard;
     }
-    float unit = uPanel.w * 0.5;
-    vec2 ps = (frag - center) / unit;
-    vec2 p = ZOOM_C + (ps - ZOOM_C) / uZoom;
-
-    float s = signal(p);
-    // 受信コイルの近く（体の表面）ほど明るい
-    s *= 0.80 + 0.30 * smoothstep(0.25, 0.85, length(p - vec2(0.0, 0.05)));
-    // 雑音（撮像ごとに入れ替わる）。信号が無い所にも薄く残る
-    vec2 cell = floor(frag / max(1.0, unit / 220.0));
-    float n1 = hash12(cell + vec2(uFrame * 7.13, 3.1)) - 0.5;
-    float n2 = hash12(cell + vec2(11.7, uFrame * 5.71)) - 0.5;
-    float v = length(vec2(s + n1 * 0.07, n2 * 0.07));
-    v = clamp(v, 0.0, 1.0);
-
+    // 撮像の格子を引き伸ばし、となりと少し混ぜてなめらかにする
+    vec2 uv = gl_FragCoord.xy / uViewport;
+    vec2 texel = 0.8 / uCoarseSize;
+    float v = 0.0;
+    for (int i = -1; i <= 1; i++) {
+        for (int j = -1; j <= 1; j++) {
+            float w = (2.0 - abs(float(i))) * (2.0 - abs(float(j)));
+            v += texture(uCoarse, uv + vec2(float(i), float(j)) * texel).r * w;
+        }
+    }
+    v /= 16.0;
     vec3 lo = vec3(0.52, 0.07, 0.11);
     vec3 hi = vec3(1.0, 0.70, 0.74);
     vec3 color = v * mix(lo, hi, smoothstep(0.1, 0.95, v)) + pow(v, 4.0) * 0.18;
@@ -182,14 +250,15 @@ void main() {
 }
 """
 
-MRI_FRAGMENT = fragment_program(_UNIFORMS, _BODY)
+MRI_COARSE = fragment_program(_UNIFORMS, _BODY)
+MRI_FINAL = _FINAL
 
 
 class MriRenderer:
     """現在のコンテキストで MRI のパネルを描く。作成時にカレントなコンテキストが必要。"""
 
     def __init__(self, functions: QOpenGLFunctions) -> None:
-        self._shader = SliceShader(functions, MRI_FRAGMENT)
+        self._slice = BlurredSlice(functions, MRI_COARSE, MRI_FINAL)
 
     def draw(
         self,
@@ -202,18 +271,20 @@ class MriRenderer:
         cycle: CardiacCycle,
         time_s: float,
         opacity: float,
+        interval: float = DEFAULT_INTERVAL,
+        tagging: bool = False,
     ) -> None:
-        """panel は左上を原点とする画素の (x, y, 幅, 高さ)。"""
-        self._shader.draw(
-            width,
-            height,
-            {
-                "uPanel": panel,
-                "uCorner": max(0.0, corner),
-                "uZoom": max(0.3, zoom),
-                "uSqueeze": cycle.squeeze,
-                "uOpen": valve_open(cycle),
-                "uFrame": float(int(time_s * MRI_FPS) % 4096),
-                "uOpacity": max(0.0, min(1.0, opacity)),
-            },
-        )
+        """panel は左上を原点とする画素の (x, y, 幅, 高さ)。tagging で格子の縞を焼き付ける。"""
+        shape = {"uPanel": panel, "uCorner": max(0.0, corner)}
+        coarse = {
+            **shape,
+            **motion_uniforms(cycle, interval, time_s),
+            "uZoom": max(0.3, zoom),
+            "uFrame": float(int(time_s * MRI_FPS) % 4096),
+            "uTag": 1.0 if tagging else 0.0,
+            "uTagSpacing": TAG_SPACING,
+        }
+        final = {**shape, "uOpacity": max(0.0, min(1.0, opacity))}
+        # 撮像の格子は、パネルの高さをおよそ MRI_MATRIX 画素で撮る粗さ
+        factor = MRI_MATRIX / max(1.0, panel[3])
+        self._slice.draw(width, height, factor, coarse, final)

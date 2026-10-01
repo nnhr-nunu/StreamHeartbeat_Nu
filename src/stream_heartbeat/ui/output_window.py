@@ -46,6 +46,7 @@ from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     ROTATABLE_STYLES,
     backdrop_color,
+    heart_lift,
     paint_backdrop,
     paint_bpm,
     paint_bursts,
@@ -137,7 +138,7 @@ class OutputCanvas(QOpenGLWidget):
     def _heart_frame(self, rect: QRectF) -> HeartFrame:
         profile = self._session.profile
         if self.uses_gl:
-            return gl_heart_frame(rect, profile.scale, self._look())
+            return gl_heart_frame(rect, profile.scale, self._look(), heart_lift(profile.style))
         return flat_heart_frame(rect, profile.style, profile.scale)
 
     def _relative(self, pos: QPointF) -> tuple[float, float]:
@@ -209,6 +210,7 @@ class OutputCanvas(QOpenGLWidget):
                 cycle=cycle,
                 time_s=t,
                 opacity=profile.opacity,
+                interval=clock.interval(),
             )
             painter.endNativePainting()
             painter.save()
@@ -228,6 +230,7 @@ class OutputCanvas(QOpenGLWidget):
                 cycle=cycle,
                 time_s=t,
                 opacity=profile.opacity,
+                interval=clock.interval(),
             )
             painter.endNativePainting()
         elif self.uses_gl and self._renderer is not None:
@@ -258,6 +261,7 @@ class OutputCanvas(QOpenGLWidget):
                 time_s=t,
                 squash_x=squash_x,
                 squash_y=squash_y,
+                lift=heart_lift(style),
             )
             painter.endNativePainting()
         else:
@@ -267,6 +271,7 @@ class OutputCanvas(QOpenGLWidget):
                 painter.translate(middle)
                 painter.scale(squash_x, squash_y)
                 painter.translate(-middle)
+            painter.translate(0.0, -heart_lift(style) * rect.height())
             paint_heart(
                 painter,
                 rect,

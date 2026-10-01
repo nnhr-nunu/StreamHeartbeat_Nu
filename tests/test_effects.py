@@ -35,6 +35,7 @@ from stream_heartbeat.ui.effects import (
     gl_heart_frame,
     grip_squash,
 )
+from stream_heartbeat.ui.heart_paint import heart_lift
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 
@@ -45,6 +46,18 @@ def _isolate_operator_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         "stream_heartbeat.ui.operator_window.resolve_data_dir",
         lambda: tmp_path,
     )
+
+
+def test_heart_styles_sit_a_little_higher() -> None:
+    # 心臓の形のスタイルは少し上へ寄せる。胸・パネル・扇の絵は動かさない
+    rect = QRectF(0, 0, 400, 400)
+    look = STYLE_LOOKS["mech"]
+    low = gl_heart_frame(rect, 0.7, look)
+    high = gl_heart_frame(rect, 0.7, look, heart_lift("mech"))
+    assert abs((low.center.y() - high.center.y()) - heart_lift("mech") * 400) < 1e-6
+    assert heart_lift("realistic") > 0.0 and heart_lift("cute") > 0.0
+    for style in ("xray", "mri", "echo", "ecg"):
+        assert heart_lift(style) == 0.0
 
 
 def test_grip_only_for_xray_and_stetho_for_heart_styles() -> None:
