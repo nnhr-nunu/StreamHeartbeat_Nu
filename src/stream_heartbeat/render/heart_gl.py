@@ -128,7 +128,9 @@ class HeartRenderer:
         time_s: float,
         squash_x: float = 1.0,
         squash_y: float = 1.0,
+        lift: float = 0.0,
     ) -> None:
+        """lift は画面の上へずらす量（窓の高さに対する割合）。"""
         gl = self._gl
         program = self._programs[look.program]
         model = QMatrix4x4()
@@ -144,6 +146,8 @@ class HeartRenderer:
         cam = QVector3D(0.0, CAMERA_TARGET_Y, CAMERA_DISTANCE)
         view.lookAt(cam, QVector3D(0.0, CAMERA_TARGET_Y, 0.0), QVector3D(0.0, 1.0, 0.0))
         proj = QMatrix4x4()
+        # 画面の上でそのまま持ち上げる（見る向きは変えない）。正規化した画面の高さは 2
+        proj.translate(0.0, 2.0 * lift, 0.0)
         aspect = width / max(1, height)
         proj.perspective(FOV_DEG, aspect, 0.5, 20.0)
 

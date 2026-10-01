@@ -20,6 +20,7 @@ from PySide6.QtCore import QPointF, QRectF
 
 from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG
 from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.ui.heart_paint import heart_lift
 
 EFFECT_NONE = ""
 EFFECT_GRIP = "grip"
@@ -102,15 +103,18 @@ class HeartFrame:
         return (self.half_w + self.half_h) * 0.5
 
 
-def gl_heart_frame(rect: QRectF, scale: float, look: Look) -> HeartFrame:
-    """立体の心臓を正面から描いたときの画面上の置き場所（heart_gl のカメラと同じ式）。"""
+def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) -> HeartFrame:
+    """立体の心臓を正面から描いたときの画面上の置き場所（heart_gl のカメラと同じ式）。
+
+    lift は画面の上へ寄せる量（窓の高さに対する割合。heart_gl の lift と同じ）。
+    """
     px_per_unit = rect.height() / (2.0 * CAMERA_DISTANCE * math.tan(math.radians(FOV_DEG / 2.0)))
     size = max(0.05, scale) * look.size_factor
     wx = look.shift_x + BODY_CENTER[0] * size
     wy = look.shift_y + BODY_CENTER[1] * size
     center = QPointF(
         rect.center().x() + wx * px_per_unit,
-        rect.center().y() - (wy - CAMERA_TARGET_Y) * px_per_unit,
+        rect.center().y() - (wy - CAMERA_TARGET_Y) * px_per_unit - lift * rect.height(),
     )
     return HeartFrame(
         center=center,
@@ -121,6 +125,7 @@ def gl_heart_frame(rect: QRectF, scale: float, look: Look) -> HeartFrame:
 
 def flat_heart_frame(rect: QRectF, style: str, scale: float) -> HeartFrame:
     """2D で描く心臓（かわいい・立体が使えないときの代替）の置き場所。"""
+    rect = rect.translated(0.0, -heart_lift(style) * rect.height())
     side = min(rect.width(), rect.height())
     if style == "cute":
         size = side * 0.36 * scale

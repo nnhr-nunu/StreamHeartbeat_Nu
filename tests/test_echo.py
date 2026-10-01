@@ -54,6 +54,25 @@ def test_valves_close_at_beat_and_open_in_diastole() -> None:
     assert early > late > 0.3
 
 
+def test_mitral_opens_twice_in_diastole() -> None:
+    # 拡張早期に大きく開き（E）、なかほどで半ば閉じ、心房の収縮でもう一度開く（A）
+    clock, last = _clock()
+    interval = 60 / 72
+    values = [valve_open(clock.cycle(last + k * 0.01), interval) for k in range(83)]
+    peak_e = max(values[:40])
+    mid = values[55]
+    peak_a = max(values[60:])
+    assert peak_e > peak_a > mid > 0.2
+    # 三尖弁は僧帽弁より少し早く開く
+    first_m = next(k for k, v in enumerate(values) if v > 0.0)
+    first_t = next(
+        k
+        for k in range(83)
+        if valve_open(clock.cycle(last + k * 0.01), interval, lead=0.02) > 0.0
+    )
+    assert first_t < first_m
+
+
 def test_shader_draws_sector_and_leaves_outside(qapp: QApplication) -> None:
     del qapp
     ctx = QOpenGLContext()
