@@ -1,6 +1,7 @@
 """心臓わしづかみの手を OpenGL で描く。
 
 手の絵を細かい網目にして、頂点シェーダーで指を開き、心臓の胴へ巻き付ける（grip_pose と同じ式）。
+網目の点は握った手の絵での位置も持ち（hand_morph）、握るほどそちらへ寄って絵も握った手に替わる。
 指は輪郭を越えると奥へ回り込み、心臓越しに淡く透けて見える。手は心臓と同じカメラで描くので、
 心臓の拍の揺れ・握りの潰れに合わせて動く。
 """
@@ -30,9 +31,11 @@ from stream_heartbeat.render.grip_pose import (
     HAND_PALM,
     TAIL_V,
     HandPose,
+    claw_fingers,
     skin,
     wrap_weight,
 )
+from stream_heartbeat.render.hand_morph import claw_point
 from stream_heartbeat.render.heart_gl import camera_matrices
 
 GL_TRIANGLES = 0x0004
@@ -56,12 +59,14 @@ _SKIN_LIMIT_V = 760.0
 
 _ATTRIBUTES = (
     ("aImg", 0, 2),
-    ("aTex", 2, 2),
-    ("aSkin", 4, 4),
-    ("aThumb", 8, 1),
-    ("aInfo", 9, 4),
+    ("aClaw", 2, 2),
+    ("aTex", 4, 2),
+    ("aClawTex", 6, 2),
+    ("aSkin", 8, 4),
+    ("aThumb", 12, 1),
+    ("aInfo", 13, 4),
 )
-_FLOATS = 13
+_FLOATS = 17
 
 
 def _vec2_list(points: list[tuple[float, float]]) -> str:
@@ -72,7 +77,10 @@ _VERTEX = (
     """
 #version 130
 in vec2 aImg;
+// 握った手の絵での位置と、その絵の上の点
+in vec2 aClaw;
 in vec2 aTex;
+in vec2 aClawTex;
 // 人差し指・中指・薬指・小指・親指へのつき方
 in vec4 aSkin;
 in float aThumb;
@@ -91,9 +99,15 @@ uniform float uFanThumb;
 uniform float uLift;
 uniform float uSink;
 uniform float uPalmZ;
+// 握った手の形への寄せ具合と、巻き付けを弱める割合
+uniform float uMorph;
+uniform float uFlatten;
+// 握った手の絵での指の付け根（hand_morph で解くので、起動を遅くしないよう作るときに渡す）
+uniform vec2 uClawKnuckle[5];
 // 指の軸（紙の上の付け根・向き）。親指・人差し指・中指・薬指・小指
 uniform vec4 uAxis[5];
 out vec2 vTex;
+out vec2 vClawTex;
 out float vFacing;
 out float vAlong;
 out float vKnuckle;
@@ -116,12 +130,13 @@ vec2 turnAbout(vec2 p, vec2 pivot, float a) {
 
 void main() {
     float fingers = aSkin.x + aSkin.y + aSkin.z + aSkin.w + aThumb;
-    vec2 img = aImg * (1.0 - fingers)
-        + turnAbout(aImg, KNUCKLE[0], uFanThumb) * aThumb
-        + turnAbout(aImg, KNUCKLE[1], uFan.x) * aSkin.x
-        + turnAbout(aImg, KNUCKLE[2], uFan.y) * aSkin.y
-        + turnAbout(aImg, KNUCKLE[3], uFan.z) * aSkin.z
-        + turnAbout(aImg, KNUCKLE[4], uFan.w) * aSkin.w;
+    vec2 base = mix(aImg, aClaw, uMorph);
+    vec2 img = base * (1.0 - fingers)
+        + turnAbout(base, mix(KNUCKLE[0], uClawKnuckle[0], uMorph), uFanThumb) * aThumb
+        + turnAbout(base, mix(KNUCKLE[1], uClawKnuckle[1], uMorph), uFan.x) * aSkin.x
+        + turnAbout(base, mix(KNUCKLE[2], uClawKnuckle[2], uMorph), uFan.y) * aSkin.y
+        + turnAbout(base, mix(KNUCKLE[3], uClawKnuckle[3], uMorph), uFan.z) * aSkin.z
+        + turnAbout(base, mix(KNUCKLE[4], uClawKnuckle[4], uMorph), uFan.w) * aSkin.w;
     vec2 local = vec2(img.x - PALM.x, PALM.y - img.y) * uPx;
     vec2 f = uAnchor + vec2(uTurn.x * local.x - uTurn.y * local.y,
                             uTurn.y * local.x + uTurn.x * local.y);
@@ -149,9 +164,10 @@ void main() {
     // 手首から下は平らなまま、下へ行くほど見ている人の側へ寄る
     float rise = min(ARM_RISE * max(uAnchor.y - f.y, 0.0), ARM_RISE_MAX);
     vec3 flatPart = vec3(f, uPalmZ + rise) * uSize;
-    float k = aInfo.z;
+    float k = aInfo.z * (1.0 - uFlatten);
     vec3 world = uHandC + mix(flatPart, onBody.xyz * uHandS, k);
     vTex = aTex;
+    vClawTex = aClawTex;
     vFacing = mix(1.0, facing, k);
     vAlong = aInfo.x;
     vKnuckle = aInfo.y;
@@ -163,17 +179,21 @@ void main() {
 _FRAGMENT = """
 #version 130
 in vec2 vTex;
+in vec2 vClawTex;
 in float vFacing;
 in float vAlong;
 in float vKnuckle;
 uniform sampler2D uTex;
+uniform sampler2D uClawTex;
+// 握った手の絵の混ぜ具合
+uniform float uBlend;
 uniform float uOpacity;
 uniform float uGrip;
 uniform float uBehind;
 out vec4 fragColor;
 void main() {
     // 素材は不透明さを掛けた色で持つ（縮めた画の縁が暗くにじまない）
-    vec4 c = texture(uTex, vTex);
+    vec4 c = mix(texture(uTex, vTex), texture(uClawTex, vClawTex), uBlend);
     if (c.a < 0.004) {
         discard;
     }
@@ -182,8 +202,9 @@ void main() {
     // 握ると関節が白み、指先に血がたまって赤らむ
     rgb = mix(rgb, vec3(1.0, 0.95, 0.92) * c.a, 0.38 * uGrip * vKnuckle);
     rgb *= mix(vec3(1.0), vec3(1.0, 0.74, 0.70), 0.5 * uGrip * vAlong * vAlong);
-    // 心臓の向こうへ回った所は、心臓越しに淡く青白く透けて見える
-    float behind = 1.0 - smoothstep(-0.12, 0.03, vFacing);
+    // 心臓の向こうへ回った所は、心臓越しに淡く青白く透けて見える。握った手の絵は指の曲がりが
+    // 描いてあるので、縁の際の指先までは透かさない
+    float behind = 1.0 - smoothstep(-0.12, 0.03, vFacing + 0.15 * uBlend);
     float lum = dot(rgb, vec3(0.30, 0.55, 0.15));
     rgb = mix(rgb, vec3(0.60, 0.70, 0.84) * lum, 0.65 * behind);
     float keep = mix(1.0, uBehind, behind) * uOpacity;
@@ -213,12 +234,17 @@ def build_hand_mesh() -> array:
             weights, along, knuckle, main = (
                 skin(u, v) if v < _SKIN_LIMIT_V else ((0.0,) * 5, 0.0, 0.0, -1)
             )
+            cu, cv = claw_point(u, v)
             grid.append(
                 (
                     u + shear,
                     v,
+                    cu + shear,
+                    cv,
                     u / width,
                     min(v, TAIL_V) / height,
+                    cu / width,
+                    min(cv, TAIL_V) / height,
                     weights[1],
                     weights[2],
                     weights[3],
@@ -263,8 +289,8 @@ def _premultiplied_texture(image: QImage) -> QOpenGLTexture:
 class HandRenderer:
     """現在のコンテキストで手を描く。作成時にカレントなコンテキストが必要。"""
 
-    def __init__(self, functions: QOpenGLFunctions, image: QImage) -> None:
-        if image.isNull():
+    def __init__(self, functions: QOpenGLFunctions, image: QImage, claw_image: QImage) -> None:
+        if image.isNull() or claw_image.isNull():
             raise HandRendererError("手の絵がありません")
         self._gl = functions
         self._program = QOpenGLShaderProgram()
@@ -277,7 +303,14 @@ class HandRenderer:
             self._program.bindAttributeLocation(name, index)
         if not self._program.link():
             raise HandRendererError(f"リンク: {self._program.log()}")
+        self._program.bind()
+        for i, ((kx, ky), _tip) in enumerate(claw_fingers()):
+            self._program.setUniformValue(
+                self._program.uniformLocation(f"uClawKnuckle[{i}]"), QVector2D(kx, ky)
+            )
+        self._program.release()
         self._texture = _premultiplied_texture(image)
+        self._claw_texture = _premultiplied_texture(claw_image)
         vertices = build_hand_mesh()
         self._count = len(vertices) // _FLOATS
         self._vao = QOpenGLVertexArrayObject()
@@ -318,9 +351,12 @@ class HandRenderer:
         gl.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
         self._vao.bind()
         program.bind()
+        gl.glActiveTexture(GL_TEXTURE0 + 1)
+        self._claw_texture.bind()
         gl.glActiveTexture(GL_TEXTURE0)
         self._texture.bind()
         program.setUniformValue1i("uTex", 0)
+        program.setUniformValue1i("uClawTex", 1)
         program.setUniformValue("uView", view)
         program.setUniformValue("uProj", proj)
         program.setUniformValue("uHandC", QVector3D(*pose.center))
@@ -335,12 +371,18 @@ class HandRenderer:
         program.setUniformValue1f("uLift", float(pose.lift))
         program.setUniformValue1f("uSink", float(pose.sink))
         program.setUniformValue1f("uPalmZ", float(pose.palm_z))
+        program.setUniformValue1f("uMorph", float(pose.morph))
+        program.setUniformValue1f("uBlend", float(pose.blend))
+        program.setUniformValue1f("uFlatten", float(pose.flatten))
         for i, axis in enumerate(pose.finger_axes()):
             program.setUniformValue(program.uniformLocation(f"uAxis[{i}]"), QVector4D(*axis))
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uGrip", float(pose.grip))
         program.setUniformValue1f("uBehind", BEHIND_ALPHA)
         gl.glDrawArrays(GL_TRIANGLES, 0, self._count)
+        gl.glActiveTexture(GL_TEXTURE0 + 1)
+        self._claw_texture.release()
+        gl.glActiveTexture(GL_TEXTURE0)
         self._texture.release()
         program.release()
         self._vao.release()

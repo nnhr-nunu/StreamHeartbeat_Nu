@@ -1,6 +1,7 @@
 """心臓わしづかみの手の形。GL で描く手（hand_gl）と、指で凹む心臓（heart_shaders）の両方が使う。
 
-手の絵（assets/hand_touch.png）を 1 枚の紙と見て、心臓の胴のふくらみに巻き付ける。紙の上の点は、
+手の絵（assets/hand_touch.png。握ると hand_grip.png へ変形する: hand_morph）を 1 枚の紙と見て、
+心臓の胴のふくらみに巻き付ける。紙の上の点は、
 胴の正面のてっぺん（画面の心臓の真ん中）からの距離だけ表面に沿って進む（地球儀に紙を貼るのと同じ）。
 指は付け根から表面を這い、輪郭を越えると奥へ回り込む。手首から先（袖）は巻き付けず、見ている人の側
 （手前・下）へ抜ける。
@@ -17,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.render.hand_morph import claw_point
 
 # 胴（立体の心臓の、血管を除いた部分）を正面から見たときの真ん中と、輪郭までの長さ。
 # 輪郭は -180° から 10° おき（右が 0°、上が 90°）。heart_mesh の頂点から測った値
@@ -30,30 +32,36 @@ BODY_RIM = (
 # 胴の奥行きの半分（正面から背中まで）
 BODY_DEPTH = 0.61
 
-# 素材の目印（画素）
-HAND_IMAGE_SIZE = (1024.0, 1536.0)
-HAND_PALM = (505.0, 560.0)  # 手の甲の真ん中（心臓に当てる所）
-HAND_WIDTH_PX = 463.0  # 親指の先から小指の縁まで
+# 素材の目印（開いた手の画素。握った手の絵も同じ大きさ）
+HAND_IMAGE_SIZE = (843.0, 1264.0)
+HAND_PALM = (420.0, 560.0)  # 手の甲の真ん中（心臓に当てる所）
+HAND_WIDTH_PX = 409.0  # 親指の先から小指の縁まで
 # 指の付け根（曲げる軸）・指先・太さの半分。親指・人差し指・中指・薬指・小指
 FINGERS = (
-    ((312.0, 545.0), (231.0, 338.0), 38.0),
-    ((394.0, 445.0), (360.0, 72.0), 38.0),
-    ((474.0, 432.0), (455.0, 52.0), 37.0),
-    ((556.0, 445.0), (551.0, 115.0), 34.0),
-    ((630.0, 468.0), (643.0, 195.0), 29.0),
+    ((290.0, 545.0), (195.0, 330.0), 32.0),
+    ((333.0, 405.0), (314.0, 75.0), 28.0),
+    ((408.0, 410.0), (395.0, 58.0), 28.0),
+    ((473.0, 430.0), (481.0, 114.0), 26.0),
+    ((532.0, 452.0), (562.0, 204.0), 23.0),
 )
 # 巻き付ける所と手首: 手の甲の真ん中より上は表面に沿い、手首から下は平らなまま手前へ
 WRAP_FULL_V = 560.0
-WRAP_NONE_V = 730.0
-ARM_SLOPE = 0.227  # 袖の傾き（下へ 1 進むと右へ進む量）
-TAIL_V = 1530.0  # 素材の下端。ここより下は袖をこの行で伸ばす
+WRAP_NONE_V = 720.0
+ARM_SLOPE = 0.175  # 袖の傾き（下へ 1 進むと右へ進む量）
+TAIL_V = 1258.0  # 素材の下端。ここより下は袖をこの行で伸ばす
+# 握った手の絵へ切り替える所（変形の進み具合）。鼓動の握り直し程度では開いた手の絵のまま曲がる
+BLEND_FROM = 0.4
+BLEND_TO = 0.8
+# 握った手の絵は指の曲がりまで描いてあるので、絵が替わるほど心臓の丸みへの巻き付けを弱める
+# （巻き付けたままだと、縁の際で指の上半分が潰れて消える）
+CLAW_FLATTEN = 0.75
 
 # 心臓の大きさ（胴の単位）に対する手の幅と、手の甲を当てる所（紙の座標）
 HAND_WIDTH = 1.50
 ANCHOR = (0.04, -0.41)
 TURN = math.radians(3.0)
-# 指の開き（ラジアン、画面で右回りが正）。わしづかみなので広げる
-FAN_REST = (-0.28, -0.31, -0.05, 0.24, 0.52)
+# 指の開き（ラジアン、画面で右回りが正）。絵の指はもう開いているので少しだけ
+FAN_REST = (-0.06, -0.05, -0.01, 0.04, 0.09)
 # 指の厚み（表面からの浮き、胴の大きさに対する割合）と、強く握ったときの沈み
 LIFT = 0.075
 SINK = 0.045
@@ -64,8 +72,10 @@ ARM_RISE_MAX = 0.55
 # 握り切ったときの心臓の潰れ（横の縮み・縦の伸び）
 GRIP_SQUASH_X = 0.13
 GRIP_SQUASH_Y = 0.06
-# 握ると手が心臓へ食い込みながら上へ滑り、指が奥へ回り込む
-GRIP_PUSH = 0.13
+# 握ると手が心臓へ食い込みながら少し上へ滑る（鼓動の握り直しでは指が奥へ回り込む）
+GRIP_PUSH = 0.03
+# 握った手の絵に替わったら手を少し下げ、鉤に曲げた指先が動脈の付け根の下（心室）を掴むようにする
+CLAW_DROP = 0.09
 GRIP_CLOSE = 0.30
 # 鼓動で心臓が縮む・膨らむ量（胴の大きさに対する割合）と、縮むときに左へ寄る量（胴の単位）。
 # heart_shaders の頂点の動きで輪郭がどれだけ動くかを測った値
@@ -191,6 +201,9 @@ class HandPose:
     sink: float
     palm_z: float  # 手の甲の真ん中の奥行き（手首から先の単位）
     grip: float
+    morph: float  # 握った手の形への変形（0 開いた手〜1 握った手）
+    blend: float  # 握った手の絵の混ぜ具合
+    flatten: float  # 巻き付けを弱める割合
     dent: float  # 指の下の凹み（世界）
     bulge: float  # 指の間の盛り上がり（世界）
     shade: float  # 指の影の濃さ
@@ -200,9 +213,14 @@ class HandPose:
         lx, ly = _rotate((u - HAND_PALM[0]) * self.px, (HAND_PALM[1] - v) * self.px, self.turn)
         return self.anchor[0] + lx, self.anchor[1] + ly
 
+    def knuckle(self, index: int) -> tuple[float, float]:
+        """指の付け根の素材の画素（握った形への変形込み）。"""
+        return _mix(FINGERS[index][0], claw_fingers()[index][0], self.morph)
+
     def finger_tip(self, index: int) -> tuple[float, float]:
-        """開いた指の先の素材の画素。"""
-        (kx, ky), (tx, ty), _w = FINGERS[index]
+        """指を開いた後の指先の素材の画素（握った形への変形込み）。"""
+        kx, ky = self.knuckle(index)
+        tx, ty = _mix(FINGERS[index][1], claw_fingers()[index][1], self.morph)
         # 素材の画素は下が正なので、画面で右回りの角度をそのまま回せる
         dx, dy = _rotate(tx - kx, ty - ky, self.fan[index])
         return kx + dx, ky + dy
@@ -218,8 +236,8 @@ class HandPose:
     def segments(self) -> list[tuple[float, float, float, float, float]]:
         """心臓を凹ませる指の線: 紙の上の付け根・先と、太さの半分。"""
         out = []
-        for i, ((kx, ky), _tip, half) in enumerate(FINGERS):
-            bx, by = self.sheet_point(kx, ky)
+        for i, (_knuckle, _tip, half) in enumerate(FINGERS):
+            bx, by = self.sheet_point(*self.knuckle(i))
             ex, ey = self.sheet_point(*self.finger_tip(i))
             out.append((bx, by, ex, ey, half * self.px))
         return out
@@ -272,7 +290,14 @@ def grip_pose(
     # クリックで握り込むと震える
     shake = 0.010 * clicked
     ax = ANCHOR[0] + shake * math.sin(time_s * 53.0)
-    ay = ANCHOR[1] + GRIP_PUSH * g + KICK_PUSH * jolt + shake * math.cos(time_s * 61.0)
+    blend = _smoothstep(BLEND_FROM, BLEND_TO, g)
+    ay = (
+        ANCHOR[1]
+        + GRIP_PUSH * g
+        - CLAW_DROP * blend
+        + KICK_PUSH * jolt
+        + shake * math.cos(time_s * 61.0)
+    )
     anchor = _rotate(ax, ay, rock)
     # 握ると指を寄せ、拍の頭で揺さぶられ、充満で心臓が膨らむと押し開かれる
     spread = 1.0 - GRIP_CLOSE * g + 0.15 * cycle.fill
@@ -291,10 +316,28 @@ def grip_pose(
         sink=SINK * (0.35 + 0.65 * g),
         palm_z=palm[2] * body[2] / size,
         grip=g,
+        morph=g,
+        blend=blend,
+        flatten=CLAW_FLATTEN * blend,
         dent=size * (DENT_REST + DENT_GRIP * g),
         bulge=size * (BULGE_REST + BULGE_GRIP * g) * (0.7 + 0.8 * cycle.fill),
         shade=SHADE_REST + SHADE_GRIP * g,
     )
+
+
+_claw_fingers: tuple[tuple[tuple[float, float], tuple[float, float]], ...] | None = None
+
+
+def claw_fingers() -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    """握った手の絵での指の付け根と指先（FINGERS を hand_morph で動かした所）。"""
+    global _claw_fingers
+    if _claw_fingers is None:
+        _claw_fingers = tuple((claw_point(*k), claw_point(*t)) for k, t, _half in FINGERS)
+    return _claw_fingers
+
+
+def _mix(a: tuple[float, float], b: tuple[float, float], t: float) -> tuple[float, float]:
+    return a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
 
 
 def skin(u: float, v: float) -> tuple[tuple[float, float, float, float, float], float, float, int]:
@@ -315,7 +358,7 @@ def skin(u: float, v: float) -> tuple[tuple[float, float, float, float, float], 
         dists.append(math.hypot(u - kx - ax * h, v - ky - ay * h))
         alongs.append(t)
     nearest = min(dists)
-    sigma = 26.0
+    sigma = 21.0
     raw = [math.exp(-(d * d - nearest * nearest) / (sigma * sigma)) for d in dists]
     total = sum(raw)
     weights = []
@@ -329,7 +372,7 @@ def skin(u: float, v: float) -> tuple[tuple[float, float, float, float, float], 
     knuckle = 0.0
     for (kx, ky), _tip, _half in FINGERS[1:]:
         d = math.hypot(u - kx, v - ky)
-        knuckle = max(knuckle, math.exp(-(d * d) / (44.0 * 44.0)))
+        knuckle = max(knuckle, math.exp(-(d * d) / (36.0 * 36.0)))
     main = max(range(len(weights)), key=lambda i: weights[i])
     return tuple(weights), along, knuckle, (main if weights[main] > 0.02 else -1)  # type: ignore[return-value]
 
