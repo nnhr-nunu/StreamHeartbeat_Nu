@@ -73,6 +73,33 @@ def paint_echo_marks(painter: QPainter, rect: QRectF, scale: float = DEFAULT_SCA
     painter.restore()
 
 
+def paint_doppler_scale(painter: QPainter, rect: QRectF, scale: float = DEFAULT_SCALE) -> None:
+    """カラードプラの色の目盛り（扇の左上）。上が探触子へ向かう流れ（赤→黄）、下が遠ざかる流れ。"""
+    apex, radius, half = sector_geometry(rect, scale)
+    width = max(4.0, radius * 0.022)
+    height = radius * 0.22
+    left = apex.x() - radius * math.sin(half) * 0.92
+    top = apex.y() + radius * 0.04
+    bar = QRectF(left, top, width, height)
+    ramp = QLinearGradient(bar.topLeft(), bar.bottomLeft())
+    for at, color in (
+        (0.0, QColor(255, 222, 70)),
+        (0.22, QColor(255, 40, 16)),
+        (0.47, QColor(90, 0, 4)),
+        (0.5, QColor(0, 0, 0)),
+        (0.53, QColor(4, 8, 96)),
+        (0.78, QColor(24, 80, 255)),
+        (1.0, QColor(120, 240, 255)),
+    ):
+        ramp.setColorAt(at, color)
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QPen(MARK_COLOR, 1.0))
+    painter.setBrush(ramp)
+    painter.drawRect(bar)
+    painter.restore()
+
+
 def paint_echo(painter: QPainter, rect: QRectF, scale: float, cycle: CardiacCycle) -> None:
     """立体描画（シェーダー）が使えないときの代替。図形を重ねて描く。"""
     apex, radius, half = sector_geometry(rect, scale)

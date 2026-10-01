@@ -65,22 +65,10 @@ from stream_heartbeat.ui.operator_controls import ProfileControlsMixin
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.slider import labeled_slider
+from stream_heartbeat.ui.style_catalog import STYLES
 from stream_heartbeat.ui.styles import DARK_QSS
 from stream_heartbeat.ui.vts_panel import VtsPanel
 
-STYLES = [
-    ("realistic", "surgical", "リアル1"),
-    ("realistic", "vivid", "リアル2"),
-    ("realistic", "anatomy", "リアル3"),
-    ("echo", "", "心エコー"),
-    ("mri", "", "MRI"),
-    ("xray", "", "レントゲン1"),
-    ("xray", "female", "レントゲン2"),
-    ("xray_heart", "", "レントゲン3"),
-    ("cute", "", "かわいい"),
-    ("mech", "", "機械"),
-    ("ecg", "", "心電図"),
-]
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
 CAL_START = "補正開始"
 CAL_SAVE = "補正を保存"

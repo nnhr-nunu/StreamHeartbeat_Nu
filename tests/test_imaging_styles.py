@@ -81,11 +81,16 @@ def test_operator_lists_all_styles(
         "xray",
         "xray_heart",
         "cute",
+        "cute",
+        "chic",
+        "poly",
         "mech",
+        "particles",
+        "ecg",
         "ecg",
     ]
-    assert GL_STYLES == {"realistic", "mech", "xray", "xray_heart"}
-    assert ROTATABLE_STYLES == {"realistic", "mech", "xray_heart"}
+    assert GL_STYLES == {"realistic", "mech", "xray", "xray_heart", "poly"}
+    assert ROTATABLE_STYLES == {"realistic", "mech", "xray_heart", "poly"}
     session = HeartSession()
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
@@ -102,6 +107,15 @@ def test_operator_lists_all_styles(
     assert "レントゲン1" in labels and "レントゲン2" in labels and "レントゲン3" in labels
     assert style.itemData(labels.index("レントゲン2")) == ("xray", "female")
     assert style.itemData(labels.index("レントゲン3")) == ("xray_heart", "")
+    assert style.itemData(labels.index("かわいい2")) == ("cute", "reiwa")
+    assert style.itemData(labels.index("心電図2")) == ("ecg", "outline")
+    for label in ("かわいい1", "オシャレ1", "オシャレ2", "パーティクル", "心電図1"):
+        assert label in labels
+    # 見た目の無い保存値（以前のかわいい・心電図）は 1 を選ぶ
+    operator._select_style("cute", "surgical")
+    assert style.currentText() == "かわいい1"
+    operator._select_style("ecg", "")
+    assert style.currentText() == "心電図1"
     # 保存した見た目で選び直せる。リアルの見た目が残っていてもレントゲン1 になる
     operator._select_style("xray", "female")
     assert style.currentText() == "レントゲン2"

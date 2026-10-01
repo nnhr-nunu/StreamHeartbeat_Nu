@@ -1,7 +1,8 @@
 """配信用キャンバスの 2D 描画と文字。緑はクロマキー専用。
 
-立体で描くスタイル（リアル・機械・レントゲン・MRI）は heart_gl が担い、
-ここは 2D スタイルと、立体が使えないときの代替、文字を担う。
+立体で描くスタイル（リアル・機械・レントゲン・オシャレ2）は heart_gl、心エコーと MRI は
+echo_gl / mri_gl が担い、ここは 2D スタイル（かわいい1・2・オシャレ1・パーティクル・心電図1・2）と、
+立体が使えないときの代替、文字を担う。
 """
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.config import BACKDROP_COLORS, CHROMA_HEX
 from stream_heartbeat.overlay import FloatBurst, Ripple, burst_font_px, burst_opacity
+from stream_heartbeat.ui.heart_chic import paint_chic
 from stream_heartbeat.ui.heart_cute import paint_cute
+from stream_heartbeat.ui.heart_cute_reiwa import paint_cute_reiwa
 from stream_heartbeat.ui.heart_ecg import paint_ecg
 from stream_heartbeat.ui.heart_echo import paint_echo
 from stream_heartbeat.ui.heart_imaging import (
@@ -24,21 +27,26 @@ from stream_heartbeat.ui.heart_imaging import (
     paint_xray_flat_heart,
     paint_xray_overlay,
 )
+from stream_heartbeat.ui.heart_particles import paint_particles
 from stream_heartbeat.ui.heart_realistic import paint_realistic
+
+# スタイルの中の見た目（profile.realistic_look に入る）
+CUTE_REIWA = "reiwa"
+ECG_OUTLINE = "outline"
 
 TEXT_COLOR = QColor(255, 236, 180)
 BPM_COLOR = QColor(255, 255, 255)
 
 # 立体の心臓メッシュで描くスタイル。心エコーと MRI は断面シェーダー（echo_gl / mri_gl）
-GL_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart"})
+GL_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart", "poly"})
 # 配信用の窓のドラッグで回せるスタイル。レントゲン1・2 は胸の絵と向きを合わせて正面に固定。
 # レントゲン3（心臓だけ）は体の絵が無いので回せる
-ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray_heart"})
+ROTATABLE_STYLES = frozenset({"realistic", "mech", "xray_heart", "poly"})
 PANEL_STYLES = frozenset({"xray", "mri"})
 # 心臓の形を 1 つ描くスタイルは、下の心拍数の文字と合わせて真ん中に見えるよう少し上へ寄せる
 # （窓の高さに対する割合）。胸・パネル・扇・波形・窓いっぱいの絵は動かさない
 HEART_LIFT = 0.04
-LIFTED_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute"})
+LIFTED_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute", "chic", "poly"})
 BPM_COLORS = (
     ("#FFFFFF", "白"),
     ("#FFECA0", "黄"),
@@ -132,9 +140,16 @@ def paint_heart(
     painter.setOpacity(max(0.08, min(1.0, opacity)))
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     if style == "ecg":
-        paint_ecg(painter, rect, clock if clock is not None else BeatClock(), now)
+        beat_clock = clock if clock is not None else BeatClock()
+        paint_ecg(painter, rect, beat_clock, now, outline=look == ECG_OUTLINE)
+    elif style == "cute" and look == CUTE_REIWA:
+        paint_cute_reiwa(painter, rect, scale, cycle, now)
     elif style == "cute":
         paint_cute(painter, rect, scale, cycle)
+    elif style == "particles":
+        paint_particles(painter, rect, scale, clock if clock is not None else BeatClock(), now)
+    elif style == "chic":
+        paint_chic(painter, rect, scale, cycle, now)
     elif style == "echo":
         paint_echo(painter, rect, scale, cycle)
     elif style == "xray":

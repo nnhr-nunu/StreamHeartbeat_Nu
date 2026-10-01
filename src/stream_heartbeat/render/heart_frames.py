@@ -23,11 +23,16 @@ FRAME_SIZE = 512
 # コマを作るときの心拍数と、その収縮の長さ（再生の速さを拍の速さに合わせる基準）
 FRAME_BPM = 72.0
 FRAME_PREFIX = "StreamHeartbeat_"
-# アイテムにできるスタイル。胸やパネルの絵があるもの・心電図は体に重ねる形にならない
-ITEM_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute"})
-# アイテムの絵は窓より少し大きく描く（余白を減らす）。かわいいは元の絵が小さいので大きめ
+# アイテムにできるスタイル。胸やパネルの絵があるもの・心電図・窓いっぱいの絵は
+# 体に重ねる形にならない
+ITEM_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute", "chic", "poly"})
+# 2D で描くアイテム（向きが無い）
+FLAT_ITEM_STYLES = frozenset({"cute", "chic"})
+# アイテムの絵は窓より少し大きく描く（余白を減らす）。かわいい1 は元の絵が小さいので大きめ。
+# まわりに飾りのある絵（かわいい2・オシャレ1）は飾りが切れない大きさ
 ITEM_SCALE = 0.82
 CUTE_ITEM_SCALE = 1.4
+DECORATED_ITEM_SCALE = 1.0
 
 
 def beat_cycles() -> list[CardiacCycle]:
@@ -61,16 +66,27 @@ def render_frames(profile: HeartProfile, size: int = FRAME_SIZE) -> list[QImage]
         return []
     cycles = beat_cycles()
     interval = 60.0 / FRAME_BPM
-    if profile.style == "cute":
-        from stream_heartbeat.ui.heart_cute import paint_cute
+    if profile.style in FLAT_ITEM_STYLES:
+        from stream_heartbeat.ui.heart_paint import CUTE_REIWA, paint_heart
 
+        plain_cute = profile.style == "cute" and profile.realistic_look != CUTE_REIWA
+        scale = CUTE_ITEM_SCALE if plain_cute else DECORATED_ITEM_SCALE
         frames: list[QImage] = []
-        for cycle in cycles:
+        for k, cycle in enumerate(cycles):
             image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(QColor(0, 0, 0, 0))
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            paint_cute(painter, QRectF(0, 0, size, size), CUTE_ITEM_SCALE, cycle)
+            paint_heart(
+                painter,
+                QRectF(0, 0, size, size),
+                style=profile.style,
+                scale=scale,
+                opacity=1.0,
+                cycle=cycle,
+                now=k / FRAME_FPS,
+                look=profile.realistic_look,
+            )
             painter.end()
             frames.append(image)
         return frames

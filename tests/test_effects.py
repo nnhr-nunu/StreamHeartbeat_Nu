@@ -1,7 +1,11 @@
-"""心臓わしづかみ・聴診器 1・2 の演出（選べるスタイル・動き・描く場所・操作）。"""
+"""演出（選べるスタイル・動き・描く場所・操作）。
+
+心臓わしづかみ・聴診器 1・2・カラードプラ・タギング・モニター画面・はじけるハート。
+"""
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -24,11 +28,16 @@ from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
     BODY_CENTER,
     BODY_HALF,
+    EFFECT_BURST,
+    EFFECT_DOPPLER,
     EFFECT_GRIP,
+    EFFECT_MONITOR,
     EFFECT_NONE,
     EFFECT_STETHO,
     EFFECT_STETHO_FLIP,
+    EFFECT_TAGGING,
     GRIP_MIN_HOLD_S,
+    POP_KEEP_S,
     EffectMotion,
     active_effect,
     effect_choices,
@@ -38,6 +47,7 @@ from stream_heartbeat.ui.effects import (
 from stream_heartbeat.ui.heart_paint import heart_lift
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
+from stream_heartbeat.ui.style_catalog import STYLES
 
 
 @pytest.fixture(autouse=True)
@@ -63,17 +73,43 @@ def test_heart_styles_sit_a_little_higher() -> None:
 def test_grip_only_for_xray_and_stetho_for_heart_styles() -> None:
     for style in ("xray", "xray_heart"):
         keys = [key for key, _label in effect_choices(style)]
-        assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
-    for style in ("realistic", "mech", "cute"):
+        assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
+    for style in ("realistic", "mech", "cute", "chic", "poly"):
         keys = [key for key, _label in effect_choices(style)]
-        assert keys == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+        assert keys == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
     labels = [label for _key, label in effect_choices("realistic")]
-    assert labels[1:] == ["聴診器1", "聴診器2"]
-    for style in ("echo", "mri", "ecg"):
-        assert [key for key, _label in effect_choices(style)] == [EFFECT_NONE]
+    assert labels[1:] == ["聴診器1", "聴診器2", "はじけるハート"]
+    # 断面・波形・窓いっぱいの絵は、そのスタイルに合った演出とはじけるハート
+    assert [k for k, _ in effect_choices("echo")] == [EFFECT_NONE, EFFECT_DOPPLER, EFFECT_BURST]
+    assert [k for k, _ in effect_choices("mri")] == [EFFECT_NONE, EFFECT_TAGGING, EFFECT_BURST]
+    assert [k for k, _ in effect_choices("ecg")] == [EFFECT_NONE, EFFECT_MONITOR, EFFECT_BURST]
+    assert [k for k, _ in effect_choices("particles")] == [EFFECT_NONE, EFFECT_BURST]
     # 対応しないスタイルでは描かないが、選んだ値は捨てない
     assert active_effect("realistic", EFFECT_GRIP) == EFFECT_NONE
     assert active_effect("xray_heart", EFFECT_GRIP) == EFFECT_GRIP
+    assert active_effect("echo", EFFECT_TAGGING) == EFFECT_NONE
+    assert active_effect("particles", EFFECT_BURST) == EFFECT_BURST
+    assert active_effect("realistic", "unknown") == EFFECT_NONE
+
+
+def test_every_style_has_an_effect() -> None:
+    # 演出のあるスタイルと無いスタイルが混ざらないよう、どのスタイルにも 1 つ以上ある
+    for style, _look, label in STYLES:
+        assert len(effect_choices(style)) >= 2, label
+
+
+def test_clicked_hearts_pop_and_fade() -> None:
+    motion = EffectMotion()
+    motion.pop(10.0, (0.3, 0.6))
+    motion.pop(10.2, (0.7, 0.2))
+    pops = motion.pops_at(10.5)
+    assert [(round(age, 2), x, y) for age, x, y, _t in pops] == [(0.5, 0.3, 0.6), (0.3, 0.7, 0.2)]
+    motion.step(10.0 + POP_KEEP_S + 0.1, (0.5, 0.5))
+    assert [x for _age, x, _y, _t in motion.pops_at(10.0 + POP_KEEP_S + 0.1)] == [0.7]
+    # 連打しても溜め込みすぎない
+    for k in range(40):
+        motion.pop(20.0 + k * 0.01, (0.5, 0.5))
+    assert len(motion.pops_at(20.5)) <= 12
 
 
 def test_click_squeezes_briefly_and_hold_keeps_squeezing() -> None:
@@ -205,13 +241,19 @@ def test_effect_combo_follows_style_and_keeps_choice(qapp: QApplication) -> None
     del qapp
     profile = HeartProfile(style="xray_heart", effect=EFFECT_GRIP)
     operator, output = _open(profile)
-    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+    assert _effect_keys(operator) == [
+        EFFECT_NONE,
+        EFFECT_GRIP,
+        EFFECT_STETHO,
+        EFFECT_STETHO_FLIP,
+        EFFECT_BURST,
+    ]
     assert operator._effect.currentData() == EFFECT_GRIP
     # 掴んでいる間は正面に固定するので、向きの操作は隠す
     assert operator._angle_wrap.isHidden()
     # リアルにすると手は選べない。値は残り、レントゲンへ戻すとまた出る
     operator._select_style("realistic", "surgical")
-    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
     assert operator._effect.currentData() == EFFECT_NONE
     assert profile.effect == EFFECT_GRIP
     assert output.canvas.effect == EFFECT_NONE
@@ -249,4 +291,19 @@ def test_stetho_click_places_rest_position(qapp: QApplication, qtbot) -> None:  
     qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=spot)
     assert abs(profile.stetho_x - spot.x() / 400) < 0.01
     assert abs(profile.stetho_y - spot.y() / 400) < 0.01
+    operator.close()
+
+
+def test_burst_click_pops_hearts_where_released(qapp: QApplication, qtbot) -> None:  # noqa: ANN001
+    del qapp
+    profile = HeartProfile(style="echo", effect=EFFECT_BURST)
+    operator, output = _open(profile)
+    canvas = output.canvas
+    canvas.resize(400, 400)
+    spot = canvas.rect().center() / 2
+    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=spot)
+    pops = canvas._motion.pops_at(time.perf_counter())
+    assert len(pops) == 1
+    _age, x, y, _stamp = pops[0]
+    assert abs(x - spot.x() / 400) < 0.01 and abs(y - spot.y() / 400) < 0.01
     operator.close()
