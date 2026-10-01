@@ -6,11 +6,16 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QRect
-from PySide6.QtWidgets import QApplication, QInputDialog, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QInputDialog, QLabel, QMessageBox, QWidget
 
-from stream_heartbeat.profile import HeartProfile, load_profile, save_profile
+from stream_heartbeat.profile import (
+    HeartProfile,
+    clean_profile_name,
+    load_profile,
+    save_profile,
+)
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.operator_window import OperatorWindow
+from stream_heartbeat.ui.operator_window import OperatorWindow, obs_hint
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import apply_window_geom
 
@@ -159,3 +164,44 @@ def test_window_restores_on_second_monitor(qapp: QApplication) -> None:
     assert apply_window_geom(widget, saved, primary, [primary, second])
     assert widget.pos().x() == 2400
     widget.close()
+
+
+def test_profile_name_drops_characters_windows_cannot_save() -> None:
+    assert clean_profile_name("配信/雑談") == "配信_雑談"
+    assert clean_profile_name(' a:b*c?"<>| ') == "a_b_c_____"
+    assert clean_profile_name("歌枠. ") == "歌枠"
+    assert clean_profile_name("con") == "con_"
+    assert clean_profile_name("  ") == ""
+
+
+def test_save_as_cleans_name_and_asks_before_replacing(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del qapp
+    operator, output = _open()
+    folder = operator._data_dir / "profiles"
+    monkeypatch.setattr(QInputDialog, "getText", lambda *_a, **_k: ("配信/雑談", True))
+    operator._save_as()
+    assert (folder / "配信_雑談.json").is_file()
+    # 別のプロファイルの名前を選んだら、置き換えてよいか聞く（いいえなら書かない）
+    save_profile(folder / "other.json", HeartProfile(name="other", scale=0.3))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *_a, **_k: ("other", True))
+    asked: list[str] = []
+
+    def _no(*args: object, **_k: object) -> QMessageBox.StandardButton:
+        asked.append(str(args[2]))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", _no)
+    operator._save_as()
+    assert asked and "other" in asked[0]
+    assert load_profile(folder / "other.json").scale == pytest.approx(0.3)
+    assert operator._profiles.currentText() == "配信_雑談"
+    operator.close()
+    output.close()
+
+
+def test_obs_hint_follows_backdrop() -> None:
+    assert "クロマキーで緑" in obs_hint("green")
+    assert "カラーキーで白" in obs_hint("white")
+    assert "キー" not in obs_hint("transparent")
