@@ -30,6 +30,7 @@ from stream_heartbeat.render.heart_mesh import (
     build_heart_mesh,
 )
 from stream_heartbeat.render.heart_shaders import VERTEX, Look, fragment_source
+from stream_heartbeat.render.poly_mesh import build_poly_mesh
 
 GL_TRIANGLES = 0x0004
 GL_FLOAT = 0x1406
@@ -71,6 +72,23 @@ class HeartRendererError(RuntimeError):
     """シェーダーやバッファの準備に失敗した。"""
 
 
+class _MeshBuffer:
+    """1 つの形を GPU へ載せたもの。"""
+
+    def __init__(self, mesh: HeartMesh) -> None:
+        self.mesh = mesh
+        self.vao = QOpenGLVertexArrayObject()
+        self.vbo = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
+        if not self.vao.create():
+            raise HeartRendererError("頂点配列を作れません")
+        self.vao.bind()
+        if not self.vbo.create() or not self.vbo.bind():
+            raise HeartRendererError("頂点バッファを作れません")
+        payload = mesh.data.tobytes()
+        self.vbo.allocate(payload, len(payload))
+        self.vao.release()
+
+
 class HeartRenderer:
     """現在のコンテキストで心臓メッシュを描く。作成時にカレントなコンテキストが必要。"""
 
@@ -78,21 +96,18 @@ class HeartRenderer:
         self._gl = functions
         self._mesh = mesh if mesh is not None else build_heart_mesh()
         self._programs: dict[str, QOpenGLShaderProgram] = {}
-        self._vao = QOpenGLVertexArrayObject()
-        self._vbo = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
-        self._upload()
-        for key in ("flesh", "mech", "scan"):
+        self._heart = _MeshBuffer(self._mesh)
+        # ポリゴンの形は選ばれたときに作る（軽いので待たせない）
+        self._poly: _MeshBuffer | None = None
+        for key in ("flesh", "mech", "scan", "poly"):
             self._programs[key] = self._compile(fragment_source(key))
 
-    def _upload(self) -> None:
-        if not self._vao.create():
-            raise HeartRendererError("頂点配列を作れません")
-        self._vao.bind()
-        if not self._vbo.create() or not self._vbo.bind():
-            raise HeartRendererError("頂点バッファを作れません")
-        payload = self._mesh.data.tobytes()
-        self._vbo.allocate(payload, len(payload))
-        self._vao.release()
+    def _buffer(self, look: Look) -> _MeshBuffer:
+        if look.program != "poly":
+            return self._heart
+        if self._poly is None:
+            self._poly = _MeshBuffer(build_poly_mesh())
+        return self._poly
 
     def _compile(self, fragment: str) -> QOpenGLShaderProgram:
         program = QOpenGLShaderProgram()
@@ -107,9 +122,9 @@ class HeartRenderer:
             raise HeartRendererError(f"リンク: {program.log()}")
         return program
 
-    def _bind_attributes(self, program: QOpenGLShaderProgram) -> None:
+    def _bind_attributes(self, program: QOpenGLShaderProgram, buffer: _MeshBuffer) -> None:
         stride = FLOATS_PER_VERTEX * 4
-        self._vbo.bind()
+        buffer.vbo.bind()
         for index, (_name, offset, size) in enumerate(_ATTRIBUTES):
             program.enableAttributeArray(index)
             program.setAttributeBuffer(index, GL_FLOAT, offset * 4, size, stride)
@@ -177,9 +192,10 @@ class HeartRenderer:
                 GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA
             )
 
-        self._vao.bind()
+        buffer = self._buffer(look)
+        buffer.vao.bind()
         program.bind()
-        self._bind_attributes(program)
+        self._bind_attributes(program, buffer)
         program.setUniformValue("uModel", model)
         program.setUniformValue("uView", view)
         program.setUniformValue("uProj", proj)
@@ -208,9 +224,13 @@ class HeartRenderer:
             program.setUniformValue1f("uGrain", float(look.grain))
             program.setUniformValue1f("uDensity", float(look.density))
             program.setUniformValue1f("uCutout", 0.0)
-        mesh = self._mesh
+        mesh = buffer.mesh
         count = mesh.section_end if look.section else mesh.body_vertex_count
-        if look.cutout:
+        if look.program == "poly":
+            # 粗い三角形の形を 1 回で描く（先を透かす血管は無い）
+            program.setUniformValue1i("uPass", 0)
+            gl.glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count)
+        elif look.cutout:
             # 1 回目: 下の背景を濃さのぶんだけ隠す（透明の窓では不透明さを積む）。
             # 2 回目: 色を足す（不透明さは変えない）
             gl.glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
@@ -238,7 +258,7 @@ class HeartRenderer:
             gl.glDrawArrays(GL_TRIANGLES, tubes, self._mesh.body_vertex_count - tubes)
             gl.glDepthMask(True)
         program.release()
-        self._vao.release()
+        buffer.vao.release()
         gl.glDisable(GL_CULL_FACE)
         gl.glDisable(GL_DEPTH_TEST)
         gl.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)

@@ -27,11 +27,21 @@ from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
+from stream_heartbeat.ui.effect_burst import paint_heart_pops
 from stream_heartbeat.ui.effect_grip import paint_grip_hand
+from stream_heartbeat.ui.effect_monitor import (
+    monitor_screen,
+    paint_monitor_back,
+    paint_monitor_front,
+)
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
+    EFFECT_BURST,
+    EFFECT_DOPPLER,
     EFFECT_GRIP,
+    EFFECT_MONITOR,
     EFFECT_STETHO,
+    EFFECT_TAGGING,
     STETHO_EFFECTS,
     EffectMotion,
     HeartFrame,
@@ -40,7 +50,12 @@ from stream_heartbeat.ui.effects import (
     gl_heart_frame,
     grip_squash,
 )
-from stream_heartbeat.ui.heart_echo import echo_zoom, paint_echo_marks, sector_geometry
+from stream_heartbeat.ui.heart_echo import (
+    echo_zoom,
+    paint_doppler_scale,
+    paint_echo_marks,
+    sector_geometry,
+)
 from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_rect
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
@@ -196,6 +211,14 @@ class OutputCanvas(QOpenGLWidget):
         gl_chest = style == "xray" and self._xray is not None and self.uses_gl
         if not (gl_mri or gl_chest):
             paint_backdrop(painter, rect, style=style, scale=profile.scale, opacity=profile.opacity)
+        # 心電図をモニター画面に映すときは、波形を画面の中に収める
+        heart_rect = rect
+        if effect == EFFECT_MONITOR:
+            painter.save()
+            painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
+            paint_monitor_back(painter, rect)
+            painter.restore()
+            heart_rect = monitor_screen(rect)
         if style == "echo" and self._echo is not None:
             painter.beginNativePainting()
             ratio = self.devicePixelRatioF()
@@ -211,11 +234,14 @@ class OutputCanvas(QOpenGLWidget):
                 time_s=t,
                 opacity=profile.opacity,
                 interval=clock.interval(),
+                doppler=effect == EFFECT_DOPPLER,
             )
             painter.endNativePainting()
             painter.save()
             painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
             paint_echo_marks(painter, rect, profile.scale)
+            if effect == EFFECT_DOPPLER:
+                paint_doppler_scale(painter, rect, profile.scale)
             painter.restore()
         elif gl_mri and self._mri is not None:
             painter.beginNativePainting()
@@ -231,6 +257,7 @@ class OutputCanvas(QOpenGLWidget):
                 time_s=t,
                 opacity=profile.opacity,
                 interval=clock.interval(),
+                tagging=effect == EFFECT_TAGGING,
             )
             painter.endNativePainting()
         elif self.uses_gl and self._renderer is not None:
@@ -274,7 +301,7 @@ class OutputCanvas(QOpenGLWidget):
             painter.translate(0.0, -heart_lift(style) * rect.height())
             paint_heart(
                 painter,
-                rect,
+                heart_rect,
                 style=style,
                 scale=profile.scale,
                 opacity=profile.opacity,
@@ -287,6 +314,12 @@ class OutputCanvas(QOpenGLWidget):
         if not gl_chest:
             # GL で描いた胸は骨まで描き込み済み（重ねると肋骨が二重になる）
             paint_overlay(painter, rect, style=style, opacity=profile.opacity, cycle=cycle)
+        if effect == EFFECT_MONITOR:
+            flash = max(0.0, 1.0 - (t - clock.origin_before(t)) / 0.3)
+            painter.save()
+            painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
+            paint_monitor_front(painter, rect, flash)
+            painter.restore()
         self._paint_effect(painter, rect, effect, cycle, grip)
         paint_bursts(
             painter,
@@ -319,6 +352,8 @@ class OutputCanvas(QOpenGLWidget):
             paint_grip_hand(
                 painter, rect, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
             )
+        elif effect == EFFECT_BURST:
+            paint_heart_pops(painter, rect, self._motion.pops_at(time.perf_counter()))
         elif effect in STETHO_EFFECTS:
             rel = self._motion.stetho or (profile.stetho_x, profile.stetho_y)
             pos = QPointF(rect.left() + rel[0] * rect.width(), rect.top() + rel[1] * rect.height())
@@ -348,9 +383,11 @@ class OutputCanvas(QOpenGLWidget):
         if effect in STETHO_EFFECTS:
             # マウスの所に聴診器を描くので、矢印は隠す
             return Qt.CursorShape.BlankCursor
-        if effect == EFFECT_GRIP:
+        if self._can_rotate():
+            return Qt.CursorShape.OpenHandCursor
+        if effect in (EFFECT_GRIP, EFFECT_BURST):
             return Qt.CursorShape.PointingHandCursor
-        return Qt.CursorShape.OpenHandCursor if self._can_rotate() else Qt.CursorShape.ArrowCursor
+        return Qt.CursorShape.ArrowCursor
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -364,7 +401,7 @@ class OutputCanvas(QOpenGLWidget):
                 self._drag_from = event.position()
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
                 return
-            if effect in STETHO_EFFECTS:
+            if effect in STETHO_EFFECTS or effect == EFFECT_BURST:
                 return
         super().mousePressEvent(event)
 
@@ -399,6 +436,14 @@ class OutputCanvas(QOpenGLWidget):
             profile = self._session.profile
             profile.stetho_x, profile.stetho_y = self._relative(event.position())
             self._motion.hover(self._relative(event.position()))
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and pressed_at is not None
+            and not self._dragged
+            and self.effect == EFFECT_BURST
+        ):
+            # 回すためのドラッグでなければ、放した所からハートをはじけさせる
+            self._motion.pop(time.perf_counter(), self._relative(event.position()))
         if self._drag_from is not None:
             self._drag_from = None
             self.setCursor(self._idle_cursor())

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from stream_heartbeat.profile import HeartProfile, load_app_state, save_app_state
 from stream_heartbeat.render.heart_frames import (
+    FLAT_ITEM_STYLES,
     FRAME_FPS,
     ITEM_STYLES,
     count_frames,
@@ -170,7 +171,7 @@ def _saved_size(raw: object) -> float:
 
 def look_key(profile: HeartProfile) -> tuple:
     """アイテムの絵を決める見た目（スタイル・種類・向き）。変わったら作り直しを促す。"""
-    angle = () if profile.style == "cute" else (
+    angle = () if profile.style in FLAT_ITEM_STYLES else (
         round(profile.heart_yaw_deg), round(profile.heart_pitch_deg)
     )
     return (profile.style, profile.realistic_look, *angle)

@@ -2,6 +2,7 @@
 
 モニターと同じく、光点が左から右へ掃引し、右端で左へ戻る。光点の前は消えている。
 緑の背景に載せるので波形は赤橙。緑は使わない。
+心電図2（outline）は、光のにじみの代わりに白い太い縁で線を縁取る（どの背景でも線が立つ）。
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from stream_heartbeat.clock import BeatClock
 ECG_COLOR = QColor(255, 72, 48)
 ECG_GLOW = QColor(150, 22, 12)
 ECG_HEAD = QColor(255, 226, 210)
+ECG_RIM = QColor(255, 255, 255)
 ECG_PEN_MIN = 8
 SWEEP_SECONDS = 4.0
 SAMPLES = 480
@@ -45,7 +47,9 @@ def _gauss(x: float, mu: float, sigma: float) -> float:
     return math.exp(-0.5 * z * z)
 
 
-def paint_ecg(painter: QPainter, rect: QRectF, clock: BeatClock, now: float) -> None:
+def paint_ecg(
+    painter: QPainter, rect: QRectF, clock: BeatClock, now: float, *, outline: bool = False
+) -> None:
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     mid = rect.center().y() + rect.height() * 0.04
@@ -64,13 +68,14 @@ def paint_ecg(painter: QPainter, rect: QRectF, clock: BeatClock, now: float) -> 
         value = ecg_value(tau - clock.origin_before(tau), interval)
         return QPointF(left + span * u, mid - value * amp), back
 
-    glow_pen = QPen(ECG_GLOW, width * 2.6)
+    glow_pen = QPen(ECG_RIM, width * 2.5) if outline else QPen(ECG_GLOW, width * 2.6)
     glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    pen = QPen(ECG_COLOR, width)
+    pen = QPen(ECG_COLOR, width * (1.15 if outline else 1.0))
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 
+    pieces: list[tuple[QPainterPath, float]] = []
     for start in range(0, SAMPLES, CHUNK):
         path = QPainterPath()
         backs: list[float] = []
@@ -84,11 +89,14 @@ def paint_ecg(painter: QPainter, rect: QRectF, clock: BeatClock, now: float) -> 
         age = sum(backs) / len(backs)
         if age > 1.0 - ERASE_FRACTION:
             continue
-        # 掃引が古いほど薄く。光点の直前は消える
-        alpha = 0.35 + 0.65 * (1.0 - age) ** 0.6
-        painter.setOpacity(base_opacity * alpha * 0.6)
+        # 掃引が古いほど薄く（縁取りは薄めずにくっきり）。光点の直前は消える
+        pieces.append((path, 1.0 if outline else 0.35 + 0.65 * (1.0 - age) ** 0.6))
+    # 縁（またはにじみ）を先に全部描き、線を上に重ねる（つなぎ目で縁が線を隠さない）
+    for path, alpha in pieces:
+        painter.setOpacity(base_opacity * (alpha if outline else alpha * 0.6))
         painter.setPen(glow_pen)
         painter.drawPath(path)
+    for path, alpha in pieces:
         painter.setOpacity(base_opacity * alpha)
         painter.setPen(pen)
         painter.drawPath(path)
@@ -102,6 +110,13 @@ def paint_ecg(painter: QPainter, rect: QRectF, clock: BeatClock, now: float) -> 
     halo.setColorAt(0.4, QColor(ECG_COLOR.red(), ECG_COLOR.green(), ECG_COLOR.blue(), 200))
     halo.setColorAt(1.0, QColor(ECG_COLOR.red(), ECG_COLOR.green(), ECG_COLOR.blue(), 0))
     painter.setOpacity(base_opacity)
+    if outline:
+        # 光点も白い縁の付いた玉にする
+        painter.setPen(QPen(ECG_RIM, width * 0.75))
+        painter.setBrush(ECG_COLOR)
+        painter.drawEllipse(head_point, width * (1.1 + 0.8 * flash), width * (1.1 + 0.8 * flash))
+        painter.restore()
+        return
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(halo)
     painter.drawEllipse(head_point, radius, radius)

@@ -58,14 +58,14 @@ def test_mesh_triangles_face_outward() -> None:
 def test_realistic_has_three_looks_and_style_looks() -> None:
     assert [look.key for look in REALISTIC_LOOKS] == ["surgical", "vivid", "anatomy"]
     assert realistic_look("nope").key == "surgical"
-    assert set(STYLE_LOOKS) == {"mech", "xray", "xray_heart"}
+    assert set(STYLE_LOOKS) == {"mech", "poly", "xray", "xray_heart"}
     assert STYLE_LOOKS["xray"].additive
     # 心臓だけのレントゲンは背景に重ねるので、足し算ではなく下を隠して描く
     assert STYLE_LOOKS["xray_heart"].cutout and not STYLE_LOOKS["xray_heart"].additive
     # 生々しい見た目（リアル2）だけ、心房の時間差・心耳・冠動脈の盛り上がりを使う
     assert [look.key for look in REALISTIC_LOOKS if look.lively > 0] == ["vivid"]
     assert "uLively" in fragment_source("flesh") and "uCutout" in fragment_source("scan")
-    for program in ("flesh", "mech", "scan"):
+    for program in ("flesh", "mech", "scan", "poly"):
         assert "#version 130" in fragment_source(program)
 
 
@@ -107,7 +107,12 @@ def test_offscreen_render_puts_heart_over_chroma(qapp: QApplication) -> None:
 
     heart = OffscreenHeart()
     rest = CardiacCycle(0.0, 0.0, 0.2, 1.0, 1.0, 0.0, 0.5)
-    for look in (*REALISTIC_LOOKS, STYLE_LOOKS["mech"], STYLE_LOOKS["xray_heart"]):
+    for look in (
+        *REALISTIC_LOOKS,
+        STYLE_LOOKS["mech"],
+        STYLE_LOOKS["xray_heart"],
+        STYLE_LOOKS["poly"],
+    ):
         image = heart.render(width=160, height=160, cycle=rest, look=look, scale=0.7)
         center = image.pixelColor(80, 88)
         corner = image.pixelColor(3, 3)

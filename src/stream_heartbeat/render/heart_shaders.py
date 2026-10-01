@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from stream_heartbeat.render.heart_mesh import PATH_SCALE
 from stream_heartbeat.render.heart_section import SECTION_AXES_GLSL, SECTION_GLSL
+from stream_heartbeat.render.poly_shader import POLY_BODY
 
 VERTEX = (
     """
@@ -653,6 +654,9 @@ void main() {
 )
 
 
+POLY_FRAGMENT = _HEADER + _NOISE + POLY_BODY
+
+
 @dataclass(frozen=True)
 class Look:
     key: str
@@ -709,6 +713,7 @@ REALISTIC_LOOKS: list[Look] = [
 
 STYLE_LOOKS: dict[str, Look] = {
     "mech": Look("mech", "機械", "mech"),
+    "poly": Look("poly", "ポリゴン", "poly"),
     "xray": Look(
         "xray",
         "レントゲン",
@@ -750,4 +755,6 @@ def fragment_source(program: str) -> str:
         return MECH_FRAGMENT
     if program == "scan":
         return SCAN_FRAGMENT
+    if program == "poly":
+        return POLY_FRAGMENT
     return FLESH_FRAGMENT
