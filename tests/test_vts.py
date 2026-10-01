@@ -492,7 +492,10 @@ def test_panel_guides_are_side_by_side_and_open_one_at_a_time(qapp, tmp_path: Pa
     assert "使い方" in how_to.text() and "上手くいかない時" in trouble.text()
     assert how_to.parentWidget() is trouble.parentWidget()
     # VTube Studio の画面にあるスイッチの名前どおりに案内する
-    assert API_SWITCH in HOW_TO and API_SWITCH in TROUBLE and "【普段】" in HOW_TO
+    assert API_SWITCH in HOW_TO and API_SWITCH in TROUBLE and "【次からは】" in HOW_TO
+    # 押すボタンの名前は、画面のボタンと同じ文字で案内する
+    for button in (panel._item_btn, panel._pin_btn, panel._hide_btn, panel._params):
+        assert f"「{button.text()}」" in HOW_TO
     how_to.setChecked(True)
     trouble.setChecked(True)
     assert trouble.isChecked() and not how_to.isChecked()
@@ -518,3 +521,12 @@ def test_panel_explains_where_to_click_while_waiting(qapp, tmp_path: Path) -> No
     assert panel._pin_btn.text() == vts_panel.PICKING_BUTTON
     panel._heart._pick_done = None
     panel.shutdown()
+
+
+def test_item_style_names_follow_the_style_list() -> None:
+    from stream_heartbeat.render.heart_frames import ITEM_STYLES
+    from stream_heartbeat.ui.vts_panel import ITEM_STYLE_NAMES, style_names
+
+    # オシャレ1・2 も出せるのに案内から漏れていたので、一覧から作る
+    assert ITEM_STYLE_NAMES == style_names(ITEM_STYLES)
+    assert ITEM_STYLE_NAMES == "リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械"
