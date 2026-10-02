@@ -409,20 +409,22 @@ float structures(vec2 p, out vec4 best) {
 }
 
 // 腔の奥（向こう側の壁の内面）の凹凸の高さ 0〜1。
-// 心室は肉柱の網（長軸に沿って伸びる）、心房は櫛状筋（平行な畝）、大動脈はなめらか
+// 心室は肉柱の網（長軸に沿って伸びる）、心房は櫛状筋（平行な畝）、大動脈はなめらか。
+// 細い赤い筋がうねって群がると血管の束のようで気味悪く見えるので、筋は太く低くなだらかにし、
+// 細かい二重の網は薄く、心房の畝はまばらで浅くする
 float floorHeight(vec2 p, float ventricle, float atrium) {
-    vec2 w = p + 0.05 * vec2(vnoise(vec3(p * 5.0, 1.0)), vnoise(vec3(p * 5.0, 6.0)));
-    vec2 c = cells(w * vec2(6.0, 2.8), 3.0);
+    vec2 w = p + 0.04 * vec2(vnoise(vec3(p * 5.0, 1.0)), vnoise(vec3(p * 5.0, 6.0)));
+    vec2 c = cells(w * vec2(5.0, 2.4), 3.0);
     // 太さのむらのある筋の網。高さも場所ごとに違う
-    float thick = 0.16 + 0.22 * vnoise(vec3(w * 6.0, 8.0));
-    float net = (1.0 - smoothstep(0.02, thick, c.y)) * (0.7 + 0.3 * vnoise(vec3(w * 11.0, 3.0)));
+    float thick = 0.22 + 0.20 * vnoise(vec3(w * 6.0, 8.0));
+    float net = (1.0 - smoothstep(0.0, thick, c.y)) * (0.5 + 0.2 * vnoise(vec3(w * 11.0, 3.0)));
     vec2 c2 = cells(w * vec2(13.0, 6.0), 11.0);
-    net = max(net, 0.40 * (1.0 - smoothstep(0.02, 0.18, c2.y)));
-    // 心房の櫛状筋はゆるく波打つ太さの違う畝
-    vec2 cw = w + 0.06 * vec2(vnoise(vec3(w * 7.0, 2.0)), vnoise(vec3(w * 7.0, 9.0)));
-    float comb = 0.5 + 0.5 * sin(cw.x * 52.0 + cw.y * 9.0 + 7.0 * vnoise(vec3(cw * 3.0, 4.0)));
-    comb = smoothstep(0.35, 0.95, comb) * (0.5 + 0.5 * vnoise(vec3(cw * 8.0, 5.0)));
-    return ventricle * net + atrium * comb * 0.65 + 0.12 * vnoise(vec3(w * 20.0, 6.0));
+    net = max(net, 0.12 * (1.0 - smoothstep(0.02, 0.20, c2.y)));
+    // 心房の櫛状筋はゆるく波打つ浅い畝
+    vec2 cw = w + 0.04 * vec2(vnoise(vec3(w * 7.0, 2.0)), vnoise(vec3(w * 7.0, 9.0)));
+    float comb = 0.5 + 0.5 * sin(cw.x * 30.0 + cw.y * 6.0 + 4.0 * vnoise(vec3(cw * 3.0, 4.0)));
+    comb = smoothstep(0.25, 1.0, comb) * (0.4 + 0.6 * vnoise(vec3(cw * 6.0, 5.0)));
+    return ventricle * net + atrium * comb * 0.42 + 0.10 * vnoise(vec3(w * 20.0, 6.0));
 }
 
 // 切り口の色・法線・艶。p は面内座標、depth は外皮までの深さ
@@ -517,12 +519,14 @@ void sectionSurface(vec2 p, float depth, vec3 N, vec3 S, vec3 T,
     float hFloor = floorHeight(p, ventricle, atrium);
     float hx = floorHeight(p + vec2(0.006, 0.0), ventricle, atrium) - hFloor;
     float hy = floorHeight(p + vec2(0.0, 0.006), ventricle, atrium) - hFloor;
-    vec3 floorNormal = normalize(N - (S * hx + T * hy) * 6.5 * (1.0 - aorta));
+    // 凹凸の陰影は控えめに（照り返しの筋が細い血管のように光らない）
+    vec3 floorNormal = normalize(N - (S * hx + T * hy) * 3.8 * (1.0 - aorta));
     vec3 dropNormal = normalize(N * 0.45 - (S * g.x + T * g.y) * 0.9);
     vec3 bowlNormal = normalize(mix(floorNormal, dropNormal, drop));
-    vec3 ridge = mix(vec3(0.66, 0.13, 0.12), vec3(0.78, 0.24, 0.20), hFloor);
-    vec3 crevice = vec3(0.30, 0.04, 0.06);
-    vec3 back = mix(crevice, ridge, smoothstep(0.05, 0.75, hFloor));
+    // 筋と谷の色の差も小さく、くすんだ赤にまとめる
+    vec3 ridge = mix(vec3(0.56, 0.14, 0.13), vec3(0.64, 0.20, 0.18), hFloor);
+    vec3 crevice = vec3(0.40, 0.08, 0.09);
+    vec3 back = mix(crevice, ridge, smoothstep(0.0, 0.8, hFloor));
     back = mix(back, vec3(0.62, 0.30, 0.30), aorta * 0.7);
     back = mix(back, mix(vec3(0.38, 0.05, 0.07), vec3(0.62, 0.14, 0.13), fiber), drop * 0.8);
     // 切り口の縁は張り出して、光の側の縁の下へ影を落とす
@@ -531,7 +535,7 @@ void sectionSurface(vec2 p, float depth, vec3 N, vec3 S, vec3 T,
     float d3s;
     float caster = cavityField(p + toLight * 0.08, d1s, d2s, d3s);
     float shadow = smoothstep(-0.03, 0.02, caster) * (1.0 - drop * 0.6);
-    float occl = mix(0.62, 1.0, smoothstep(0.0, 0.6, hFloor));
+    float occl = mix(0.80, 1.0, smoothstep(0.0, 0.6, hFloor));
     occl *= 1.0 - 0.30 * smoothstep(0.05, 0.3, inside);
     float shade = mix(1.0, 0.32, shadow) * occl;
     // 奥は遠いので少し冷たく沈む
@@ -565,7 +569,7 @@ void sectionSurface(vec2 p, float depth, vec3 N, vec3 S, vec3 T,
     float inCav = smoothstep(-0.002, 0.002, inside);
     albedo = mix(muscle, back * shade, inCav);
     normal = normalize(mix(wallNormal, bowlNormal, inCav));
-    gloss = mix(1.15, 0.7 * (1.0 - shadow * 0.6), inCav);
+    gloss = mix(1.15, 0.45 * (1.0 - shadow * 0.6), inCav);
     albedo = mix(albedo, structColor, structMask);
     normal = normalize(mix(normal, cyl, structMask));
     gloss = mix(gloss, mix(1.0, 1.5, isLeaf + isChord), structMask);
