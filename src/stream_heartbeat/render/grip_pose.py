@@ -66,6 +66,11 @@ TURN = math.radians(3.0)
 # 指の開き（ラジアン、画面で右回りが正）。絵の指はもう開いているので少しだけ。
 # 親指と人差し指は心臓の左の縁からはみ出さないよう、少し内へ起こす
 FAN_REST = (0.04, 0.0, -0.01, 0.04, 0.09)
+# 人差し指の第2関節・第1関節（指の付け根→先 0〜1 の所）から先を曲げる角度（画面で右回りが正）。
+# 人差し指は心臓の左上の丸みに載るので、巻き付けると指先が輪郭に沿って右へ流れ、第2関節から先が
+# 右へ折れて見える。絵の上で少し左へ曲げておき、画面でまっすぐ〜わずかに左へ向ける
+INDEX_BEND = ((0.55, math.radians(-8.0)), (0.78, math.radians(-12.0)))
+BEND_SOFT = 0.06  # 関節の前後で曲げ始める幅（指の長さの割合）
 # 指の厚み（表面からの浮き、胴の大きさに対する割合）と、強く握ったときの沈み
 LIFT = 0.075
 SINK = 0.045
@@ -192,6 +197,20 @@ def _rotate(x: float, y: float, angle: float) -> tuple[float, float]:
     return c * x - s * y, s * x + c * y
 
 
+def bend_index(u: float, v: float, weight: float = 1.0) -> tuple[float, float]:
+    """開いた手の素材の画素を、人差し指の関節で曲げた所へ（weight は人差し指へのつき方）。"""
+    (kx, ky), (tx, ty), _half = FINGERS[1]
+    ax, ay = tx - kx, ty - ky
+    t = ((u - kx) * ax + (v - ky) * ay) / (ax * ax + ay * ay)
+    # 先の関節から曲げる（手前の関節で曲げると、先の関節も一緒に回る）
+    for along, angle in reversed(INDEX_BEND):
+        a = angle * weight * _smoothstep(along - BEND_SOFT, along + BEND_SOFT, t)
+        px, py = kx + ax * along, ky + ay * along
+        dx, dy = _rotate(u - px, v - py, a)
+        u, v = px + dx, py + dy
+    return u, v
+
+
 @dataclass(frozen=True)
 class HandPose:
     """1 コマの手の形。長さは断りが無ければ胴の単位、world は世界の長さ。"""
@@ -226,7 +245,8 @@ class HandPose:
     def finger_tip(self, index: int) -> tuple[float, float]:
         """指を開いた後の指先の素材の画素（握った形への変形込み）。"""
         kx, ky = self.knuckle(index)
-        tx, ty = _mix(FINGERS[index][1], claw_fingers()[index][1], self.morph)
+        tip = bend_index(*FINGERS[index][1]) if index == 1 else FINGERS[index][1]
+        tx, ty = _mix(tip, claw_fingers()[index][1], self.morph)
         # 素材の画素は下が正なので、画面で右回りの角度をそのまま回せる
         dx, dy = _rotate(tx - kx, ty - ky, self.fan[index])
         return kx + dx, ky + dy

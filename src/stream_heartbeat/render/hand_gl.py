@@ -31,6 +31,7 @@ from stream_heartbeat.render.grip_pose import (
     HAND_PALM,
     TAIL_V,
     HandPose,
+    bend_index,
     claw_fingers,
     skin,
     wrap_weight,
@@ -243,10 +244,12 @@ def build_hand_mesh() -> array:
                 skin(u, v) if v < _SKIN_LIMIT_V else ((0.0,) * 5, 0.0, 0.0, -1)
             )
             cu, cv = claw_point(u, v)
+            # 開いた手の人差し指は関節で少し曲げておく（握った手の絵へ寄るほど薄れる）
+            bu, bv = bend_index(u, v, weights[1])
             grid.append(
                 (
-                    u + shear,
-                    v,
+                    bu + shear,
+                    bv,
                     cu + shear,
                     cv,
                     u / width,
