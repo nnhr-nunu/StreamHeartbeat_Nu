@@ -71,6 +71,12 @@ FAN_REST = (0.04, 0.0, -0.01, 0.04, 0.09)
 # 右へ折れて見える。絵の上で少し左へ曲げておき、画面でまっすぐ〜わずかに左へ向ける
 INDEX_BEND = ((0.55, math.radians(-8.0)), (0.78, math.radians(-12.0)))
 BEND_SOFT = 0.06  # 関節の前後で曲げ始める幅（指の長さの割合）
+# 指の途中（付け根→先 0〜1 の所）から先は硬い節なので、心臓の丸みに貼り付かずに接線の方へ少し浮く。
+# STIFF_CURL は表面に沿う割合（1 で貼り付いたまま・0 で接線のまっすぐ）。縁の近くまで届く
+# 人差し指・中指の指先が真横を向いて、爪が潰れて短く見えないように。握った手の絵では効かせない
+STIFF_FROM = 0.55
+STIFF_CURL = 0.4
+STIFF_STEP = 0.01  # 接線を測る刻み（紙の長さ）
 # 指の厚み（表面からの浮き、胴の大きさに対する割合）と、強く握ったときの沈み
 LIFT = 0.075
 SINK = 0.045
@@ -269,9 +275,39 @@ class HandPose:
         return out
 
     def finger_facing(self, index: int, along: float = 1.0) -> float:
-        """指の付け根から along（0〜1）の所が、表面でどちらを向くか（正面 1・輪郭 0・裏 -1）。"""
+        """指の付け根から along（0〜1）の所が、表面でどちらを向くか（正面 1・輪郭 0・裏 -1）。
+
+        指先が浮く前の、表面の上の置き場所で測る（浮いた後の向きは finger_point）。
+        """
         bx, by, ex, ey, _half = self.segments()[index]
         return wrap(bx + (ex - bx) * along, by + (ey - by) * along)[3]
+
+    def stiff_curl(self) -> float:
+        """指先の方が表面に沿う割合（握った手の絵へ替わるほど貼り付いたままに戻す）。"""
+        return STIFF_CURL + (1.0 - STIFF_CURL) * self.blend
+
+    def finger_point(
+        self, index: int, fx: float, fy: float, lift: float = 0.0
+    ) -> tuple[float, float, float, float]:
+        """指 index の上の紙の点を胴へ: (x, y, z, 向き)。
+
+        hand_gl の頂点シェーダーと同じ式（筒に起こす所は除く）。指の途中から先は接線の方へ浮く。
+        """
+        on = wrap(fx, fy, lift)
+        bx, by, ex, ey, _half = self.segments()[index]
+        length = math.hypot(ex - bx, ey - by)
+        dx, dy = (ex - bx) / length, (ey - by) / length
+        s = (fx - bx) * dx + (fy - by) * dy
+        start = STIFF_FROM * length
+        if index == 0 or s <= start:
+            return on
+        center = wrap(bx + dx * s, by + dy * s, lift)
+        a = wrap(bx + dx * start, by + dy * start, lift)
+        b = wrap(bx + dx * (start + STIFF_STEP), by + dy * (start + STIFF_STEP), lift)
+        lifted = 1.0 - self.stiff_curl()
+        run = (s - start) / STIFF_STEP
+        x, y, z = (on[j] + (a[j] + (b[j] - a[j]) * run - center[j]) * lifted for j in range(3))
+        return x, y, z, on[3] + (a[3] - on[3]) * lifted
 
     def dent_uniforms(self) -> dict[str, object]:
         """心臓の頂点シェーダーへ渡す値（heart_shaders の GRIP_DENT_GLSL）。"""
