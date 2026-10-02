@@ -13,10 +13,12 @@ from stream_heartbeat.render.grip_pose import (
     BODY_CENTER,
     BODY_DEPTH,
     FINGERS,
+    INDEX_BEND,
     HandPose,
     arc_angle,
     arc_length,
     arc_radius,
+    bend_index,
     grip_pose,
     held_grip,
     rim_at,
@@ -107,13 +109,14 @@ def test_fingertips_stay_in_front_and_grip_turns_into_the_claw() -> None:
     tip = rest.sheet_point(*rest.finger_tip(0))
     assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.7
     # 指先は縁を越えて奥へ回らない（心臓に隠れて指先が切れたように見えない）。
-    # 開いた手・握る途中・握り切った手のどれでも、拍のどの時点でも
+    # 開いた手・握る途中・握り切った手のどれでも、拍のどの時点でも。
+    # いちばん縁に近いのは関節で左へ曲げた開いた手の人差し指（0.10。不透明でも爪まで見える）
     clock = BeatClock()
     for grip in (0.0, 0.5, 1.0):
         for k in range(24):
             pose = _pose(clock.cycle(k * clock.interval() / 24), grip=grip)
             for i in range(5):
-                assert pose.finger_facing(i, 1.0) > 0.12, (grip, k, i)
+                assert pose.finger_facing(i, 1.0) > 0.09, (grip, k, i)
     # 握り切ると握った手の絵で描く。巻き付けは少しだけ弱め、指は心臓の丸みに載ったまま
     assert held.morph == 1.0 and held.blend == pytest.approx(1.0) and 0.0 < held.flatten < 0.5
     for i in range(1, 5):
@@ -156,6 +159,41 @@ def test_hand_follows_the_heart_beat() -> None:
     assert diastole.bulge > rest.bulge
     names = set(rest.dent_uniforms())
     assert {f"uHandSeg[{i}]" for i in range(5)} <= names and "uHandDent" in names
+
+
+def test_index_finger_does_not_bend_right_past_the_middle_joint() -> None:
+    """人差し指は心臓の左上の丸みに載っても、第2関節から先が右へ折れない（まっすぐ〜わずかに左）。"""
+    from stream_heartbeat.render.heart_gl import camera_matrices
+
+    view, proj, _cam = camera_matrices(900, 900)
+    (kx, ky), (tx, ty), _half = FINGERS[1]
+
+    def screen(pose: HandPose, along: float) -> tuple[float, float]:
+        # hand_gl の頂点シェーダーと同じ順: 関節で曲げる → 握った手へ寄せる → 指を開く → 巻き付ける
+        u, v = kx + (tx - kx) * along, ky + (ty - ky) * along
+        bu, bv = bend_index(u, v)
+        cu, cv = claw_point(u, v)
+        mu, mv = bu + (cu - bu) * pose.morph, bv + (cv - bv) * pose.morph
+        pkx, pky = pose.knuckle(1)
+        a = pose.fan[1]
+        du, dv = mu - pkx, mv - pky
+        img = (pkx + math.cos(a) * du - math.sin(a) * dv, pky + math.sin(a) * du + math.cos(a) * dv)
+        b = wrap(*pose.sheet_point(*img), pose.lift)
+        w = [pose.center[i] + b[i] * pose.body[i] for i in range(3)]
+        p = proj.map(view.map(QVector4D(w[0], w[1], w[2], 1.0)))
+        return p.x() / p.w(), p.y() / p.w()
+
+    def lean(a: tuple[float, float], b: tuple[float, float]) -> float:
+        """画面で上向きを 0、右へ傾くと正（度）。"""
+        return math.degrees(math.atan2(b[0] - a[0], b[1] - a[1]))
+
+    clock = BeatClock()
+    for grip in (0.0, 0.2, 0.35):
+        for k in range(8):
+            pose = _pose(clock.cycle(k * clock.interval() / 8), grip=grip)
+            knuckle, pip, tip = (screen(pose, t) for t in (0.0, INDEX_BEND[0][0], 1.0))
+            assert lean(pip, tip) < 0.0, (grip, k)
+            assert lean(pip, tip) - lean(knuckle, pip) < 4.0, (grip, k)
 
 
 def test_skin_ties_each_finger_and_leaves_the_back_of_the_hand() -> None:
