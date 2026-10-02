@@ -61,6 +61,7 @@ void main() {
     float line = 1.0 - smoothstep(0.0, fwidth(edge) * 1.4, edge);
     color = mix(color, vec3(1.0, 0.93, 0.98), line * 0.30);
 
+    color *= gripShade();
     fragColor = vec4(pow(color, vec3(0.95)), uOpacity * vFade);
 }
 """

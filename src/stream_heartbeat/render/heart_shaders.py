@@ -273,6 +273,8 @@ in float vFade;
 in float vPulse;
 in float vCoronary;
 in float vAuricle;
+// 掴んでいる手の指の影と、指の間の盛り上がり（心臓わしづかみ）
+in vec2 vGrip;
 uniform vec3 uCamPos;
 uniform float uOpacity;
 uniform float uTime;
@@ -294,6 +296,11 @@ void passGate() {
     if ((uPass == 0 && faded) || (uPass == 1 && !faded)) {
         discard;
     }
+}
+
+// 指の影の暗さ（透けない心臓で、手が浮いて見えないよう指のすぐ脇を暗くする）
+float gripShade() {
+    return 1.0 - 0.55 * clamp(vGrip.x, 0.0, 0.9);
 }
 """
 
@@ -530,6 +537,7 @@ void main() {
     // 血の波の所は内から照るようにわずかに光る
     color += vec3(0.07, 0.005, 0.007) * isVessel * vPulse * uLively;
 
+    color *= gripShade();
     color = pow(color, vec3(0.92));
     fragColor = vec4(color, alpha);
 }
@@ -617,6 +625,7 @@ void main() {
     color += pulseColor * isLumen * (0.5 + 1.2 * pulse);
     color += glow * groove * 0.20 * pulse;
 
+    color *= gripShade();
     fragColor = vec4(color * mix(0.6, 1.0, vFade), uOpacity * vFade);
 }
 """
@@ -632,7 +641,6 @@ uniform float uGrain;
 uniform float uDensity;
 // 背景に重ねる（心臓だけのレントゲン）ときの描き分け。0: 足し算だけ / 1: 下を隠す / 2: 色を足す
 uniform float uCutout;
-in vec2 vGrip;
 void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCamPos - vWorldPos);

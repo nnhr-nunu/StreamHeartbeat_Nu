@@ -94,23 +94,32 @@ def test_wrap_and_unwrap_are_inverse_and_keep_true_size_in_front() -> None:
     assert wrap(0.05, 0.0)[0] == pytest.approx(0.05, rel=0.01)
 
 
-def test_fingers_hook_over_the_rim_and_grip_turns_into_the_claw() -> None:
+def test_fingertips_stay_in_front_and_grip_turns_into_the_claw() -> None:
     rest = _pose(_rest())
     held = _pose(_rest(), grip=1.0)
     for i in range(1, 5):
-        # 指の付け根は心臓の正面に載り、指先は輪郭まで這う
+        # 指の付け根は心臓の正面に載り、指先は丸みに沿って縁の方へ這う
         assert rest.finger_facing(i, 0.0) > 0.5, i
-        assert rest.finger_facing(i, 1.0) < 0.3, i
-    # 長い人差し指・中指は輪郭を越えて奥へ回り込む
-    assert rest.finger_facing(1, 1.0) < 0.0 and rest.finger_facing(2, 1.0) < 0.0
-    # 親指は左の縁まで届く
+        assert rest.finger_facing(i, 1.0) < 0.6, i
+    # 長い人差し指・中指は縁の近くまで届く
+    assert rest.finger_facing(1, 1.0) < 0.3 and rest.finger_facing(2, 1.0) < 0.35
+    # 親指は左の縁の近くまで届く
     tip = rest.sheet_point(*rest.finger_tip(0))
-    assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.5
-    # 握り切ると握った手の絵で描き、巻き付けを弱める。鉤に曲げた指先は縁の手前（動脈の付け根の下）
-    assert held.morph == 1.0 and held.blend == pytest.approx(1.0) and held.flatten > 0.5
+    assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.7
+    # 指先は縁を越えて奥へ回らない（心臓に隠れて指先が切れたように見えない）。
+    # 開いた手・握る途中・握り切った手のどれでも、拍のどの時点でも
+    clock = BeatClock()
+    for grip in (0.0, 0.5, 1.0):
+        for k in range(24):
+            pose = _pose(clock.cycle(k * clock.interval() / 24), grip=grip)
+            for i in range(5):
+                assert pose.finger_facing(i, 1.0) > 0.12, (grip, k, i)
+    # 握り切ると握った手の絵で描く。巻き付けは少しだけ弱め、指は心臓の丸みに載ったまま
+    assert held.morph == 1.0 and held.blend == pytest.approx(1.0) and 0.0 < held.flatten < 0.5
     for i in range(1, 5):
-        assert 0.0 < held.finger_facing(i, 1.0) < 0.6, i
-    assert held.anchor[1] < rest.anchor[1]
+        assert 0.3 < held.finger_facing(i, 1.0) < 0.9, i
+    # 握ると手が心臓に食い込みながら少し上へ滑る
+    assert held.anchor[1] > rest.anchor[1]
     # 鼓動の握り直し程度では絵は替わらない（開いた手のまま指が少し曲がる）
     systole = _pose(BeatClock().cycle(0.05))
     assert 0.2 < systole.morph < 0.4 and systole.blend == 0.0

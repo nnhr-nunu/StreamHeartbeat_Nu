@@ -1,10 +1,11 @@
 """心臓わしづかみ: 見ている人（視聴者）の手が、手前から心臓に触れて掴む絵（2D の代わり）。
 
-立体の心臓を GL で描けるときは render/hand_gl が手を心臓へ巻き付けて描く。ここは GL が使えない
-ときの代わりで、平らな手を重ねる。手は絵の素材 2 枚（assets/hand_touch.png が開いた手、
-hand_grip.png が握った手。どちらも手の甲がこちらを向き、袖は窓の下の外へ伸びる）。
-心臓の真ん中より少し下に手の甲を当て、指は心臓の前を上へ伸びる。
-鼓動では手前へ押し返されて揺れる。握ると握った手の絵へ替わり、手が細かく震える。
+立体の心臓を GL で描けるときは render/hand_gl が手を心臓へ巻き付けて描く。ここは 2D の心臓
+（かわいい・オシャレ1）と GL が使えないときの代わりで、平らな手を重ねる。
+手は絵の素材 2 枚（assets/hand_touch.png が開いた手、hand_grip.png が握った手。
+どちらも手の甲がこちらを向き、袖は窓の下の外へ伸びる）。
+心臓の下寄りに手の甲を当て、指は心臓の前を上へ伸びて、指先は心臓の縁の内に収まる。
+鼓動では手前へ押し返されて揺れる。握ると握った手の絵へ替わり、手が小さく震える。
 素材を差し替えるときは下の目印の画素も合わせる。
 """
 
@@ -28,11 +29,15 @@ IMG_HAND_WIDTH = 409.0  # 親指の先から小指の縁まで
 IMG_ARM_SLOPE = 0.175  # 袖の傾き（下へ 1 進むと右へ進む量）
 IMG_TAIL = 50.0  # 袖を窓の下まで伸ばすときに引き伸ばす下端の帯の高さ
 
-# 心臓の半径に対する手の幅と、手の甲を当てる所（心臓の真ん中から、半径を単位に）
-HAND_WIDTH_R = 1.5
-HAND_ANCHOR = (0.04, 0.55)
-# 握った手の絵へ替わる所（握る強さ）
-GRIP_SWAP = (0.2, 0.8)
+# 心臓の半径に対する手の幅と、手の甲を当てる所（心臓の真ん中から、半径を単位に）。
+# 平らな手は丸みに沿って回り込めないので、指先が心臓の上の縁からはみ出さない大きさと高さにする
+HAND_WIDTH_R = 1.2
+HAND_ANCHOR = (0.04, 0.90)
+# 握った手の絵へ替わる所（握る強さ）。2 枚の絵は形が違うので、薄く重なる間を短くする
+GRIP_SWAP = (0.35, 0.65)
+# 握り込んだときの震え（半径に対する幅と、横・縦の速さ ラジアン/秒）
+SHAKE_R = 0.005
+SHAKE_SPEED = (23.0, 29.0)
 
 _sources: dict[str, QImage] = {}
 _cache: dict[str, tuple[int, QImage]] = {}
@@ -98,13 +103,13 @@ def paint_grip_hand(
         image = _blended(image, _scaled(GRIP_IMAGE, width_px), swap)
     # 鼓動: 手前へ押し返されて少し大きく・下へ。握ると奥へ押し込んで少し小さく、震える
     scale = base * (1.0 + 0.035 * jolt - 0.035 * g)
-    shake = radius * 0.012 * g
+    shake = radius * SHAKE_R * g
     anchor = QPointF(
-        frame.center.x() + HAND_ANCHOR[0] * radius + shake * math.sin(time_s * 53.0),
+        frame.center.x() + HAND_ANCHOR[0] * radius + shake * math.sin(time_s * SHAKE_SPEED[0]),
         frame.center.y()
         + HAND_ANCHOR[1] * radius
         + radius * 0.035 * jolt
-        + shake * math.cos(time_s * 61.0),
+        + shake * math.cos(time_s * SHAKE_SPEED[1]),
     )
 
     painter.save()
