@@ -1,15 +1,17 @@
 """心臓に重ねる演出の選び方と動き。どのスタイルにも 1 つ以上の演出がある。
 
 手と聴診器は、見ている人（視聴者）が手前から触れる向きで描く（手も聴診器の管も窓の下から来る）。
-- 心臓わしづかみ: レントゲン 1〜3 で、ふつうの手が心臓を掴む。指は心臓の丸みに沿って奥へ回り込み、
-  指の下が凹んで指の間が盛り上がる。鼓動で心臓と一緒に動き、配信用の窓を押すと強く握る
+- 心臓わしづかみ: 心臓の形が出るスタイルで、ふつうの手が心臓を掴む。指は心臓の丸みに沿って
+  縁の手前まで這い、指の下が凹んで指の間が盛り上がる。鼓動で心臓と一緒に動き、配信用の窓を押すと
+  強く握る（立体の心臓は GL で巻き付け、かわいい・オシャレ1 は平らな手を重ねる）
 - 聴診器1・2: 心臓の形が出るスタイルで、マウスの所にチェストピースが来て鼓動で揺れる。
   1 は当てている人から見える裏側（ベルの側）、2 は膜の面をこちらへ向けた姿。
   クリックした所に置いておけ、マウスが窓の外へ出るとそこへ戻る
 - カラードプラ（心エコー）: 弁を抜ける血の流れを赤・青で重ねる（echo_gl が描く）
 - タギング（MRI）: 拍の頭に格子の縞を焼き付け、縞が心筋と一緒に曲がりながら薄れる（mri_gl）
 - モニター画面（心電図）: ベッドサイドのモニターの画面に映す（effect_monitor）
-- はじけるハート（どのスタイルでも）: 配信用の窓をクリックした所からハートがはじける
+- はじけるハート（どのスタイルでも）: 鼓動のたびに心臓の縁から小さなハートがはじけ、
+  配信用の窓をクリックするとその所からも大きくはじける
 
 手・聴診器・ハートの絵は effect_grip（GL では render/hand_gl）/ effect_stetho / effect_burst が
 描く。ここは描く場所
@@ -24,11 +26,12 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QPointF, QRectF
 
+from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.render.grip_pose import BODY_CENTER as GRIP_BODY_CENTER
 from stream_heartbeat.render.grip_pose import grip_squash as grip_squash  # 配信用の窓も使う
-from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG
+from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG, view_fit
 from stream_heartbeat.render.heart_shaders import Look
-from stream_heartbeat.ui.heart_paint import heart_lift
+from stream_heartbeat.ui.heart_paint import CUTE_REIWA, heart_lift
 
 EFFECT_NONE = ""
 EFFECT_GRIP = "grip"
@@ -61,13 +64,16 @@ EFFECT_HINTS = {
     EFFECT_DOPPLER: "血の流れを色で重ねます（赤: 探触子へ向かう流れ / 青: 遠ざかる流れ）。",
     EFFECT_TAGGING: "拍のたびに格子の縞を焼き付けます。縞は心筋と一緒に曲がりながら薄れます。",
     EFFECT_MONITOR: "心電図をベッドサイドのモニターの画面に映します。拍で右上のハートが光ります。",
-    EFFECT_BURST: "配信用の窓をクリックすると、その場所からハートがはじけます。",
+    EFFECT_BURST: (
+        "鼓動のたびに心臓からハートがはじけます。"
+        "配信用の窓をクリックすると、その場所からも大きくはじけます。"
+    ),
 }
-# 手はレントゲン 1〜3 だけ。聴診器は心臓の形が出るスタイル（断面・波形・窓いっぱいの絵は除く）。
+# 手と聴診器は心臓の形が出るスタイル（心エコー・MRI の断面、波形、窓いっぱいの粒は除く）。
 # None はどのスタイルでも選べる演出
 _HEART_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart", "cute", "chic", "poly"})
 EFFECT_STYLES: dict[str, frozenset[str] | None] = {
-    EFFECT_GRIP: frozenset({"xray", "xray_heart"}),
+    EFFECT_GRIP: _HEART_STYLES,
     EFFECT_STETHO: _HEART_STYLES,
     EFFECT_STETHO_FLIP: _HEART_STYLES,
     EFFECT_DOPPLER: frozenset({"echo"}),
@@ -89,8 +95,9 @@ GRIP_MIN_HOLD_S = 0.28
 # 聴診器がマウスへ追いつく速さ・置いた所へ戻る速さ（秒）
 STETHO_FOLLOW_S = 0.045
 STETHO_RETURN_S = 0.25
-# はじけたハートが消えるまでの秒（effect_burst の POP_LIFE_S と同じ）
+# はじけたハートが消えるまでの秒（effect_burst の POP_LIFE_S・BEAT_POP_LIFE_S と同じ）
 POP_KEEP_S = 1.3
+BEAT_POP_KEEP_S = 0.9
 
 
 def _offers(style: str, effect: str) -> bool:
@@ -107,6 +114,20 @@ def effect_choices(style: str) -> list[tuple[str, str]]:
 def active_effect(style: str, effect: str) -> str:
     """今描く演出。スタイルが対応しなければ無し（選んだ値は残し、対応するスタイルに戻せば出る）。"""
     return effect if effect in EFFECT_STYLES and _offers(style, effect) else EFFECT_NONE
+
+
+def beat_pops(clock: BeatClock, now: float) -> list[tuple[float, float]]:
+    """いま描く鼓動のハート: (拍からの秒, 拍の時刻)。新しい拍から順に、消えるまでの分だけ。"""
+    out: list[tuple[float, float]] = []
+    t = now
+    for _ in range(8):
+        origin = clock.origin_before(t)
+        age = now - origin
+        if age >= BEAT_POP_KEEP_S or (out and origin >= out[-1][1]):
+            break
+        out.append((age, origin))
+        t = origin - 1e-3
+    return out
 
 
 def beat_jolt(squeeze: float, fill: float) -> float:
@@ -132,7 +153,8 @@ def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) ->
 
     lift は画面の上へ寄せる量（窓の高さに対する割合。heart_gl の lift と同じ）。
     """
-    px_per_unit = rect.height() / (2.0 * CAMERA_DISTANCE * math.tan(math.radians(FOV_DEG / 2.0)))
+    screen = rect.height() * view_fit(rect.width(), rect.height())
+    px_per_unit = screen / (2.0 * CAMERA_DISTANCE * math.tan(math.radians(FOV_DEG / 2.0)))
     size = max(0.05, scale) * look.size_factor
     wx = look.shift_x + BODY_CENTER[0] * size
     wy = look.shift_y + BODY_CENTER[1] * size
@@ -147,10 +169,15 @@ def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) ->
     )
 
 
-def flat_heart_frame(rect: QRectF, style: str, scale: float) -> HeartFrame:
-    """2D で描く心臓（かわいい・立体が使えないときの代替）の置き場所。"""
+def flat_heart_frame(rect: QRectF, style: str, scale: float, look: str = "") -> HeartFrame:
+    """2D で描く心臓（かわいい・立体が使えないときの代替）の置き場所。look はかわいい2 の見分け。"""
     rect = rect.translated(0.0, -heart_lift(style) * rect.height())
     side = min(rect.width(), rect.height())
+    if style == "cute" and look == CUTE_REIWA:
+        # かわいい2 のころんとしたハート（heart_cute_reiwa.chubby_heart）
+        size = side * 0.36 * scale
+        center = QPointF(rect.center().x(), rect.center().y() - size * 0.14)
+        return HeartFrame(center=center, half_w=size * 0.88, half_h=size * 0.74)
     if style == "cute":
         size = side * 0.36 * scale
         center = QPointF(rect.center().x(), rect.center().y() - size * 0.17)

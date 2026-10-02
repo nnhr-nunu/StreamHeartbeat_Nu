@@ -29,7 +29,7 @@ from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
-from stream_heartbeat.ui.effect_burst import paint_heart_pops
+from stream_heartbeat.ui.effect_burst import paint_beat_pops, paint_heart_pops
 from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_monitor import (
     monitor_screen,
@@ -48,6 +48,7 @@ from stream_heartbeat.ui.effects import (
     EffectMotion,
     HeartFrame,
     active_effect,
+    beat_pops,
     flat_heart_frame,
     gl_heart_frame,
     grip_squash,
@@ -159,7 +160,7 @@ class OutputCanvas(QOpenGLWidget):
         profile = self._session.profile
         if self.uses_gl:
             return gl_heart_frame(rect, profile.scale, self._look(), heart_lift(profile.style))
-        return flat_heart_frame(rect, profile.style, profile.scale)
+        return flat_heart_frame(rect, profile.style, profile.scale, profile.realistic_look)
 
     def _relative(self, pos: QPointF) -> tuple[float, float]:
         w = max(1.0, float(self.width()))
@@ -372,6 +373,7 @@ class OutputCanvas(QOpenGLWidget):
         if self._hand_failed:
             return False
         profile = self._session.profile
+        look = self._look()
         painter.beginNativePainting()
         try:
             if self._hand is None:
@@ -383,6 +385,7 @@ class OutputCanvas(QOpenGLWidget):
                 pose=pose,
                 lift=heart_lift(profile.style),
                 opacity=profile.opacity,
+                see_through=look.additive or look.cutout,
             )
         except (HandRendererError, RuntimeError, AttributeError):
             self._hand = None
@@ -409,6 +412,13 @@ class OutputCanvas(QOpenGLWidget):
                 painter, rect, frame, cycle, grip=grip, time_s=self._now, opacity=profile.opacity
             )
         elif effect == EFFECT_BURST:
+            frame = self._heart_frame(rect)
+            painter.save()
+            painter.setOpacity(max(0.08, min(1.0, profile.opacity)))
+            paint_beat_pops(
+                painter, frame.center, frame.radius, beat_pops(self._session.clock, self._now)
+            )
+            painter.restore()
             paint_heart_pops(painter, rect, self._motion.pops_at(time.perf_counter()))
         elif effect in STETHO_EFFECTS:
             rel = self._motion.stetho or (profile.stetho_x, profile.stetho_y)

@@ -23,6 +23,7 @@ from stream_heartbeat.render.heart_mesh import (
 )
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS
 from stream_heartbeat.session import HeartSession
+from stream_heartbeat.ui.effect_burst import BEAT_POP_LIFE_S, paint_beat_pops
 from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
@@ -40,11 +41,13 @@ from stream_heartbeat.ui.effects import (
     POP_KEEP_S,
     EffectMotion,
     active_effect,
+    beat_pops,
     effect_choices,
+    flat_heart_frame,
     gl_heart_frame,
     grip_squash,
 )
-from stream_heartbeat.ui.heart_paint import heart_lift
+from stream_heartbeat.ui.heart_paint import CUTE_REIWA, heart_lift
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.style_catalog import STYLES
@@ -70,23 +73,21 @@ def test_heart_styles_sit_a_little_higher() -> None:
         assert heart_lift(style) == 0.0
 
 
-def test_grip_only_for_xray_and_stetho_for_heart_styles() -> None:
-    for style in ("xray", "xray_heart"):
+def test_grip_and_stetho_for_every_heart_style() -> None:
+    # 心臓の形が出るスタイルなら、どれでも手で掴めて聴診器を当てられる
+    for style in ("xray", "xray_heart", "realistic", "mech", "cute", "chic", "poly"):
         keys = [key for key, _label in effect_choices(style)]
         assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
-    for style in ("realistic", "mech", "cute", "chic", "poly"):
-        keys = [key for key, _label in effect_choices(style)]
-        assert keys == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
     labels = [label for _key, label in effect_choices("realistic")]
-    assert labels[1:] == ["聴診器1", "聴診器2", "はじけるハート"]
+    assert labels[1:] == ["心臓わしづかみ", "聴診器1", "聴診器2", "はじけるハート"]
     # 断面・波形・窓いっぱいの絵は、そのスタイルに合った演出とはじけるハート
     assert [k for k, _ in effect_choices("echo")] == [EFFECT_NONE, EFFECT_DOPPLER, EFFECT_BURST]
     assert [k for k, _ in effect_choices("mri")] == [EFFECT_NONE, EFFECT_TAGGING, EFFECT_BURST]
     assert [k for k, _ in effect_choices("ecg")] == [EFFECT_NONE, EFFECT_MONITOR, EFFECT_BURST]
     assert [k for k, _ in effect_choices("particles")] == [EFFECT_NONE, EFFECT_BURST]
     # 対応しないスタイルでは描かないが、選んだ値は捨てない
-    assert active_effect("realistic", EFFECT_GRIP) == EFFECT_NONE
-    assert active_effect("xray_heart", EFFECT_GRIP) == EFFECT_GRIP
+    assert active_effect("echo", EFFECT_GRIP) == EFFECT_NONE
+    assert active_effect("realistic", EFFECT_GRIP) == EFFECT_GRIP
     assert active_effect("echo", EFFECT_TAGGING) == EFFECT_NONE
     assert active_effect("particles", EFFECT_BURST) == EFFECT_BURST
     assert active_effect("realistic", "unknown") == EFFECT_NONE
@@ -252,9 +253,15 @@ def test_effect_combo_follows_style_and_keeps_choice(qapp: QApplication) -> None
     assert operator._effect.currentData() == EFFECT_GRIP
     # 掴んでいる間は正面に固定するので、向きの操作は隠す
     assert operator._angle_wrap.isHidden()
-    # リアルにすると手は選べない。値は残り、レントゲンへ戻すとまた出る
+    # リアルでも掴める（回せないので向きの操作は隠したまま）
     operator._select_style("realistic", "surgical")
-    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
+    assert _effect_keys(operator)[1] == EFFECT_GRIP
+    assert operator._effect.currentData() == EFFECT_GRIP
+    assert output.canvas.effect == EFFECT_GRIP
+    assert operator._angle_wrap.isHidden()
+    # 心エコーにすると手は選べない。値は残り、レントゲンへ戻すとまた出る
+    operator._select_style("echo", "")
+    assert _effect_keys(operator) == [EFFECT_NONE, EFFECT_DOPPLER, EFFECT_BURST]
     assert operator._effect.currentData() == EFFECT_NONE
     assert profile.effect == EFFECT_GRIP
     assert output.canvas.effect == EFFECT_NONE
@@ -308,3 +315,66 @@ def test_burst_click_pops_hearts_where_released(qapp: QApplication, qtbot) -> No
     _age, x, y, _stamp = pops[0]
     assert abs(x - spot.x() / 400) < 0.01 and abs(y - spot.y() / 400) < 0.01
     operator.close()
+
+
+def test_tall_window_keeps_heart_to_the_short_side() -> None:
+    """縦長の窓では、心臓も胸の絵と同じく窓の短い辺に合わせる（高さに合わせて大きくならない）。"""
+    look = STYLE_LOOKS["xray"]
+    square = gl_heart_frame(QRectF(0, 0, 400, 400), 0.7, look)
+    tall = gl_heart_frame(QRectF(0, 0, 400, 900), 0.7, look)
+    wide = gl_heart_frame(QRectF(0, 0, 900, 400), 0.7, look)
+    assert tall.half_w == pytest.approx(square.half_w)
+    assert wide.half_w == pytest.approx(square.half_w)
+    # 置き場所のずれも同じ割合で縮む（胸の絵の中の同じ所に載る）
+    assert tall.center.x() - 200 == pytest.approx(square.center.x() - 200)
+
+
+def test_beat_pops_follow_each_beat() -> None:
+    clock = BeatClock()
+    first = clock.origin_before(1.0)
+    pops = beat_pops(clock, first + 0.1)
+    assert pops[0] == pytest.approx((0.1, first))
+    # 消えるまでの間だけ残り、新しい拍から順に並ぶ
+    later = beat_pops(clock, first + clock.interval() + 0.02)
+    assert [stamp for _age, stamp in later] == pytest.approx([first + clock.interval(), first])
+    assert all(age < BEAT_POP_LIFE_S for age, _stamp in later)
+    assert beat_pops(clock, first + BEAT_POP_LIFE_S + 0.01)[-1][1] > first
+
+
+def test_beat_pops_paint_around_the_heart(qapp: QApplication) -> None:
+    del qapp
+    green = QColor(0, 177, 64)
+    image = QImage(300, 300, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(green)
+    painter = QPainter(image)
+    paint_beat_pops(painter, QPointF(150, 170), 60.0, [(0.3, 5.0)])
+    painter.end()
+    # ハートは心臓の縁から上と横へ飛び、下の心拍数の文字の所（心臓の下）へは行かない
+    above = [image.pixelColor(x, y) != green for x in range(0, 300, 2) for y in range(0, 170, 2)]
+    below = [image.pixelColor(x, y) != green for x in range(0, 300, 2) for y in range(200, 300, 2)]
+    assert any(above) and not any(below)
+
+
+def test_flat_hand_keeps_fingertips_inside_the_heart(qapp: QApplication) -> None:
+    """平らな手（かわいい・オシャレ1）は、指先が心臓の上の縁からはみ出さない。"""
+    del qapp
+    rect = QRectF(0, 0, 400, 400)
+    green = QColor(0, 177, 64)
+    image = QImage(400, 400, QImage.Format.Format_ARGB32_Premultiplied)
+    cycle = BeatClock().cycle(0.7)
+    for style, look in (("cute", ""), ("cute", CUTE_REIWA), ("chic", "")):
+        frame = flat_heart_frame(rect, style, 0.7, look)
+        top = int(frame.center.y() - frame.half_h)
+        for grip in (0.0, 1.0):
+            image.fill(green)
+            painter = QPainter(image)
+            paint_grip_hand(painter, rect, frame, cycle, grip=grip, time_s=0.0, opacity=1.0)
+            painter.end()
+            assert all(
+                image.pixelColor(x, y) == green for x in range(0, 400, 3) for y in range(0, top, 3)
+            ), (style, look, grip)
+    # かわいい2 のハートはかわいい1 より大きい
+    assert (
+        flat_heart_frame(rect, "cute", 0.7, CUTE_REIWA).half_w
+        > flat_heart_frame(rect, "cute", 0.7).half_w
+    )

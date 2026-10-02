@@ -157,7 +157,10 @@ void main() {
         float ul = length(upright);
         vec2 across = ul > 1e-6 ? upright * (length(d) / ul) : vec2(0.0);
         vec3 tube = vec3(center.xy + across, center.z);
-        float c = id == 0 ? aThumb : dot(aSkin, vec4(id == 1, id == 2, id == 3, id == 4));
+        // 付け根の近く（手の甲や親指の股につながる所）では起こさない。隣の指と起こす軸が違うので、
+        // 起こしたままだと境目で網目が折り返してぎざぎざの筋が出る
+        float c = (id == 0 ? aThumb : dot(aSkin, vec4(id == 1, id == 2, id == 3, id == 4)))
+            * smoothstep(0.15, 0.45, aInfo.x);
         onBody.xyz = mix(onBody.xyz, tube, c);
         facing = mix(facing, center.w, c);
     }
@@ -194,6 +197,11 @@ out vec4 fragColor;
 void main() {
     // 素材は不透明さを掛けた色で持つ（縮めた画の縁が暗くにじまない）
     vec4 c = mix(texture(uTex, vTex), texture(uClawTex, vClawTex), uBlend);
+    // 2 枚の絵を混ぜている途中は、片方の絵にしか無い所（伸ばした指先など）が半透明の幽霊に
+    // ならないよう、不透明さをはっきり分ける。混ぜ始めと終わりは元の縁のなめらかさのまま
+    float swap = 4.0 * uBlend * (1.0 - uBlend);
+    float alpha = mix(c.a, smoothstep(0.3, 0.7, c.a), swap);
+    c = c.a > 1e-4 ? vec4(c.rgb / c.a, 1.0) * alpha : vec4(0.0);
     if (c.a < 0.004) {
         discard;
     }
@@ -212,7 +220,7 @@ void main() {
 }
 """
 
-# 心臓の裏へ回った指の見え方（心臓越しの淡さ）
+# 心臓の裏へ回った指の見え方（透けるレントゲンの心臓越しの淡さ）。透けない心臓では隠す
 BEHIND_ALPHA = 0.30
 
 
@@ -336,8 +344,12 @@ class HandRenderer:
         pose: HandPose,
         lift: float,
         opacity: float,
+        see_through: bool = True,
     ) -> None:
-        """lift は heart_gl と同じ（画面の上へ寄せる量）。"""
+        """lift は heart_gl と同じ（画面の上へ寄せる量）。
+
+        see_through は心臓が透けるか（レントゲン）。透けない心臓では、裏へ回った所を描かない。
+        """
         gl = self._gl
         view, proj, _cam = camera_matrices(width, height, lift)
         program = self._program
@@ -378,7 +390,7 @@ class HandRenderer:
             program.setUniformValue(program.uniformLocation(f"uAxis[{i}]"), QVector4D(*axis))
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uGrip", float(pose.grip))
-        program.setUniformValue1f("uBehind", BEHIND_ALPHA)
+        program.setUniformValue1f("uBehind", BEHIND_ALPHA if see_through else 0.0)
         gl.glDrawArrays(GL_TRIANGLES, 0, self._count)
         gl.glActiveTexture(GL_TEXTURE0 + 1)
         self._claw_texture.release()

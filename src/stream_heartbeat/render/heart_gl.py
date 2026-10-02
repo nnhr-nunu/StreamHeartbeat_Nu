@@ -73,7 +73,11 @@ _ATTRIBUTES = (
 def camera_matrices(
     width: int, height: int, lift: float = 0.0
 ) -> tuple[QMatrix4x4, QMatrix4x4, QVector3D]:
-    """心臓を見るカメラ（見る行列・写す行列・カメラの位置）。手も同じカメラで描く。"""
+    """心臓を見るカメラ（見る行列・写す行列・カメラの位置）。手も同じカメラで描く。
+
+    心臓の大きさは窓の短い辺に合わせる（2D のスタイルやレントゲンの胸の絵と同じ）。
+    縦長の窓で高さに合わせると、胸の絵より心臓だけが大きく写って横にはみ出す。
+    """
     view = QMatrix4x4()
     cam = QVector3D(0.0, CAMERA_TARGET_Y, CAMERA_DISTANCE)
     view.lookAt(cam, QVector3D(0.0, CAMERA_TARGET_Y, 0.0), QVector3D(0.0, 1.0, 0.0))
@@ -81,8 +85,15 @@ def camera_matrices(
     # 画面の上でそのまま持ち上げる（見る向きは変えない）。正規化した画面の高さは 2
     proj.translate(0.0, 2.0 * lift, 0.0)
     aspect = width / max(1, height)
+    fit = view_fit(width, height)
+    proj.scale(fit, fit, 1.0)
     proj.perspective(FOV_DEG, aspect, 0.5, 20.0)
     return view, proj, cam
+
+
+def view_fit(width: float, height: float) -> float:
+    """縦長の窓で心臓を縮める割合（横長・正方形の窓は 1）。"""
+    return min(1.0, width / max(1.0, height))
 
 
 def set_dent_uniforms(program: QOpenGLShaderProgram, pose: HandPose | None) -> None:
