@@ -111,13 +111,13 @@ def test_fingertips_stay_in_front_and_grip_turns_into_the_claw() -> None:
     assert tip[0] < -0.6 and rest.finger_facing(0, 1.0) < 0.7
     # 指先は縁を越えて奥へ回らない（心臓に隠れて指先が切れたように見えない）。
     # 開いた手・握る途中・握り切った手のどれでも、拍のどの時点でも。
-    # いちばん縁に近いのは関節で左へ曲げた開いた手の人差し指（0.10。不透明でも爪まで見える）
+    # いちばん縁に近いのは関節で少し左へ曲げた開いた手の人差し指（0.15）
     clock = BeatClock()
     for grip in (0.0, 0.5, 1.0):
         for k in range(24):
             pose = _pose(clock.cycle(k * clock.interval() / 24), grip=grip)
             for i in range(5):
-                assert pose.finger_facing(i, 1.0) > 0.09, (grip, k, i)
+                assert pose.finger_facing(i, 1.0) > 0.12, (grip, k, i)
     # 握り切ると握った手の絵で描く。巻き付けは少しだけ弱め、指は心臓の丸みに載ったまま
     assert held.morph == 1.0 and held.blend == pytest.approx(1.0) and 0.0 < held.flatten < 0.5
     for i in range(1, 5):
