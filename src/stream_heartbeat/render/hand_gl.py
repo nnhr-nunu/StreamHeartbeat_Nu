@@ -29,6 +29,8 @@ from stream_heartbeat.render.grip_pose import (
     GRIP_SHAPE_GLSL,
     HAND_IMAGE_SIZE,
     HAND_PALM,
+    STIFF_FROM,
+    STIFF_STEP,
     TAIL_V,
     HandPose,
     bend_index,
@@ -107,6 +109,9 @@ uniform float uFlatten;
 uniform vec2 uClawKnuckle[5];
 // 指の軸（紙の上の付け根・向き）。親指・人差し指・中指・薬指・小指
 uniform vec4 uAxis[5];
+// 指先の方が丸みから浮き始める所（付け根からの紙の長さ）と、表面に沿う割合
+uniform float uStiffFrom[5];
+uniform float uStiffCurl;
 out vec2 vTex;
 out vec2 vClawTex;
 out float vFacing;
@@ -119,6 +124,7 @@ const vec2 PALM = vec2({HAND_PALM[0]:.1f}, {HAND_PALM[1]:.1f});
 const vec2 KNUCKLE[5] = vec2[5]({_vec2_list([k for k, _t, _h in FINGERS])});
 const float ARM_RISE = {ARM_RISE:.4f};
 const float ARM_RISE_MAX = {ARM_RISE_MAX:.4f};
+const float STIFF_STEP = {STIFF_STEP:.4f};
 """
     + """
 // 素材の画素は下が正なので、正の角度で画面の右回りに回る
@@ -149,7 +155,8 @@ void main() {
     if (aInfo.w > -0.5) {
         int id = int(aInfo.w + 0.5);
         vec4 axis = uAxis[id];
-        vec2 fc = axis.xy + axis.zw * dot(f - axis.xy, axis.zw);
+        float s = dot(f - axis.xy, axis.zw);
+        vec2 fc = axis.xy + axis.zw * s;
         vec4 center = gripWrap(fc, lift);
         vec3 d = onBody.xyz - center.xyz;
         float rl = length(center.xy);
@@ -160,10 +167,21 @@ void main() {
         vec3 tube = vec3(center.xy + across, center.z);
         // 付け根の近く（手の甲や親指の股につながる所）では起こさない。隣の指と起こす軸が違うので、
         // 起こしたままだと境目で網目が折り返してぎざぎざの筋が出る
-        float c = (id == 0 ? aThumb : dot(aSkin, vec4(id == 1, id == 2, id == 3, id == 4)))
-            * smoothstep(0.15, 0.45, aInfo.x);
+        float own = id == 0 ? aThumb : dot(aSkin, vec4(id == 1, id == 2, id == 3, id == 4));
+        float c = own * smoothstep(0.15, 0.45, aInfo.x);
         onBody.xyz = mix(onBody.xyz, tube, c);
         facing = mix(facing, center.w, c);
+        // 指の途中から先は丸みに貼り付かず、接線の方へ浮く（grip_pose.finger_point と同じ式）
+        float start = uStiffFrom[id];
+        if (id > 0 && s > start) {
+            vec2 fa = axis.xy + axis.zw * start;
+            vec4 a = gripWrap(fa, lift);
+            vec4 b = gripWrap(fa + axis.zw * STIFF_STEP, lift);
+            vec3 line = a.xyz + (b.xyz - a.xyz) * ((s - start) / STIFF_STEP);
+            float lifted = (1.0 - uStiffCurl) * own;
+            onBody.xyz += (line - center.xyz) * lifted;
+            facing = mix(facing, a.w, lifted);
+        }
     }
     // 手首から下は平らなまま、下へ行くほど見ている人の側へ寄る
     float rise = min(ARM_RISE * max(uAnchor.y - f.y, 0.0), ARM_RISE_MAX);
@@ -391,6 +409,10 @@ class HandRenderer:
         program.setUniformValue1f("uFlatten", float(pose.flatten))
         for i, axis in enumerate(pose.finger_axes()):
             program.setUniformValue(program.uniformLocation(f"uAxis[{i}]"), QVector4D(*axis))
+        for i, (bx, by, ex, ey, _half) in enumerate(pose.segments()):
+            start = STIFF_FROM * math.hypot(ex - bx, ey - by)
+            program.setUniformValue1f(program.uniformLocation(f"uStiffFrom[{i}]"), start)
+        program.setUniformValue1f("uStiffCurl", float(pose.stiff_curl()))
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uGrip", float(pose.grip))
         program.setUniformValue1f("uBehind", BEHIND_ALPHA if see_through else 0.0)

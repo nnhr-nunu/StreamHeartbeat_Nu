@@ -178,7 +178,7 @@ def test_index_finger_does_not_bend_right_past_the_middle_joint() -> None:
         a = pose.fan[1]
         du, dv = mu - pkx, mv - pky
         img = (pkx + math.cos(a) * du - math.sin(a) * dv, pky + math.sin(a) * du + math.cos(a) * dv)
-        b = wrap(*pose.sheet_point(*img), pose.lift)
+        b = pose.finger_point(1, *pose.sheet_point(*img), pose.lift)
         w = [pose.center[i] + b[i] * pose.body[i] for i in range(3)]
         p = proj.map(view.map(QVector4D(w[0], w[1], w[2], 1.0)))
         return p.x() / p.w(), p.y() / p.w()
@@ -194,6 +194,29 @@ def test_index_finger_does_not_bend_right_past_the_middle_joint() -> None:
             knuckle, pip, tip = (screen(pose, t) for t in (0.0, INDEX_BEND[0][0], 1.0))
             assert lean(pip, tip) < 0.0, (grip, k)
             assert lean(pip, tip) - lean(knuckle, pip) < 4.0, (grip, k)
+
+
+def test_long_fingertips_lift_off_so_the_nails_are_not_squashed() -> None:
+    """縁の近くまで届く人差し指・中指も、爪の所が真横を向いて潰れない（指先は接線の方へ浮く）。"""
+    clock = BeatClock()
+    for grip in (0.0, 0.2, 0.35):
+        for k in range(8):
+            pose = _pose(clock.cycle(k * clock.interval() / 8), grip=grip)
+            for i in (1, 2, 3, 4):
+                bx, by, ex, ey, _half = pose.segments()[i]
+                a, b = (
+                    pose.finger_point(i, bx + (ex - bx) * t, by + (ey - by) * t, pose.lift)
+                    for t in (0.88, 1.0)
+                )
+                # 爪の所の画面の長さ（正面に置いたときの長さに対する割合）
+                nail = math.hypot(b[0] - a[0], b[1] - a[1]) / (0.12 * math.hypot(ex - bx, ey - by))
+                assert nail > 0.6, (grip, k, i, nail)
+                # 浮いた指先は心臓より手前にある
+                assert b[2] > 0.0, (grip, k, i)
+    # 握った手の絵では、絵に描いた指の曲がりのまま表面に沿わせる
+    held = _pose(_rest(), grip=1.0)
+    bx, by, ex, ey, _half = held.segments()[2]
+    assert held.finger_point(2, ex, ey, held.lift) == wrap(ex, ey, held.lift)
 
 
 def test_skin_ties_each_finger_and_leaves_the_back_of_the_hand() -> None:
