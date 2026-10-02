@@ -68,8 +68,11 @@ _ATTRIBUTES = (
     ("aSkin", 8, 4),
     ("aThumb", 12, 1),
     ("aInfo", 13, 4),
+    ("aClawSkin", 17, 4),
+    ("aClawThumb", 21, 1),
+    ("aClawInfo", 22, 4),
 )
-_FLOATS = 17
+_FLOATS = 26
 
 
 def _vec2_list(points: list[tuple[float, float]]) -> str:
@@ -89,6 +92,10 @@ in vec4 aSkin;
 in float aThumb;
 // x: 指の付け根→先 y: 関節の近さ z: 表面に沿う割合 w: いちばん強くつく指（無ければ -1）
 in vec4 aInfo;
+// 同じものを握った手の絵の上で測った値
+in vec4 aClawSkin;
+in float aClawThumb;
+in vec4 aClawInfo;
 uniform mat4 uView;
 uniform mat4 uProj;
 uniform vec3 uHandC;
@@ -102,8 +109,9 @@ uniform float uFanThumb;
 uniform float uLift;
 uniform float uSink;
 uniform float uPalmZ;
-// 握った手の形への寄せ具合と、巻き付けを弱める割合
+// 握った手の形への寄せ具合・握った手の絵の混ぜ具合と、巻き付けを弱める割合
 uniform float uMorph;
+uniform float uBlend;
 uniform float uFlatten;
 // 握った手の絵での指の付け根（hand_morph で解くので、起動を遅くしないよう作るときに渡す）
 uniform vec2 uClawKnuckle[5];
@@ -135,25 +143,26 @@ vec2 turnAbout(vec2 p, vec2 pivot, float a) {
     return pivot + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
 }
 
-void main() {
-    float fingers = aSkin.x + aSkin.y + aSkin.z + aSkin.w + aThumb;
-    vec2 base = mix(aImg, aClaw, uMorph);
+// 網目の点 base を、指へのつき方（skin・thumb、info は aInfo と同じ並び）に従って置く。
+// world は世界の位置、戻り値は向き（正面 1・輪郭 0・裏 -1）
+float place(vec2 base, vec4 skin, float thumb, vec4 info, out vec3 world) {
+    float fingers = skin.x + skin.y + skin.z + skin.w + thumb;
     vec2 img = base * (1.0 - fingers)
-        + turnAbout(base, mix(KNUCKLE[0], uClawKnuckle[0], uMorph), uFanThumb) * aThumb
-        + turnAbout(base, mix(KNUCKLE[1], uClawKnuckle[1], uMorph), uFan.x) * aSkin.x
-        + turnAbout(base, mix(KNUCKLE[2], uClawKnuckle[2], uMorph), uFan.y) * aSkin.y
-        + turnAbout(base, mix(KNUCKLE[3], uClawKnuckle[3], uMorph), uFan.z) * aSkin.z
-        + turnAbout(base, mix(KNUCKLE[4], uClawKnuckle[4], uMorph), uFan.w) * aSkin.w;
+        + turnAbout(base, mix(KNUCKLE[0], uClawKnuckle[0], uMorph), uFanThumb) * thumb
+        + turnAbout(base, mix(KNUCKLE[1], uClawKnuckle[1], uMorph), uFan.x) * skin.x
+        + turnAbout(base, mix(KNUCKLE[2], uClawKnuckle[2], uMorph), uFan.y) * skin.y
+        + turnAbout(base, mix(KNUCKLE[3], uClawKnuckle[3], uMorph), uFan.z) * skin.z
+        + turnAbout(base, mix(KNUCKLE[4], uClawKnuckle[4], uMorph), uFan.w) * skin.w;
     vec2 local = vec2(img.x - PALM.x, PALM.y - img.y) * uPx;
     vec2 f = uAnchor + vec2(uTurn.x * local.x - uTurn.y * local.y,
                             uTurn.y * local.x + uTurn.x * local.y);
     // 指は厚みのぶん表面から浮き、握ると指先ほど心臓へ沈む
-    float lift = uLift - uSink * fingers * (0.3 + 0.7 * aInfo.x);
+    float lift = uLift - uSink * fingers * (0.3 + 0.7 * info.x);
     vec4 onBody = gripWrap(f, lift);
     float facing = onBody.w;
     // 指は筒なので、輪郭の所で真横から見ても細くならない。指の幅を画面の面へ起こす
-    if (aInfo.w > -0.5) {
-        int id = int(aInfo.w + 0.5);
+    if (info.w > -0.5) {
+        int id = int(info.w + 0.5);
         vec4 axis = uAxis[id];
         float s = dot(f - axis.xy, axis.zw);
         vec2 fc = axis.xy + axis.zw * s;
@@ -167,8 +176,8 @@ void main() {
         vec3 tube = vec3(center.xy + across, center.z);
         // 付け根の近く（手の甲や親指の股につながる所）では起こさない。隣の指と起こす軸が違うので、
         // 起こしたままだと境目で網目が折り返してぎざぎざの筋が出る
-        float own = id == 0 ? aThumb : dot(aSkin, vec4(id == 1, id == 2, id == 3, id == 4));
-        float c = own * smoothstep(0.15, 0.45, aInfo.x);
+        float own = id == 0 ? thumb : dot(skin, vec4(id == 1, id == 2, id == 3, id == 4));
+        float c = own * smoothstep(0.15, 0.45, info.x);
         onBody.xyz = mix(onBody.xyz, tube, c);
         facing = mix(facing, center.w, c);
         // 指の途中から先は丸みに貼り付かず、接線の方へ浮く（grip_pose.finger_point と同じ式）
@@ -186,13 +195,29 @@ void main() {
     // 手首から下は平らなまま、下へ行くほど見ている人の側へ寄る
     float rise = min(ARM_RISE * max(uAnchor.y - f.y, 0.0), ARM_RISE_MAX);
     vec3 flatPart = vec3(f, uPalmZ + rise) * uSize;
-    float k = aInfo.z * (1.0 - uFlatten);
-    vec3 world = uHandC + mix(flatPart, onBody.xyz * uHandS, k);
+    float k = info.z * (1.0 - uFlatten);
+    world = uHandC + mix(flatPart, onBody.xyz * uHandS, k);
+    return mix(1.0, facing, k);
+}
+
+void main() {
+    vec2 base = mix(aImg, aClaw, uMorph);
+    vec3 world;
+    float facing = place(base, aSkin, aThumb, aInfo, world);
+    // 握った手の絵へ替わるほど、握った手の絵の上で測ったつき方で置く。開いた手から握った手への
+    // 写しは指の縁で折れ返って網目が重なる所があり、開いた手のつき方のままだと重なった網目が
+    // 別々の指と動いてずれ、ぎざぎざに見える（握った手の絵の同じ所なら同じに動く）
+    if (uBlend > 0.0) {
+        vec3 clawWorld;
+        float clawFacing = place(base, aClawSkin, aClawThumb, aClawInfo, clawWorld);
+        world = uBlend < 1.0 ? mix(world, clawWorld, uBlend) : clawWorld;
+        facing = uBlend < 1.0 ? mix(facing, clawFacing, uBlend) : clawFacing;
+    }
     vTex = aTex;
     vClawTex = aClawTex;
-    vFacing = mix(1.0, facing, k);
-    vAlong = aInfo.x;
-    vKnuckle = aInfo.y;
+    vFacing = facing;
+    vAlong = mix(aInfo.x, aClawInfo.x, uBlend);
+    vKnuckle = mix(aInfo.y, aClawInfo.y, uBlend);
     gl_Position = uProj * uView * vec4(world, 1.0);
 }
 """
@@ -250,6 +275,7 @@ class HandRendererError(RuntimeError):
 def build_hand_mesh() -> array:
     """網目の三角形の頂点（_ATTRIBUTES の並び）。"""
     width, height = HAND_IMAGE_SIZE
+    claw_lines = claw_fingers()
     grid: list[tuple[float, ...]] = []
     rows: list[float] = [height * j / _ROWS for j in range(_ROWS + 1)]
     rows += [height + _TAIL_EXTEND * j / _TAIL_ROWS for j in range(1, _TAIL_ROWS + 1)]
@@ -262,6 +288,9 @@ def build_hand_mesh() -> array:
                 skin(u, v) if v < _SKIN_LIMIT_V else ((0.0,) * 5, 0.0, 0.0, -1)
             )
             cu, cv = claw_point(u, v)
+            claw_weights, claw_along, claw_knuckle, claw_main = (
+                skin(cu, cv, claw_lines) if cv < _SKIN_LIMIT_V else ((0.0,) * 5, 0.0, 0.0, -1)
+            )
             # 開いた手の人差し指は関節で少し曲げておく（握った手の絵へ寄るほど薄れる）
             bu, bv = bend_index(u, v, weights[1])
             grid.append(
@@ -283,6 +312,15 @@ def build_hand_mesh() -> array:
                     knuckle,
                     wrap_weight(v),
                     float(main),
+                    claw_weights[1],
+                    claw_weights[2],
+                    claw_weights[3],
+                    claw_weights[4],
+                    claw_weights[0],
+                    claw_along,
+                    claw_knuckle,
+                    wrap_weight(cv),
+                    float(claw_main),
                 )
             )
     vertices = array("f")

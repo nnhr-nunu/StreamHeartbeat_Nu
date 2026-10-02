@@ -381,10 +381,13 @@ def grip_pose(
     )
 
 
-_claw_fingers: tuple[tuple[tuple[float, float], tuple[float, float]], ...] | None = None
+# 指ごとの付け根と指先（素材の画素）
+FingerLines = tuple[tuple[tuple[float, float], tuple[float, float]], ...]
+
+_claw_fingers: FingerLines | None = None
 
 
-def claw_fingers() -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+def claw_fingers() -> FingerLines:
     """握った手の絵での指の付け根と指先（FINGERS を hand_morph で動かした所）。"""
     global _claw_fingers
     if _claw_fingers is None:
@@ -396,17 +399,21 @@ def _mix(a: tuple[float, float], b: tuple[float, float], t: float) -> tuple[floa
     return a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
 
 
-def skin(u: float, v: float) -> tuple[tuple[float, float, float, float, float], float, float, int]:
+def skin(
+    u: float, v: float, fingers: FingerLines | None = None
+) -> tuple[tuple[float, float, float, float, float], float, float, int]:
     """素材の画素の点が、どの指と一緒に動くか。
 
     (5 本の指へのつき方, 指の付け根→先 0〜1, 関節の近さ, いちばん強くつく指)。
-    いちばん強くつく指は、どれにもつかなければ -1
+    いちばん強くつく指は、どれにもつかなければ -1。fingers は指の付け根と指先（省くと開いた手の絵。
+    握った手の絵の上で測るときは claw_fingers()）
 
     付け根より手前（手の甲）はどの指にもつかない。指の間の隙間は透明なので、そこで隣の指へ移る。
     """
+    lines = fingers if fingers is not None else tuple((k, t) for k, t, _half in FINGERS)
     dists: list[float] = []
     alongs: list[float] = []
-    for (kx, ky), (tx, ty), _half in FINGERS:
+    for (kx, ky), (tx, ty) in lines:
         ax, ay = tx - kx, ty - ky
         length = math.hypot(ax, ay)
         t = ((u - kx) * ax + (v - ky) * ay) / (length * length)
@@ -426,7 +433,7 @@ def skin(u: float, v: float) -> tuple[tuple[float, float, float, float, float], 
         weights.append(share)
         along += w / total * max(0.0, min(1.0, t)) * reach
     knuckle = 0.0
-    for (kx, ky), _tip, _half in FINGERS[1:]:
+    for (kx, ky), _tip in lines[1:]:
         d = math.hypot(u - kx, v - ky)
         knuckle = max(knuckle, math.exp(-(d * d) / (36.0 * 36.0)))
     main = max(range(len(weights)), key=lambda i: weights[i])
