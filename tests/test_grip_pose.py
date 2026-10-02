@@ -19,6 +19,7 @@ from stream_heartbeat.render.grip_pose import (
     arc_length,
     arc_radius,
     bend_index,
+    claw_fingers,
     grip_pose,
     held_grip,
     rim_at,
@@ -138,6 +139,33 @@ def test_claw_morph_follows_the_outline_pairs() -> None:
     for (kx, ky), (tx, ty), _half in FINGERS[1:]:
         assert claw_point(tx, ty)[1] > ty + 40.0
         assert claw_point(tx, ty)[1] < claw_point(kx, ky)[1] - 120.0
+    # 親指の爪は、握った手の親指の爪へ写る（2 枚の絵を混ぜる途中で爪が二重に見えない）
+    x, y = claw_point(190.0, 355.0)
+    assert 190.0 < x < 212.0 and 340.0 < y < 380.0
+
+
+def test_claw_morph_does_not_fold_where_the_hand_is_drawn(qapp: QApplication) -> None:
+    """開いた手→握った手の写しは、手の絵がある所で折れ返らない。
+
+    折れ返ると網目が重なり、重なった網目が別々の指と動いてずれ、ぎざぎざに見える。
+    """
+    del qapp
+    from stream_heartbeat.ui.effect_grip import grip_image, hand_image
+
+    open_image, claw_image = hand_image(), grip_image()
+    folds = []
+    for v in range(40, 480, 8):
+        for u in range(150, 620, 8):
+            p = claw_point(u, v)
+            px = claw_point(u + 1.0, v)
+            py = claw_point(u, v + 1.0)
+            if (px[0] - p[0]) * (py[1] - p[1]) - (px[1] - p[1]) * (py[0] - p[0]) > 0.0:
+                continue
+            drawn = open_image.pixelColor(u, v).alpha() > 8
+            drawn = drawn or claw_image.pixelColor(round(p[0]), round(p[1])).alpha() > 8
+            if drawn:
+                folds.append((u, v))
+    assert len(folds) <= 5, folds
 
 
 def test_hand_follows_the_heart_beat() -> None:
@@ -228,6 +256,9 @@ def test_skin_ties_each_finger_and_leaves_the_back_of_the_hand() -> None:
     assert main == -1 and sum(weights) == 0.0 and along == 0.0
     for u, v in ((330.0, 200.0), (540.0, 330.0), (270.0, 480.0)):
         assert sum(skin(u, v)[0]) <= 1.0 + 1e-9
+    # 握った手の絵の上でも測れる（握った手の中指・薬指の第2関節のあたり）
+    assert skin(430.0, 260.0, claw_fingers())[3] == 2
+    assert skin(485.0, 260.0, claw_fingers())[3] == 3
     # 手の甲より上は表面に沿い、手首から下（袖）は平らなまま
     assert wrap_weight(400.0) == 1.0 and wrap_weight(900.0) == 0.0
 
