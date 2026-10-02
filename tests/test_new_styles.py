@@ -22,7 +22,14 @@ from stream_heartbeat.ui.effects import POP_KEEP_S
 from stream_heartbeat.ui.heart_chic import CHIC_COBALT, CHIC_PINK, CHIC_SUN, CHIC_VIOLET
 from stream_heartbeat.ui.heart_cute_reiwa import REIWA_LAVENDER, REIWA_MINT, REIWA_PINK
 from stream_heartbeat.ui.heart_paint import paint_heart
-from stream_heartbeat.ui.heart_particles import PARTICLE_PALETTE, beat_origins
+from stream_heartbeat.ui.heart_particles import (
+    LIFE_MAX_S,
+    LIFE_MIN_S,
+    PARTICLE_PALETTE,
+    beat_origins,
+    life_s,
+    paint_particles,
+)
 
 CHROMA = QColor(CHROMA_HEX)
 SIZE = 240
@@ -106,38 +113,59 @@ def test_new_heart_styles_sit_in_the_middle(qapp: QApplication) -> None:
         assert abs(sum(ys) / len(ys) - SIZE / 2) < SIZE * 0.15, style
 
 
-def test_particles_rise_and_are_same_for_same_moment(qapp: QApplication) -> None:
+class _OneBeat:
+    """0 秒に 1 回だけ打つ拍（次の拍が来ないので、1 拍ぶんのハートの動きだけを見られる）。"""
+
+    def __init__(self, interval: float = 60.0 / 70.0) -> None:
+        self._interval = interval
+
+    def origin_before(self, t: float) -> float:
+        return 0.0 if t >= 0.0 else -100.0
+
+    def interval(self) -> float:
+        return self._interval
+
+
+def test_particles_burst_on_the_beat_then_float_away(qapp: QApplication) -> None:
     del qapp
     first = _render("particles", now=4.3)
     again = _render("particles", now=4.3)
     assert first == again
 
-    def mean_y(image: QImage) -> float:
-        ys = [y for _x, y in _painted(image)]
-        return sum(ys) / len(ys)
-
-    # 新しい拍が来ない間に時刻だけ進めると、ハートは上へ昇る
-    clock = BeatClock()
-    clock.feed_beat(0.0)
-    origins = beat_origins(clock, 0.6, 5.0)
-    assert origins and origins[0] == 0.0
-
-    def single(now: float) -> QImage:
+    def single(now: float) -> list[tuple[int, int]]:
         image = QImage(SIZE, SIZE, QImage.Format.Format_RGB32)
         image.fill(CHROMA)
         painter = QPainter(image)
-        rect = QRectF(0, 0, SIZE, SIZE)
-        from stream_heartbeat.ui.heart_particles import paint_particles
-
-        lone = BeatClock()
-        lone.feed_beat(0.0)
-        # 拍は 1 回だけ（次の拍が来ないので、出たハートが昇っていくだけ）
-        paint_particles(painter, rect, 0.7, lone, now)
+        paint_particles(painter, QRectF(0, 0, SIZE, SIZE), 0.7, _OneBeat(), now)  # type: ignore[arg-type]
         painter.end()
-        return image
+        return _painted(image)
 
-    # 1 拍ぶんが出そろったあと（0.6 秒より後）で比べる
-    assert mean_y(single(1.4)) < mean_y(single(1.0)) - 10.0
+    def width(spots: list[tuple[int, int]]) -> int:
+        xs = [x for x, _y in spots]
+        return max(xs) - min(xs)
+
+    def mean_y(spots: list[tuple[int, int]]) -> float:
+        return sum(y for _x, y in spots) / len(spots)
+
+    # 拍の頭は真ん中にかたまり、一気に広がる（ぶわっ）
+    start = single(0.02)
+    spread = single(0.3)
+    assert start and width(start) < width(spread) * 0.5
+    # そのあとゆっくり浮いて（すうっ）、拍の間隔に合わせた長さで消える
+    later = single(0.9)
+    assert later and mean_y(later) < mean_y(spread) - 5.0
+    assert not single(life_s(_OneBeat()) + 0.02)  # type: ignore[arg-type]
+
+
+def test_particles_last_about_a_beat_at_any_heart_rate() -> None:
+    lives = {}
+    for bpm in (50, 70, 100, 140, 180):
+        lives[bpm] = life_s(_OneBeat(60.0 / bpm))  # type: ignore[arg-type]
+        assert LIFE_MIN_S <= lives[bpm] <= LIFE_MAX_S
+        # 次の拍が来るまでは残り、2 拍あまり先までには消える（速い心拍で重なりすぎない）
+        assert lives[bpm] >= 60.0 / bpm or lives[bpm] == LIFE_MAX_S
+        assert lives[bpm] <= max(LIFE_MIN_S, 2.2 * 60.0 / bpm)
+    assert lives[140] < lives[70]
 
 
 def test_beat_origins_go_back_in_time() -> None:
