@@ -175,9 +175,10 @@ float place(vec2 base, vec4 skin, float thumb, vec4 info, out vec3 world) {
         vec2 across = ul > 1e-6 ? upright * (length(d) / ul) : vec2(0.0);
         vec3 tube = vec3(center.xy + across, center.z);
         // 付け根の近く（手の甲や親指の股につながる所）では起こさない。隣の指と起こす軸が違うので、
-        // 起こしたままだと境目で網目が折り返してぎざぎざの筋が出る
+        // 起こしたままだと境目で網目が折り返してぎざぎざの筋が出る。握った手の絵は指の丸みまで
+        // 描いてあり、指どうしが接していて境目で起こす軸が入れ替わるので、絵が替わるほど起こさない
         float own = id == 0 ? thumb : dot(skin, vec4(id == 1, id == 2, id == 3, id == 4));
-        float c = own * smoothstep(0.15, 0.45, info.x);
+        float c = own * smoothstep(0.15, 0.45, info.x) * (1.0 - uBlend);
         onBody.xyz = mix(onBody.xyz, tube, c);
         facing = mix(facing, center.w, c);
         // 指の途中から先は丸みに貼り付かず、接線の方へ浮く（grip_pose.finger_point と同じ式）
@@ -223,8 +224,14 @@ void main() {
 """
 )
 
-_FRAGMENT = """
+# 握ったときに関節が白む量と、指先が赤らむ量（強すぎると肌の色が変わりすぎて見える）
+KNUCKLE_PALE = 0.18
+TIP_FLUSH = 0.25
+
+_FRAGMENT = f"""
 #version 130
+const float KNUCKLE_PALE = {KNUCKLE_PALE:.3f};
+const float TIP_FLUSH = {TIP_FLUSH:.3f};
 in vec2 vTex;
 in vec2 vClawTex;
 in float vFacing;
@@ -238,7 +245,7 @@ uniform float uOpacity;
 uniform float uGrip;
 uniform float uBehind;
 out vec4 fragColor;
-void main() {
+void main() {{
     // 素材は不透明さを掛けた色で持つ（縮めた画の縁が暗くにじまない）
     vec4 c = mix(texture(uTex, vTex), texture(uClawTex, vClawTex), uBlend);
     // 2 枚の絵を混ぜている途中は、片方の絵にしか無い所（伸ばした指先など）が半透明の幽霊に
@@ -246,14 +253,14 @@ void main() {
     float swap = 4.0 * uBlend * (1.0 - uBlend);
     float alpha = mix(c.a, smoothstep(0.3, 0.7, c.a), swap);
     c = c.a > 1e-4 ? vec4(c.rgb / c.a, 1.0) * alpha : vec4(0.0);
-    if (c.a < 0.004) {
+    if (c.a < 0.004) {{
         discard;
-    }
+    }}
     // 表面に沿って奥へ向かうほど暗い
     vec3 rgb = c.rgb * mix(0.45, 1.0, smoothstep(-0.25, 0.85, vFacing));
     // 握ると関節が白み、指先に血がたまって赤らむ
-    rgb = mix(rgb, vec3(1.0, 0.95, 0.92) * c.a, 0.38 * uGrip * vKnuckle);
-    rgb *= mix(vec3(1.0), vec3(1.0, 0.74, 0.70), 0.5 * uGrip * vAlong * vAlong);
+    rgb = mix(rgb, vec3(1.0, 0.95, 0.92) * c.a, KNUCKLE_PALE * uGrip * vKnuckle);
+    rgb *= mix(vec3(1.0), vec3(1.0, 0.74, 0.70), TIP_FLUSH * uGrip * vAlong * vAlong);
     // 心臓の向こうへ回った所は、心臓越しに淡く青白く透けて見える。握った手の絵は指の曲がりが
     // 描いてあるので、縁の際の指先までは透かさない
     float behind = 1.0 - smoothstep(-0.12, 0.03, vFacing + 0.15 * uBlend);
@@ -261,7 +268,7 @@ void main() {
     rgb = mix(rgb, vec3(0.60, 0.70, 0.84) * lum, 0.65 * behind);
     float keep = mix(1.0, uBehind, behind) * uOpacity;
     fragColor = vec4(rgb, c.a) * keep;
-}
+}}
 """
 
 # 心臓の裏へ回った指の見え方（透けるレントゲンの心臓越しの淡さ）。透けない心臓では隠す
