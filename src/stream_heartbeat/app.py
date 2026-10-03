@@ -9,10 +9,12 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from stream_heartbeat.render.gl_platform import set_default_format
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
+from stream_heartbeat.ui.win_front import bring_to_front
 
 if TYPE_CHECKING:
     from stream_heartbeat.session import HeartSession
@@ -89,7 +91,9 @@ def run() -> int:
             _op_pos, out_pos = place_side_by_side(operator.size(), output.size(), area)
             output.move(out_pos)
     output.raise_()
+    splash.finish(operator)
     operator.raise_()
     operator.activateWindow()
-    splash.finish(operator)
+    # 起動の仕方によっては Windows が手前に出すのを止めるので、窓が出そろってから手前へ出す
+    QTimer.singleShot(0, lambda: bring_to_front(int(operator.winId())))
     return app.exec()
