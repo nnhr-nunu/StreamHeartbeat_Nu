@@ -429,6 +429,8 @@ class VtsHeart:
                     done(False)
                 return
             self.instance_id = instance
+            # 場を調べたときに、しまう前のアイテムのコマ数で上書きされている
+            self.frame_count = frame_count
             self.last_error = ""
             self._rest()
             self._pin_saved()

@@ -60,6 +60,8 @@ class FakeVts(QObject):
         self.deny = deny
         # True なら、アイテムは VTube Studio 側で消された扱い
         self.item_gone = False
+        # 場に出ているアイテム（ItemListRequest の返事）
+        self.scene: list[dict] = []
         self.received: list[dict] = []
         self._server = QWebSocketServer("fake-vts", QWebSocketServer.SslMode.NonSecureMode)
         assert self._server.listen(QHostAddress.SpecialAddress.LocalHost, 0)
@@ -108,7 +110,7 @@ class FakeVts(QObject):
             ok = message["data"]["authenticationToken"] == "tok123"
             data = {"authenticated": ok, "reason": "" if ok else "bad token"}
         elif kind == "ItemListRequest":
-            data = {"itemInstancesInScene": [], "availableItemFiles": []}
+            data = {"itemInstancesInScene": self.scene, "availableItemFiles": []}
         elif kind == "ItemLoadRequest":
             data = {"instanceID": "inst1", "fileName": message["data"]["fileName"]}
         elif kind == "CurrentModelRequest":
@@ -341,14 +343,17 @@ def test_panel_restores_item_after_vts_restart(qapp, tmp_path: Path, monkeypatch
     from stream_heartbeat.profile import load_app_state, save_app_state
     from stream_heartbeat.session import HeartSession
     from stream_heartbeat.ui import vts_panel
-    from stream_heartbeat.ui.vts_panel import VtsPanel
+    from stream_heartbeat.ui.vts_panel import VtsPanel, look_key
 
     items = tmp_path / "Items"
     write_frames(render_frames(HeartProfile(style="cute"), size=64)[:4], items / ITEM_FOLDER)
     monkeypatch.setattr(vts_panel, "find_items_dir", lambda: items)
+    session = HeartSession()
+    session.profile.style = "cute"
     save_app_state(tmp_path, vts_item_shown=True, vts_item_size=5.0,
-                   vts_pins={"m1": PIN, "bad": {"modelID": "bad"}})
-    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+                   vts_pins={"m1": PIN, "bad": {"modelID": "bad"}},
+                   vts_item_look=list(look_key(session.profile)))
+    panel = VtsPanel(session, tmp_path, lambda _text: None)
     assert panel._heart.pins == {"m1": PIN} and panel._heart.size == 0.8
     shows: list[int] = []
     panel._heart.show_item = lambda count, done=None: shows.append(count)  # type: ignore[method-assign]
@@ -356,10 +361,17 @@ def test_panel_restores_item_after_vts_restart(qapp, tmp_path: Path, monkeypatch
     assert shows == []
     panel._on_found(False)
     assert shows == [4]
+    # 書き出してあるコマと見た目が違えば、前の絵を出さずに今の見た目で作り直して出す
+    made: list[bool] = []
+    panel._make_item = lambda auto=False: made.append(auto)  # type: ignore[method-assign]
+    session.profile.effect = "grip"
+    panel._on_found(False)
+    assert shows == [4] and made == [True]
     # 「しまう」を押したら、次につないでも出さない
     panel._hide_item()
     panel._on_found(False)
-    assert shows == [4] and load_app_state(tmp_path)["vts_item_shown"] is False
+    assert shows == [4] and made == [True]
+    assert load_app_state(tmp_path)["vts_item_shown"] is False
     panel.shutdown()
 
 
@@ -438,10 +450,13 @@ def test_panel_buttons_and_note_follow_connection_and_look(qapp, tmp_path: Path)
     assert panel._item_btn.text() == vts_panel.REMAKE_BUTTON
     assert panel._pin_btn.isEnabled() and panel._hide_btn.isEnabled()
     assert panel._note.text() == vts_panel.NOTE_UNPINNED
-    # 向きを変えたら作り直しを促す
+    # 向きを変えたら、少し待って作り直すことを知らせる。自動で作り直せなければ押してもらう
     profile.heart_yaw_deg += 20.0
     panel._refresh()
-    assert panel._note.text() == vts_panel.NOTE_STALE and panel._note.objectName() == "warn"
+    assert panel._note.text() == vts_panel.NOTE_STALE and panel._note.objectName() == "meta"
+    panel._failed_key = look_key(profile)
+    panel._refresh()
+    assert panel._note.text() == vts_panel.NOTE_STALE_FAILED and panel._note.objectName() == "warn"
     # アイテムにできないスタイルでは出せない
     profile.style = "echo"
     panel._refresh()
@@ -530,3 +545,173 @@ def test_item_style_names_follow_the_style_list() -> None:
     # オシャレ1・2 も出せるのに案内から漏れていたので、一覧から作る
     assert ITEM_STYLE_NAMES == style_names(ITEM_STYLES)
     assert ITEM_STYLE_NAMES == "リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械"
+
+
+def test_look_key_follows_effect_and_stethoscope_place() -> None:
+    from stream_heartbeat.ui.vts_panel import look_key
+
+    profile = HeartProfile(style="realistic", heart_yaw_deg=30.0)
+    plain = look_key(profile)
+    profile.effect = "burst"
+    assert look_key(profile) != plain
+    # 掴んでいる間は正面から描くので、向きを変えても作り直さない
+    profile.effect = "grip"
+    held = look_key(profile)
+    profile.heart_yaw_deg = -40.0
+    assert look_key(profile) == held
+    # 聴診器は当てる所が変われば作り直す（小さなずれでは作り直さない）
+    profile.effect = "stethoscope"
+    assert look_key(profile, (0.3, 0.2)) != look_key(profile, (-0.5, 0.2))
+    assert look_key(profile, (0.3, 0.2)) == look_key(profile, (0.31, 0.21))
+    assert look_key(HeartProfile(style="cute"), (0.3, 0.2)) == look_key(HeartProfile(style="cute"))
+    # 演出が選べないスタイルの演出は、絵に入らない
+    assert look_key(HeartProfile(style="realistic", effect="doppler")) == look_key(
+        HeartProfile(style="realistic")
+    )
+    # 保存して読み直しても同じ
+    key = look_key(profile, (0.3, 0.2))
+    assert tuple(json.loads(json.dumps(list(key)))) == key
+
+
+def test_frames_carry_the_effect(qapp) -> None:
+    del qapp
+    from stream_heartbeat.render.heart_frames import FRAME_SECONDS
+
+    plain = render_frames(HeartProfile(style="cute"), size=128)
+    gripped = render_frames(HeartProfile(style="cute", effect="grip"), size=128)
+    assert len(gripped) == len(plain)
+    assert gripped[0] != plain[0] and gripped[-1] != plain[-1]
+    # 聴診器は当てる所に描く
+    left = render_frames(HeartProfile(style="cute", effect="stethoscope"), 128, (-0.5, 0.0))
+    right = render_frames(HeartProfile(style="cute", effect="stethoscope"), 128, (0.5, 0.0))
+    assert left[0] != right[0]
+    # はじけるハートは消えきるまでコマにし、休んでいる形には残さない
+    burst = render_frames(HeartProfile(style="cute", effect="burst"), size=128)
+    assert len(burst) > len(plain) > int(FRAME_SECONDS * 30)
+    assert burst[-1] == plain[-1]
+    # 手や管は下端へ向けて薄くし、コマの下端で切れて見えないようにする
+    bottom = gripped[0].height() - 1
+    assert all(gripped[0].pixelColor(x, bottom).alpha() < 30 for x in range(0, 128, 4))
+
+
+def test_heart_offset_round_trip_and_reach(qapp) -> None:
+    del qapp
+    from PySide6.QtCore import QPointF
+
+    from stream_heartbeat.ui.effects import HeartFrame, heart_offset, point_from_heart
+
+    frame = HeartFrame(center=QPointF(100.0, 80.0), half_w=40.0, half_h=60.0)
+    offset = heart_offset(frame, QPointF(125.0, 30.0))
+    assert offset == pytest.approx((0.5, -1.0))
+    back = point_from_heart(frame, offset)
+    assert (back.x(), back.y()) == pytest.approx((125.0, 30.0))
+    # 遠すぎる所は心臓の方へ寄せる
+    near = point_from_heart(frame, (3.0, 4.0), reach=1.0)
+    assert (near.x(), near.y()) == pytest.approx((130.0, 120.0))
+
+
+def test_panel_remakes_after_the_look_settles(qtbot, tmp_path: Path, monkeypatch) -> None:
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import REMAKE_WAIT_S, VtsPanel, look_key
+
+    now = [100.0]
+    monkeypatch.setattr(vts_panel.time, "monotonic", lambda: now[0])
+    session = HeartSession()
+    profile = session.profile
+    profile.style = "cute"
+    panel = VtsPanel(session, tmp_path, lambda _text: None, lambda: (0.4, 0.1))
+    qtbot.addWidget(panel)
+    made: list[bool] = []
+    panel._make_item = lambda auto=False: made.append(auto)  # type: ignore[method-assign]
+    panel._client._state = READY
+    panel._heart.instance_id = "inst1"
+    panel._made_key = look_key(profile)
+    panel._auto_remake()
+    assert made == []
+    # 見た目を変えても、続けて変えている間は待つ
+    profile.effect = "stethoscope"
+    panel._auto_remake()
+    now[0] += REMAKE_WAIT_S * 0.5
+    profile.style = "chic"
+    panel._auto_remake()
+    now[0] += REMAKE_WAIT_S * 0.8
+    panel._auto_remake()
+    assert made == []
+    now[0] += REMAKE_WAIT_S * 0.5
+    panel._auto_remake()
+    assert made == [True]
+    # 聴診器の所は配信用の窓に聞く
+    assert look_key(profile, (0.4, 0.1)) == panel._look_key() != look_key(profile)
+    # 作り直している間・失敗した見た目・出していないときは作り直さない
+    panel._busy = True
+    now[0] += REMAKE_WAIT_S * 2
+    panel._auto_remake()
+    now[0] += REMAKE_WAIT_S * 2
+    panel._auto_remake()
+    panel._busy = False
+    panel._failed_key = panel._look_key()
+    panel._auto_remake()
+    now[0] += REMAKE_WAIT_S * 2
+    panel._auto_remake()
+    panel._failed_key = None
+    panel._heart.instance_id = None
+    panel._auto_remake()
+    now[0] += REMAKE_WAIT_S * 2
+    panel._auto_remake()
+    assert made == [True]
+    panel.shutdown()
+
+
+def test_panel_remakes_item_in_vts_when_the_effect_changes(
+    qtbot, fake_vts: FakeVts, tmp_path: Path, monkeypatch
+) -> None:
+    from functools import partial
+
+    from stream_heartbeat.profile import load_app_state, save_app_state
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import VtsPanel, look_key
+
+    items = tmp_path / "Items"
+    items.mkdir()
+    monkeypatch.setattr(vts_panel, "find_items_dir", lambda: items)
+    monkeypatch.setattr(vts_panel, "VtsClient", partial(VtsClient, port=fake_vts.port))
+    monkeypatch.setattr(vts_panel, "REMAKE_WAIT_S", 0.0)
+    save_app_state(tmp_path, vts_token="tok123")
+    session = HeartSession()
+    session.profile.style = "cute"
+    notices: list[str] = []
+    panel = VtsPanel(session, tmp_path, notices.append)
+    qtbot.addWidget(panel)
+    panel._enable.setChecked(True)
+    qtbot.waitUntil(lambda: panel._client.state == READY, timeout=3000)
+    panel._make_item()
+    qtbot.waitUntil(lambda: panel._heart.instance_id == "inst1" and not panel._busy, timeout=3000)
+    first = sorted(path.name for path in (items / ITEM_FOLDER).glob("*.png"))
+    # 演出を変えたら、押さなくても今の見た目で書き直して出し直す
+    session.profile.effect = "grip"
+    panel.tick(0.0)
+    panel.tick(0.0)
+    qtbot.waitUntil(
+        lambda: len(fake_vts.sent("ItemLoadRequest")) == 2 and not panel._busy, timeout=3000
+    )
+    assert sorted(path.name for path in (items / ITEM_FOLDER).glob("*.png")) != first
+    assert panel._made_key == look_key(session.profile)
+    assert load_app_state(tmp_path)["vts_item_look"] == list(look_key(session.profile))
+    assert notices[-1] == vts_panel.REMADE_NOTICE
+    panel.shutdown()
+
+
+def test_show_item_keeps_the_new_frame_count(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts)
+    # 前に出した（コマ数の違う）アイテムが場にある
+    fake_vts.scene = [{"instanceID": "old1", "fileName": ITEM_FOLDER, "frameCount": 20}]
+    shown: list[bool] = []
+    heart.show_item(28, shown.append)
+    qtbot.waitUntil(lambda: shown == [True], timeout=3000)
+    # しまう前のコマ数ではなく、新しいコマの最後（休んでいる形）で止める
+    assert heart.frame_count == 28
+    rest = fake_vts.sent("ItemAnimationControlRequest")[-1]
+    assert rest["frame"] == 27 and rest["autoStopFrames"] == [27]
+    client.stop()

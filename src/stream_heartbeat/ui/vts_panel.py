@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -28,10 +29,12 @@ from stream_heartbeat.render.heart_frames import (
     ITEM_STYLES,
     count_frames,
     frame_systole,
+    item_effect,
     render_frames,
     write_frames,
 )
 from stream_heartbeat.session import HeartSession
+from stream_heartbeat.ui.effects import EFFECT_GRIP, STETHO_EFFECTS
 from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
@@ -84,6 +87,8 @@ PIN_BUTTON = "心臓を付ける場所を選ぶ"
 PICKING_BUTTON = "クリック待ち…（もう一度押すとやめる）"
 SIZE_LABEL = "大きさ"
 PARAMS_CHECK = "心拍を VTube Studio のパラメータにも送る（上級者向け）"
+# 見た目を変えてから VTube Studio の心臓を作り直すまで待つ秒（続けて変えている間は待つ）
+REMAKE_WAIT_S = 0.8
 
 
 def style_names(keys: frozenset[str]) -> str:
@@ -112,9 +117,11 @@ def style_names(keys: frozenset[str]) -> str:
 ITEM_STYLE_NAMES = style_names(ITEM_STYLES)
 NOTE_BAD_STYLE = f"このスタイルは VTube Studio に出せません。出せるのは{ITEM_STYLE_NAMES}です"
 NOTE_NOT_SHOWN = f"次は「{SHOW_BUTTON}」を押してください"
-NOTE_STALE = (
-    "スタイルか向きを変えました。「作り直す」を押すと、VTube Studio の心臓も同じ見た目になります"
+NOTE_STALE = "見た目を変えました。少し待つと、VTube Studio の心臓も同じ見た目になります"
+NOTE_STALE_FAILED = (
+    f"VTube Studio の心臓を今の見た目にできませんでした。「{REMAKE_BUTTON}」を押してください"
 )
+REMADE_NOTICE = "VTube Studio の心臓も今の見た目にしました"
 NOTE_UNPINNED = (
     f"心臓を出しました。次は「{PIN_BUTTON}」を押して、モデルに付ける場所を決めてください"
 )
@@ -160,8 +167,11 @@ HOW_TO = (
     "「VTube Studio とつなぐ」にチェックを入れたままにしておけば、"
     "次からはこのアプリと VTube Studio を起動するだけで、同じ所に心臓が出ます。"
     "VTube Studio をあとから起動しても、自動でつながります。\n"
-    "・スタイルや心臓の向きを変えたときは「作り直す（今の見た目で）」を押すと、"
-    "VTube Studio の心臓も同じ見た目になります（押すまでは前の見た目のままです）。\n"
+    "・スタイル・心臓の向き・演出を変えると、少し待ったあとで VTube Studio の心臓も"
+    "自動で同じ見た目になります。\n"
+    "・演出の心臓わしづかみ・聴診器・はじけるハートも、VTube Studio の心臓に付きます。"
+    "クリックで強く握る・聴診器がマウスについてくる動きは配信用の窓だけで、VTube Studio では"
+    "手を添えたまま・配信用の窓で置いた所に聴診器を当てたままになります。\n"
     f"・心臓を消すときは「{HIDE_BUTTON}」を押します。次に起動しても出ません"
     f"（また出すときは「{SHOW_BUTTON}」）。\n"
     f"・VTube Studio に出せるスタイル: {ITEM_STYLE_NAMES}\n"
@@ -184,6 +194,8 @@ TROUBLE = (
     "・心臓が出ない\n"
     "　→ 下の「書き出し先」が VTube Studio の Items フォルダになっているか確かめてください。"
     "Steam 以外で入れた場合は「フォルダを選ぶ」で選び直します\n"
+    "・VTube Studio の心臓の見た目が、配信用の窓と違う\n"
+    f"　→ 「{REMAKE_BUTTON}」を押してください\n"
     "・VTube Studio 側で心臓を消してしまった\n"
     f"　→ 「{SHOW_BUTTON}」をもう一度押してください\n"
     "・心臓の位置がずれた・別の所に付け直したい\n"
@@ -208,12 +220,21 @@ def _saved_size(raw: object) -> float:
     return ITEM_SIZE
 
 
-def look_key(profile: HeartProfile) -> tuple:
-    """アイテムの絵を決める見た目（スタイル・種類・向き）。変わったら作り直しを促す。"""
-    angle = () if profile.style in FLAT_ITEM_STYLES else (
-        round(profile.heart_yaw_deg), round(profile.heart_pitch_deg)
-    )
-    return (profile.style, profile.realistic_look, *angle)
+def look_key(profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0)) -> tuple:
+    """アイテムの絵を決める見た目（スタイル・種類・向き・演出）。変わったら作り直す。
+
+    stetho は聴診器を当てる所（render_frames と同じ）。保存できるよう、文字と数だけで作る。
+    """
+    effect = item_effect(profile)
+    # 2D の絵と、手で掴んでいる間（正面から見る）は向きが無い
+    front = profile.style in FLAT_ITEM_STYLES or effect == EFFECT_GRIP
+    angle = () if front else (round(profile.heart_yaw_deg), round(profile.heart_pitch_deg))
+    place = (round(stetho[0], 1), round(stetho[1], 1)) if effect in STETHO_EFFECTS else ()
+    return (profile.style, profile.realistic_look, *angle, effect, *place)
+
+
+def _saved_look(raw: object) -> tuple | None:
+    return tuple(raw) if isinstance(raw, list) else None
 
 
 def _set_kind(label: QLabel, kind: str) -> None:
@@ -230,12 +251,15 @@ class VtsPanel(QWidget):
         session: HeartSession,
         data_dir: Path,
         notify: Callable[[str], None],
+        stetho_offset: Callable[[], tuple[float, float]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
+        """stetho_offset は配信用の窓に置いてある聴診器の所（render_frames の stetho）を返す。"""
         super().__init__(parent)
         self._session = session
         self._data_dir = data_dir
         self._notify = notify
+        self._stetho_offset = stetho_offset or (lambda: (0.0, 0.0))
         state = load_app_state(data_dir)
         token = state.get("vts_token")
         self._client = VtsClient(token=token if isinstance(token, str) else "")
@@ -249,8 +273,13 @@ class VtsPanel(QWidget):
         self._items_dir: Path | None = Path(saved_dir) if isinstance(saved_dir, str) else None
         # 前に出していたら、つないだとき場に無ければ出し直す（VTube Studio を起動し直したときなど）
         self._auto_show = bool(state.get("vts_item_shown", False))
-        # このとき書き出した絵の見た目（起動し直した後は分からないので None）
-        self._made_key: tuple | None = None
+        # 書き出してある絵の見た目（look_key。分からなければ None）
+        self._made_key = _saved_look(state.get("vts_item_look"))
+        # 作り直して出し終えるまで真。作り直しを待っている見た目と、待ち始めた時刻
+        self._busy = False
+        self._pending: tuple[tuple, float] | None = None
+        # 自動の作り直しに失敗した見た目（同じ見た目では試し直さない）
+        self._failed_key: tuple | None = None
         self._view: tuple | None = None
         self._last_origin: float | None = None
         self._last_param = -1.0
@@ -344,6 +373,10 @@ class VtsPanel(QWidget):
     # ------------------------------------------------------------ 状態
 
     def _on_state(self, state: str) -> None:
+        if state != READY:
+            # 切れると出し終えた知らせは来ない
+            self._busy = False
+            self._pending = None
         self._status.setText(STATE_LABELS.get(state, state))
         self._status.setVisible(state != OFF)
         _set_kind(self._status, "warn" if state in WARN_STATES else "meta")
@@ -363,6 +396,7 @@ class VtsPanel(QWidget):
         can_item = profile.style in ITEM_STYLES
         shown = self._heart.instance_id is not None
         picking = self._heart.picking
+        key = self._look_key()
         if not ready:
             note, warn = "", False
         elif picking:
@@ -371,8 +405,9 @@ class VtsPanel(QWidget):
             note, warn = NOTE_BAD_STYLE, True
         elif not shown:
             note, warn = NOTE_NOT_SHOWN, False
-        elif self._made_key is not None and self._made_key != look_key(profile):
-            note, warn = NOTE_STALE, True
+        elif key != self._made_key:
+            failed = key == self._failed_key
+            note, warn = (NOTE_STALE_FAILED, True) if failed else (NOTE_STALE, False)
         elif self._heart.model_id in self._heart.pins:
             note, warn = NOTE_PINNED, False
         else:
@@ -394,12 +429,19 @@ class VtsPanel(QWidget):
         self._save(vts_token=token or None)
 
     def _on_found(self, found: bool) -> None:
-        """つないだ直後。前に出していて場に無ければ、書き出してあるコマで出し直す。"""
+        """つないだ直後。前に出していて場に無ければ出し直す。
+
+        書き出してあるコマが今の見た目と違えば、今の見た目で作り直して出す。
+        """
         if not found and self._auto_show:
-            folder = self._resolved_dir()
-            count = count_frames(folder / ITEM_FOLDER) if folder is not None else 0
-            if count > 0:
-                self._heart.show_item(count)
+            can_item = self._session.profile.style in ITEM_STYLES
+            if can_item and self._made_key != self._look_key():
+                self._make_item(auto=True)
+            else:
+                folder = self._resolved_dir()
+                count = count_frames(folder / ITEM_FOLDER) if folder is not None else 0
+                if count > 0:
+                    self._heart.show_item(count)
         self._refresh()
 
     def _on_enable(self, on: bool) -> None:
@@ -451,7 +493,15 @@ class VtsPanel(QWidget):
         self._save(vts_items_dir=str(folder))
         self._show_folder()
 
-    def _make_item(self) -> None:
+    def _look_key(self) -> tuple:
+        return look_key(self._session.profile, self._stetho_offset())
+
+    def _make_item(self, auto: bool = False) -> None:
+        """今の見た目でコマを書き出して出す（出ていれば出し直す）。
+
+        auto は見た目が変わったときの自動の作り直し。フォルダを選ぶ窓は出さず、
+        失敗したら同じ見た目では試し直さない。
+        """
         profile = self._session.profile
         if profile.style not in ITEM_STYLES:
             self._notify(NOTE_BAD_STYLE)
@@ -459,37 +509,75 @@ class VtsPanel(QWidget):
         if self._client.state != READY:
             self._notify("VTube Studio につながってから押してください")
             return
+        stetho = self._stetho_offset()
+        key = look_key(profile, stetho)
         folder = self._resolved_dir()
         if folder is None:
             self._notify(NOT_ITEMS_NOTICE)
+            if auto:
+                self._failed_key = key
+                return
             self._choose_folder()
             folder = self._resolved_dir()
             if folder is None:
                 return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            count = write_frames(render_frames(profile), folder / ITEM_FOLDER)
+            count = write_frames(render_frames(profile, stetho=stetho), folder / ITEM_FOLDER)
         except (OSError, RuntimeError):
+            self._failed_key = key
             self._notify("アイテムの画像を書き出せませんでした（書き出し先のフォルダを確かめてください）")
             return
         finally:
             QApplication.restoreOverrideCursor()
-        self._made_key = look_key(profile)
-        self._heart.show_item(count, self._item_shown)
+        self._made_key = key
+        self._failed_key = None
+        # 次に起動したとき、書き出してあるコマが今の見た目かを見分ける
+        self._save(vts_item_look=list(key))
+        self._busy = True
+        self._heart.show_item(count, lambda ok: self._item_shown(ok, auto))
 
-    def _item_shown(self, ok: bool) -> None:
+    def _item_shown(self, ok: bool, auto: bool = False) -> None:
+        self._busy = False
         if ok:
             self._auto_show = True
             self._save(vts_item_shown=True)
             pinned = self._heart.model_id in self._heart.pins
-            self._notify(
-                "VTube Studio に心臓を出し、覚えている場所に付けました"
-                if pinned
-                else f"VTube Studio に心臓を出しました。次は「{PIN_BUTTON}」を押してください"
-            )
+            if auto:
+                self._notify(REMADE_NOTICE)
+            elif pinned:
+                self._notify("VTube Studio に心臓を出し、覚えている場所に付けました")
+            else:
+                self._notify(
+                    f"VTube Studio に心臓を出しました。次は「{PIN_BUTTON}」を押してください"
+                )
         else:
             self._notify(f"VTube Studio に出せませんでした（{self._heart.last_error}）")
         self._refresh()
+
+    def _auto_remake(self) -> None:
+        """出している心臓と見た目が違えば、少し待ってから今の見た目で作り直す。"""
+        key = self._look_key()
+        if (
+            self._client.state != READY
+            or self._busy
+            or self._heart.instance_id is None
+            or self._heart.picking
+            or self._session.profile.style not in ITEM_STYLES
+            or key in (self._made_key, self._failed_key)
+        ):
+            self._pending = None
+            return
+        now = time.monotonic()
+        if self._pending is None or self._pending[0] != key:
+            self._pending = (key, now)
+            return
+        # 続けて変えている間と、つまみや心臓を回すドラッグの途中は待つ
+        dragging = QApplication.mouseButtons() != Qt.MouseButton.NoButton
+        if now - self._pending[1] < REMAKE_WAIT_S or dragging:
+            return
+        self._pending = None
+        self._make_item(auto=True)
 
     def _hide_item(self) -> None:
         self._auto_show = False
@@ -531,6 +619,7 @@ class VtsPanel(QWidget):
 
     def tick(self, t: float) -> None:
         """操作画面のタイマーごと。拍が来たらアイテムを再生し、パラメータを送る。"""
+        self._auto_remake()
         self._refresh()
         if self._client.state != READY:
             self._last_origin = None

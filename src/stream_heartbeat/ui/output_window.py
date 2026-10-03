@@ -52,6 +52,7 @@ from stream_heartbeat.ui.effects import (
     flat_heart_frame,
     gl_heart_frame,
     grip_squash,
+    heart_offset,
 )
 from stream_heartbeat.ui.heart_echo import (
     echo_zoom,
@@ -161,6 +162,19 @@ class OutputCanvas(QOpenGLWidget):
         if self.uses_gl:
             return gl_heart_frame(rect, profile.scale, self._look(), heart_lift(profile.style))
         return flat_heart_frame(rect, profile.style, profile.scale, profile.realistic_look)
+
+    def stetho_offset(self) -> tuple[float, float]:
+        """置いてある聴診器の、心臓の真ん中からのずれ（心臓の半径を 1 とする）。
+
+        VTube Studio のアイテムの絵で、同じ所に聴診器を当てるのに使う。
+        """
+        profile = self._session.profile
+        rect = QRectF(self.rect())
+        point = QPointF(
+            rect.left() + profile.stetho_x * rect.width(),
+            rect.top() + profile.stetho_y * rect.height(),
+        )
+        return heart_offset(self._heart_frame(rect), point)
 
     def _relative(self, pos: QPointF) -> tuple[float, float]:
         w = max(1.0, float(self.width()))

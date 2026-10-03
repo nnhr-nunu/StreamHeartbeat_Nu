@@ -148,6 +148,24 @@ class HeartFrame:
         return (self.half_w + self.half_h) * 0.5
 
 
+def heart_offset(frame: HeartFrame, point: QPointF) -> tuple[float, float]:
+    """point の、心臓の真ん中からのずれ（心臓の半径を 1 とする）。"""
+    r = max(1.0, frame.radius)
+    return (point.x() - frame.center.x()) / r, (point.y() - frame.center.y()) / r
+
+
+def point_from_heart(
+    frame: HeartFrame, offset: tuple[float, float], reach: float | None = None
+) -> QPointF:
+    """heart_offset の逆。reach を渡すと、それより遠いずれは心臓の方へ寄せる。"""
+    dx, dy = offset
+    far = math.hypot(dx, dy)
+    if reach is not None and far > reach:
+        dx, dy = dx * reach / far, dy * reach / far
+    r = max(1.0, frame.radius)
+    return QPointF(frame.center.x() + dx * r, frame.center.y() + dy * r)
+
+
 def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) -> HeartFrame:
     """立体の心臓を正面から描いたときの画面上の置き場所（heart_gl のカメラと同じ式）。
 

@@ -378,3 +378,19 @@ def test_flat_hand_keeps_fingertips_inside_the_heart(qapp: QApplication) -> None
         flat_heart_frame(rect, "cute", 0.7, CUTE_REIWA).half_w
         > flat_heart_frame(rect, "cute", 0.7).half_w
     )
+
+
+def test_vts_gets_stetho_place_from_output_window(qapp: QApplication) -> None:
+    del qapp
+    from stream_heartbeat.ui.effects import flat_heart_frame
+
+    profile = HeartProfile(style="cute", effect=EFFECT_STETHO)
+    operator, output = _open(profile)
+    rect = QRectF(output.canvas.rect())
+    frame = flat_heart_frame(rect, "cute", profile.scale)
+    # 配信用の窓で心臓の真ん中に置いた聴診器は、VTube Studio の絵でも心臓の真ん中に当てる
+    profile.stetho_x = frame.center.x() / rect.width()
+    profile.stetho_y = frame.center.y() / rect.height()
+    assert operator._vts._stetho_offset() == pytest.approx((0.0, 0.0), abs=1e-6)
+    profile.stetho_x += frame.radius / rect.width()
+    assert operator._vts._stetho_offset() == pytest.approx((1.0, 0.0), abs=1e-6)
