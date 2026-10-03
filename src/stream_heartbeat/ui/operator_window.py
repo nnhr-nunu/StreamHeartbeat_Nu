@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import fields
 from pathlib import Path
@@ -94,15 +95,18 @@ def _right(widget: QWidget) -> QHBoxLayout:
     return row
 
 
-def obs_hint(backdrop: str) -> str:
+def obs_hint(backdrop: str, windows: bool = sys.platform == "win32") -> str:
     """OBS への取り込み方。背景の色で抜き方が変わる。
 
-    透明は OBS の取り込み方によっては透けないので、そのときの逃げ道も書く。
+    透明は Windows ではキャプチャ方法を「Windows 10（1903以降）」にしないと透けない。
+    それでも透けないときの逃げ道も書く。
     """
     base = f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び"
     key = OBS_KEYS.get(backdrop)
     if key:
         return f"{base}、{key}を抜きます。"
+    if windows:
+        base += "、プロパティの「キャプチャ方法」を「Windows 10（1903以降）」にし"
     return f"{base}ます（透けないときは背景を緑にして、クロマキーで抜きます）。"
 
 
