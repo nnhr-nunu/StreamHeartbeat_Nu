@@ -205,3 +205,9 @@ def test_obs_hint_follows_backdrop() -> None:
     assert "クロマキーで緑" in obs_hint("green")
     assert "カラーキーで白" in obs_hint("white")
     assert "透けないときは" in obs_hint("transparent")
+
+
+def test_obs_hint_transparent_names_capture_method_on_windows_only() -> None:
+    assert "Windows 10（1903以降）" in obs_hint("transparent", windows=True)
+    assert "Windows 10" not in obs_hint("transparent", windows=False)
+    assert "Windows 10" not in obs_hint("green", windows=True)
