@@ -308,7 +308,7 @@ class HeartRenderer:
 
 
 class OffscreenHeart:
-    """窓なしで心臓を画像にする。確認用。"""
+    """窓なしで心臓を画像にする。確認用と、VTube Studio のアイテムのコマ。"""
 
     def __init__(self, mesh: HeartMesh | None = None) -> None:
         self._context = QOpenGLContext()
@@ -319,6 +319,9 @@ class OffscreenHeart:
         if not self._context.makeCurrent(self._surface):
             raise HeartRendererError("オフスクリーン面を使えません")
         self._renderer = HeartRenderer(self._context.functions(), mesh)
+        # 心臓を掴む手。初めて掴んだ絵を描くときに作る（作れなければ hand_failed）
+        self._hand = None
+        self.hand_failed = False
 
     def render(
         self,
@@ -333,7 +336,11 @@ class OffscreenHeart:
         opacity: float = 1.0,
         time_s: float = 0.0,
         background: QColor | None = None,
+        squash_x: float = 1.0,
+        squash_y: float = 1.0,
+        hand: HandPose | None = None,
     ) -> QImage:
+        """hand は心臓を掴んでいる手の形（指の所が凹む）。手そのものは render_hand で描く。"""
         self._context.makeCurrent(self._surface)
         fbo = QOpenGLFramebufferObject(
             width, height, QOpenGLFramebufferObject.Attachment.CombinedDepthStencil
@@ -354,10 +361,54 @@ class OffscreenHeart:
             scale=scale,
             opacity=opacity,
             time_s=time_s,
+            squash_x=squash_x,
+            squash_y=squash_y,
+            hand=hand,
         )
         image = fbo.toImage()
         fbo.release()
         return image
+
+    def render_hand(
+        self, *, width: int, height: int, pose: HandPose, opacity: float, see_through: bool
+    ) -> QImage | None:
+        """心臓を掴む手だけを、背景の透けた画像にする。描けなければ None（hand_failed も立つ）。
+
+        see_through は hand_gl と同じ（心臓が透けるか）。
+        """
+        # hand_gl は heart_gl のカメラを使うので、ここで読み込む
+        from stream_heartbeat.render.hand_gl import HandRenderer, HandRendererError
+        from stream_heartbeat.ui.effect_grip import grip_image, hand_image
+
+        if self.hand_failed:
+            return None
+        self._context.makeCurrent(self._surface)
+        fbo = QOpenGLFramebufferObject(
+            width, height, QOpenGLFramebufferObject.Attachment.CombinedDepthStencil
+        )
+        fbo.bind()
+        gl = self._context.functions()
+        gl.glViewport(0, 0, width, height)
+        gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+        gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        try:
+            if self._hand is None:
+                self._hand = HandRenderer(gl, hand_image(), grip_image())
+            self._hand.draw(
+                width=width,
+                height=height,
+                pose=pose,
+                lift=0.0,
+                opacity=opacity,
+                see_through=see_through,
+            )
+            return fbo.toImage()
+        except (HandRendererError, RuntimeError, AttributeError):
+            self._hand = None
+            self.hand_failed = True
+            return None
+        finally:
+            fbo.release()
 
 
 def deg_to_rad(deg: float) -> float:

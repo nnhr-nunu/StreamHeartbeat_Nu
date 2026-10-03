@@ -390,7 +390,10 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         oshi_wrap, _oshi_fold = make_fold("推しログ(ぬ)連携（未実装）", oshi_inner, expanded=False)
         # 未実装のうちは画面に出さない（保存した値はそのまま使う）
         oshi_wrap.hide()
-        self._vts = VtsPanel(self._session, self._data_dir, self._flash)
+        # 配信用の窓は作り直すことがあるので、そのときの窓に聞く
+        self._vts = VtsPanel(
+            self._session, self._data_dir, self._flash, lambda: self._output.canvas.stetho_offset()
+        )
         vts_layout = QVBoxLayout()
         vts_layout.addWidget(self._vts)
         vts_box = QGroupBox("⑤ VTube Studio 連携")
