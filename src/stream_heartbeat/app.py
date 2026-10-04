@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from stream_heartbeat.i18n import init_language, tr
 from stream_heartbeat.render.gl_platform import set_default_format
 from stream_heartbeat.ui.app_icon import apply_app_icon, configure_process_identity
 from stream_heartbeat.ui.win_front import bring_to_front
@@ -43,12 +44,14 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("StreamHeartbeat(ぬ)")
     apply_app_icon(app)
+    # 起動中の小窓から前の言語で出すため、いちばん先に決める
+    init_language()
 
     from stream_heartbeat.ui.splash import StartupSplash
 
     splash = StartupSplash()
     splash.show_now()
-    splash.step("設定を読み込んでいます")
+    splash.step(tr("設定を読み込んでいます"))
 
     from stream_heartbeat.paths import cache_dir, resolve_data_dir
     from stream_heartbeat.profile import load_app_state
@@ -60,12 +63,12 @@ def run() -> int:
     session = _initial_session()
     cache = cache_dir()
     if has_cached_mesh(cache):
-        splash.step("心臓を用意しています")
+        splash.step(tr("心臓を用意しています"))
     else:
-        splash.step("心臓の形を作っています（初回だけ少しかかります）")
+        splash.step(tr("心臓の形を作っています（初回だけ少しかかります）"))
     # 配信用の窓が OpenGL を始めるときに使う形を、先に読んでおく（2 回目からは保存した形を読むだけ）
     shared_heart_mesh(cache)
-    splash.step("画面を組み立てています")
+    splash.step(tr("画面を組み立てています"))
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
     output.set_quit_handler(operator.close)

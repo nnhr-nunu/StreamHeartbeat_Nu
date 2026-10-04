@@ -32,13 +32,21 @@ def fold_toggle(title: str, inner: QWidget, *, expanded: bool = False) -> QToolB
 
 
 def make_fold(
-    title: str, inner: QWidget, *, expanded: bool = False
+    title: str, inner: QWidget, *, expanded: bool = False, side: QWidget | None = None
 ) -> tuple[QWidget, QToolButton]:
+    """見出し + 中身。side を渡すと、見出しの行の右端に置く（言語ボタンなど）。"""
     toggle = fold_toggle(title, inner, expanded=expanded)
     wrap = QWidget()
     layout = QVBoxLayout(wrap)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(toggle)
+    if side is None:
+        layout.addWidget(toggle)
+    else:
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.addWidget(toggle, 1)
+        head.addWidget(side)
+        layout.addLayout(head)
     layout.addWidget(inner)
     return wrap, toggle
 

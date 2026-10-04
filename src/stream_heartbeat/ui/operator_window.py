@@ -38,6 +38,16 @@ from stream_heartbeat.config import (
     PREVIEW_IDLE_STATUS,
     PREVIEW_LOST_STATUS,
 )
+from stream_heartbeat.i18n import (
+    LANG_EN,
+    LANG_JA,
+    SKIP_PROP,
+    language,
+    other_language_label,
+    set_language,
+    tr,
+    translate_tree,
+)
 from stream_heartbeat.oshilog import AuxBpmPoller
 from stream_heartbeat.paths import resolve_data_dir
 from stream_heartbeat.profile import (
@@ -86,6 +96,8 @@ OBS_KEYS = {"green": "クロマキーで緑", "white": "カラーキーで白", 
 NO_AUDIO_S = 2.0
 NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
 SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か、空き容量が足りません）"
+CLOCK_WARN = "時計と数字がズレています（推しログは遅延します）"
+CAL_FOLD_TITLE = "心拍の補正（数字が合わないときだけ）"
 
 
 def _right(widget: QWidget) -> QHBoxLayout:
@@ -101,13 +113,25 @@ def obs_hint(backdrop: str, windows: bool = sys.platform == "win32") -> str:
     透明は Windows ではキャプチャ方法を「Windows 10（1903以降）」にしないと透けない。
     それでも透けないときの逃げ道も書く。
     """
-    base = f"OBS では「ウィンドウキャプチャ」で「{OUTPUT_WINDOW_TITLE}」を選び"
     key = OBS_KEYS.get(backdrop)
     if key:
-        return f"{base}、{key}を抜きます。"
+        return tr(
+            "OBS では「ウィンドウキャプチャ」で「{title}」を選び、{key}を抜きます。",
+            title=OUTPUT_WINDOW_TITLE,
+            key=tr(key),
+        )
     if windows:
-        base += "、プロパティの「キャプチャ方法」を「Windows 10（1903以降）」にし"
-    return f"{base}ます（透けないときは背景を緑にして、クロマキーで抜きます）。"
+        return tr(
+            "OBS では「ウィンドウキャプチャ」で「{title}」を選び、"
+            "プロパティの「キャプチャ方法」を「Windows 10（1903以降）」にします"
+            "（透けないときは背景を緑にして、クロマキーで抜きます）。",
+            title=OUTPUT_WINDOW_TITLE,
+        )
+    return tr(
+        "OBS では「ウィンドウキャプチャ」で「{title}」を選びます"
+        "（透けないときは背景を緑にして、クロマキーで抜きます）。",
+        title=OUTPUT_WINDOW_TITLE,
+    )
 
 
 def _toggle_box(
@@ -137,6 +161,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._data_dir = resolve_data_dir()
         self._t0 = time.perf_counter()
         self._display_clock = DisplayClock()
+        self._clock_warn = False
         self._closing = False
         self._saved_snapshot: tuple = ()
         self._last_audio = 0.0
@@ -175,9 +200,12 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         version = QLabel(display_version())
         version.setObjectName("meta")
 
+        # プロファイル名とマイク名は利用者のデータなので、言語を変えても付け替えない
         self._profiles = MarkedComboBox()
         self._profiles.setEditable(False)
+        self._profiles.setProperty(SKIP_PROP, True)
         self._mics = MarkedComboBox()
+        self._mics.setProperty(SKIP_PROP, True)
         # スタイルと演出はよく切り替えるので、この 2 つだけホイールでも変えられる
         self._style = MarkedComboBox(wheel=True)
         for key, look, label in STYLES:
@@ -312,23 +340,22 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         cal_row = QHBoxLayout()
         cal_row.addWidget(self._cal_btn, 1)
         cal_row.addWidget(self._discard_cal)
-        cal_hint = QLabel(
-            "心拍数が半分や倍に出るときだけ使います。"
-            f"「{CAL_START}」を押すと自分の心音が聞こえるので（ヘッドホン推奨）、"
-            "鼓動に合わせて「拍」かスペースキーを10回ほど押し、"
-            f"「{CAL_SAVE}」を押します。"
-        )
-        cal_hint.setObjectName("guide")
-        cal_hint.setWordWrap(True)
+        self._cal_hint = QLabel(self._cal_hint_text())
+        self._cal_hint.setObjectName("guide")
+        self._cal_hint.setWordWrap(True)
         cal_inner_widget = QWidget()
         cal_inner = QVBoxLayout(cal_inner_widget)
         cal_inner.setContentsMargins(0, 0, 0, 0)
-        cal_inner.addWidget(cal_hint)
+        cal_inner.addWidget(self._cal_hint)
         cal_inner.addLayout(cal_row)
         cal_inner.addWidget(self._tap_btn)
         # cal_inner.addWidget(load_cal)
         cal_inner.addLayout(_right(self._reset_cal))
-        cal_wrap, _cal_fold = make_fold("心拍の補正（数字が合わないときだけ）", cal_inner_widget)
+        # 言語ボタンは「心拍の補正」の見出しの右に置く
+        self._lang_btn = QPushButton(other_language_label())
+        self._lang_btn.setObjectName("langBtn")
+        self._lang_btn.clicked.connect(self._toggle_language)
+        cal_wrap, _cal_fold = make_fold(CAL_FOLD_TITLE, cal_inner_widget, side=self._lang_btn)
 
         angle_row = QHBoxLayout()
         angle_row.addWidget(self._angle_locked, 1)
@@ -445,6 +472,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._fill_profiles()
         self._load_into_controls(self._session.profile)
         self._restart_mic()
+        # 部品は日本語の原文で作ったので、英語で始めるときはここで付け替える
+        translate_tree(self)
 
         self._timer = QTimer(self)
         self._timer.setInterval(16)
@@ -557,7 +586,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         gripped = active_effect(style, self._session.profile.effect) == EFFECT_GRIP
         self._angle_wrap.setVisible(style in ROTATABLE_STYLES and not gripped)
         failed = style in GL_STYLES and self._output.canvas.gl_error is not None
-        self._gl_note.setText(GL_FAIL_LABEL if failed else "")
+        self._gl_note.setText(tr(GL_FAIL_LABEL) if failed else "")
         self._gl_note.setVisible(failed)
         self._obs_hint.setText(obs_hint(self._session.profile.backdrop))
         self._sync_effect_choices()
@@ -579,13 +608,13 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         clock = self._session.clock
         if clock.detected:
             kind = "live"
-            text = f"{LIVE_STATUS}  {clock.bpm} BPM"
+            text = f"{tr(LIVE_STATUS)}  {clock.bpm} BPM"
         elif clock.has_beats:
             kind = "preview"
-            text = f"{PREVIEW_LOST_STATUS}  最後 {clock.bpm} BPM"
+            text = tr("{status}  最後 {bpm} BPM", status=tr(PREVIEW_LOST_STATUS), bpm=clock.bpm)
         else:
             kind = "preview"
-            text = PREVIEW_IDLE_STATUS
+            text = tr(PREVIEW_IDLE_STATUS)
         self._set_banner_kind(kind)
         self._status.setText(text)
 
@@ -600,7 +629,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             self._mic_open = False
             self._meter.setValue(0)
             self._level.setText(
-                "マイクを開けません。OBS と同時に使うときは、独占モードをオフにしてください"
+                tr("マイクを開けません。OBS と同時に使うときは、独占モードをオフにしてください")
             )
             self._level.show()
             return
@@ -617,14 +646,15 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         if self._mic_open and not self._no_audio and now - self._last_audio > NO_AUDIO_S:
             self._no_audio = True
             self._meter.setValue(0)
-            self._level.setText(NO_AUDIO_LABEL)
+            self._level.setText(tr(NO_AUDIO_LABEL))
             self._level.show()
 
     def _now(self) -> float:
         return time.perf_counter() - self._t0
 
     def _flash(self, text: str) -> None:
-        self._notice.setText(text)
+        """知らせを出す。原文でも訳したあとの文でも渡せる（訳した文は tr で変わらない）。"""
+        self._notice.setText(tr(text))
         self._notice.show()
         self._notice_timer.start(NOTICE_MS)
 
@@ -635,17 +665,55 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _sync_cal_ui(self) -> None:
         on = self._session.recording
         saved = bool(self._session.profile.calibration)
-        self._cal_btn.setText(CAL_SAVE if on else CAL_START)
+        self._refresh_cal_texts()
         self._discard_cal.setEnabled(on)
         self._tap_btn.setEnabled(on)
         self._tap_shortcut.setEnabled(on)
         self._reset_cal.setEnabled(saved and not on)
-        self._tap_btn.setText("拍")
         if on:
             self._monitor.start()
             self._tap_btn.setFocus()
             return
         self._monitor.stop()
+
+    def _toggle_language(self) -> None:
+        self._set_language(LANG_EN if language() == LANG_JA else LANG_JA)
+
+    def _set_language(self, lang: str) -> None:
+        """表示言語を切り替えて保存する。窓は作り直さず、文字だけを入れ替える。"""
+        set_language(lang)
+        try:
+            save_app_state(self._data_dir, language=language())
+        except OSError:
+            pass
+        self._retranslate()
+
+    def _retranslate(self) -> None:
+        translate_tree(self)
+        self._lang_btn.setText(other_language_label())
+        self._cal_hint.setText(self._cal_hint_text())
+        self._refresh_cal_texts()
+        self._refresh_style_controls()
+        self._show_aux(self._session.clock.oshilog_bpm)
+
+    def _tap_text(self) -> str:
+        """「拍」ボタンの文字。補正中は打った数も付ける。"""
+        count = len(self._session.taps) if self._session.recording else 0
+        return f"{tr('拍')}  {count}" if count else tr("拍")
+
+    def _refresh_cal_texts(self) -> None:
+        self._cal_btn.setText(tr(CAL_SAVE if self._session.recording else CAL_START))
+        self._tap_btn.setText(self._tap_text())
+
+    def _cal_hint_text(self) -> str:
+        return tr(
+            "心拍数が半分や倍に出るときだけ使います。"
+            "「{start}」を押すと自分の心音が聞こえるので（ヘッドホン推奨）、"
+            "鼓動に合わせて「拍」かスペースキーを10回ほど押し、"
+            "「{save}」を押します。",
+            start=tr(CAL_START),
+            save=tr(CAL_SAVE),
+        )
 
     def _on_cal_primary(self) -> None:
         if self._session.recording:
@@ -664,7 +732,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
 
     def _tap_now(self) -> None:
         if self._session.tap(self._session.now):
-            self._tap_btn.setText(f"拍  {len(self._session.taps)}")
+            self._tap_btn.setText(self._tap_text())
 
     def _commit_cal(self) -> None:
         saved = self._session.commit_calibration()
@@ -677,8 +745,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _confirm_reset(self) -> bool:
         answer = QMessageBox.question(
             self,
-            CAL_RESET,
-            "保存した心拍の補正を全部消して、最初からやり直しますか？",
+            tr(CAL_RESET),
+            tr("保存した心拍の補正を全部消して、最初からやり直しますか？"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -692,7 +760,9 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._save_current(notice="保存した補正を消しました")
 
     def _add_audio_sample(self) -> None:
-        path, _ok = QFileDialog.getOpenFileName(self, "心音ファイルを追加", "", AUDIO_FILTER)
+        path, _ok = QFileDialog.getOpenFileName(
+            self, tr("心音ファイルを追加"), "", tr(AUDIO_FILTER)
+        )
         if not path:
             return
         try:
@@ -736,8 +806,8 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _save_as(self) -> None:
         name, ok = QInputDialog.getText(
             self,
-            "名前を付けて保存",
-            "プロファイル名",
+            tr("名前を付けて保存"),
+            tr("プロファイル名"),
             QLineEdit.EchoMode.Normal,
             self._profiles.currentText(),
         )
@@ -755,13 +825,13 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             self._profiles.addItem(name)
         self._profiles.setCurrentText(name)
         self._profiles.blockSignals(False)
-        self._save_current(notice=f"「{name}」として保存しました")
+        self._save_current(notice=tr("「{name}」として保存しました", name=name))
 
     def _confirm_overwrite(self, name: str) -> bool:
         answer = QMessageBox.question(
             self,
-            "名前を付けて保存",
-            f"「{name}」はもうあります。今の設定で置き換えますか？",
+            tr("名前を付けて保存"),
+            tr("「{name}」はもうあります。今の設定で置き換えますか？", name=name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -773,9 +843,12 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
         bpm = self._aux_poller.poll(profile.oshilog_bpm_url)
         self._session.clock.oshilog_bpm = bpm
+        self._show_aux(bpm)
+
+    def _show_aux(self, bpm: int | None) -> None:
         self._aux.setVisible(bpm is not None)
         if bpm is not None:
-            self._aux.setText(f"推しログ(ぬ) 補助: {bpm}（遅延のことがあります）")
+            self._aux.setText(tr("推しログ(ぬ) 補助: {bpm}（遅延のことがあります）", bpm=bpm))
 
     def _on_tick(self) -> None:
         samples = self._mic.pull_mono()
@@ -791,14 +864,16 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._session.tick(now, samples)
         if recording:
             self._set_banner_kind("record")
-            self._status.setText(f"補正中  {self._session.tap_label()}")
+            self._status.setText(tr("補正中  {label}", label=self._session.tap_label()))
         else:
             self._set_detect_status()
         if not recording:
-            if self._session.clock.bpm_mismatch():
-                self._warn.setText("時計と数字がズレています（推しログは遅延します）")
-            elif self._warn.text().startswith("時計と数字"):
+            mismatch = self._session.clock.bpm_mismatch()
+            if mismatch:
+                self._warn.setText(tr(CLOCK_WARN))
+            elif self._clock_warn:
                 self._warn.setText("")
+            self._clock_warn = mismatch
         if self._output.canvas.gl_error is not None and not self._gl_note.isVisible():
             self._refresh_style_controls()
         shown = self._display_clock.at(now, self._session.now)

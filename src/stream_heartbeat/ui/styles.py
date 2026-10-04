@@ -40,6 +40,10 @@ QToolButton#fold {
 QPushButton:hover, QToolButton:hover {
   background: #3a3a3a;
 }
+QPushButton#langBtn {
+  min-height: 36px;
+  min-width: 76px;
+}
 QPushButton#tap {
   background: #5a3d7a;
   min-height: 44px;
