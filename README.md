@@ -4,6 +4,8 @@
 
 操作用ウィンドウで見た目やマイクを決め、配信用ウィンドウを OBS で取り込む流れになっています。
 
+**▶ [動画による使い方紹介（X 投稿）](https://x.com/nunu_hara/status/2106318291551781076)**
+
 ## 入手
 
 **[最新版のダウンロードページを開く](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)**
