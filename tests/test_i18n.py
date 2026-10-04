@@ -297,7 +297,7 @@ def windows(
 ) -> Iterator[tuple[OperatorWindow, OutputWindow]]:
     operator, output = shared_windows
     # 別のテストが英語のまま動かしたタイマーで、状態の帯が英語になっていることがある
-    operator._set_detect_status()
+    operator._refresh_status()
     yield operator, output
     # 次のテストは日本語の画面から始める
     if language() != LANG_JA:
@@ -405,16 +405,23 @@ def test_switch_during_calibration_keeps_tap_count(
     operator, _output = windows
     session = operator._session
     operator._begin_cal()
-    for t in (1.0, 1.5, 2.0):
-        assert session.tap(t)
-    operator._tap_btn.setText(operator._tap_text())
-    assert operator._tap_btn.text() == "拍  3"
-    operator._lang_btn.click()
-    assert operator._tap_btn.text() == "Beat  3"
-    assert operator._cal_btn.text() == "Save calibration"
-    operator._lang_btn.click()
-    assert operator._tap_btn.text() == "拍  3"
-    assert operator._cal_btn.text() == "補正を保存"
+    try:
+        for t in (1.0, 1.5, 2.0):
+            assert session.tap(t)
+        operator._tap_btn.setText(operator._tap_text())
+        assert operator._tap_btn.text() == "拍  3"
+        operator._lang_btn.click()
+        assert operator._tap_btn.text() == "Beat  3"
+        assert operator._cal_btn.text() == "Save calibration"
+        assert operator._status.text().startswith("Calibrating")
+        operator._lang_btn.click()
+        assert operator._tap_btn.text() == "拍  3"
+        assert operator._cal_btn.text() == "補正を保存"
+        assert operator._status.text().startswith("補正中")
+    finally:
+        # 共有の窓を、録音中のまま次のテストへ渡さない
+        session.discard_calibration()
+        operator._sync_cal_ui()
 
 
 def test_profile_name_with_braces_is_safe(
@@ -545,9 +552,9 @@ def _all_texts(root: QWidget) -> list[str]:
     """隠れている部品を含め、画面に出る文字をすべて集める。"""
     out: list[str] = []
     for widget in [root, *root.findChildren(QWidget)]:
-        if widget.property(SKIP_PROP):
-            continue
         out.append(widget.toolTip())
+        if widget.property(SKIP_PROP):  # 利用者のデータ（プロファイル名・マイク名）は訳さない
+            continue
         if isinstance(widget, (QLabel, QAbstractButton)):
             out.append(widget.text())
         if isinstance(widget, QGroupBox):
@@ -764,3 +771,67 @@ def test_english_operator_window_has_no_japanese(
     # 言語ボタンの「日本語」だけは、押した先の言語の名前として日本語で出す
     left = [text for text in _japanese_left(operator) if text != "日本語"]
     assert left == []
+
+
+# ---------------------------------------------------------------- レビューで見つかった抜け
+
+
+def test_profile_combo_tooltip_is_translated_but_names_are_not(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    """プロファイル欄は名前（利用者のデータ）を訳さないが、ツールチップは訳す。"""
+    operator, _output = windows
+    ja_tip = operator._profiles.toolTip()
+    operator._profiles.addItem("背景")
+    operator._lang_btn.click()
+    assert operator._profiles.toolTip() == (
+        "Settings are saved automatically whenever you change them"
+    )
+    names = [operator._profiles.itemText(i) for i in range(operator._profiles.count())]
+    assert "背景" in names
+    operator._lang_btn.click()
+    assert operator._profiles.toolTip() == ja_tip
+
+
+@pytest.mark.parametrize(
+    ("saved", "system_name", "expected"),
+    [("fr", "ja-JP", "ja"), (123, "en-US", "en"), ("", "ja-JP", "ja"), (None, "en-GB", "en")],
+)
+def test_init_language_falls_back_to_system_language(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    saved: object,
+    system_name: str,
+    expected: str,
+) -> None:
+    (tmp_path / STATE_FILENAME).write_text(json.dumps({"language": saved}), encoding="utf-8")
+    monkeypatch.setattr(i18n, "_system_language_name", lambda: system_name)
+    assert init_language(tmp_path) == expected
+
+
+def test_system_language_name_prefers_ui_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows の QLocale.name() は「地域の形式」。画面の言語（uiLanguages）を先に見る。"""
+    from PySide6.QtCore import QLocale
+
+    class _Fake:
+        def uiLanguages(self) -> list[str]:  # noqa: N802 (Qt の名前)
+            return ["ja-JP", "en-US"]
+
+        def name(self) -> str:
+            return "en_US"
+
+    monkeypatch.setattr(QLocale, "system", staticmethod(lambda: _Fake()))
+    assert i18n._system_language_name() == "ja-JP"
+
+
+def test_i18n_core_does_not_import_qt_at_import_time() -> None:
+    """session.py や評価スクリプトが使うので、tr だけなら Qt を読み込まない。"""
+    import subprocess
+    import sys
+
+    code = (
+        f"import sys; sys.path.insert(0, r'{SRC.parent}'); import stream_heartbeat.i18n; "
+        "print('PySide6' in sys.modules)"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"

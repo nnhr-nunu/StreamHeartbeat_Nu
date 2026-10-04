@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import fields
 from pathlib import Path
@@ -12,7 +11,6 @@ from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QCheckBox,
-    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -29,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE, display_version
+from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
 from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
 from stream_heartbeat.clock import DisplayClock
 from stream_heartbeat.config import (
@@ -39,12 +37,8 @@ from stream_heartbeat.config import (
     PREVIEW_LOST_STATUS,
 )
 from stream_heartbeat.i18n import (
-    LANG_EN,
-    LANG_JA,
     SKIP_PROP,
-    language,
     other_language_label,
-    set_language,
     tr,
     translate_tree,
 )
@@ -60,7 +54,6 @@ from stream_heartbeat.profile import (
     save_last_profile_name,
     save_profile,
 )
-from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
@@ -74,7 +67,14 @@ from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     ROTATABLE_STYLES,
 )
+from stream_heartbeat.ui.operator_calibration import (
+    CAL_DISCARD,
+    CAL_RESET,
+    CAL_START,
+    CalibrationMixin,
+)
 from stream_heartbeat.ui.operator_controls import ProfileControlsMixin
+from stream_heartbeat.ui.operator_language import LanguageMixin, obs_hint
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.slider import labeled_slider
@@ -83,15 +83,9 @@ from stream_heartbeat.ui.styles import DARK_QSS
 from stream_heartbeat.ui.vts_panel import VtsPanel
 
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
-CAL_START = "補正開始"
-CAL_SAVE = "補正を保存"
-CAL_DISCARD = "中止"
-CAL_RESET = "保存した補正を消す"
 NOTICE_MS = 3500
 # 設定を変えたら、この間隔で見回ってプロファイルへ自動で書く（保存ボタンを押さなくてよい）
 AUTOSAVE_MS = 2000
-# OBS で背景を抜く方法（背景の色ごと）
-OBS_KEYS = {"green": "クロマキーで緑", "white": "カラーキーで白", "black": "カラーキーで黒"}
 # この秒数マイクから何も届かなければ、抜けたか止まったとみなして知らせる
 NO_AUDIO_S = 2.0
 NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
@@ -105,33 +99,6 @@ def _right(widget: QWidget) -> QHBoxLayout:
     row.addStretch(1)
     row.addWidget(widget)
     return row
-
-
-def obs_hint(backdrop: str, windows: bool = sys.platform == "win32") -> str:
-    """OBS への取り込み方。背景の色で抜き方が変わる。
-
-    透明は Windows ではキャプチャ方法を「Windows 10（1903以降）」にしないと透けない。
-    それでも透けないときの逃げ道も書く。
-    """
-    key = OBS_KEYS.get(backdrop)
-    if key:
-        return tr(
-            "OBS では「ウィンドウキャプチャ」で「{title}」を選び、{key}を抜きます。",
-            title=OUTPUT_WINDOW_TITLE,
-            key=tr(key),
-        )
-    if windows:
-        return tr(
-            "OBS では「ウィンドウキャプチャ」で「{title}」を選び、"
-            "プロパティの「キャプチャ方法」を「Windows 10（1903以降）」にします"
-            "（透けないときは背景を緑にして、クロマキーで抜きます）。",
-            title=OUTPUT_WINDOW_TITLE,
-        )
-    return tr(
-        "OBS では「ウィンドウキャプチャ」で「{title}」を選びます"
-        "（透けないときは背景を緑にして、クロマキーで抜きます）。",
-        title=OUTPUT_WINDOW_TITLE,
-    )
 
 
 def _toggle_box(
@@ -151,7 +118,7 @@ def _toggle_box(
     return box, details
 
 
-class OperatorWindow(ProfileControlsMixin, QMainWindow):
+class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMainWindow):
     def __init__(self, session: HeartSession, output: OutputWindow) -> None:
         super().__init__()
         self._session = session
@@ -669,124 +636,6 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
     def _clear_notice(self) -> None:
         self._notice.setText("")
         self._notice.hide()
-
-    def _sync_cal_ui(self) -> None:
-        on = self._session.recording
-        saved = bool(self._session.profile.calibration)
-        self._refresh_cal_texts()
-        self._discard_cal.setEnabled(on)
-        self._tap_btn.setEnabled(on)
-        self._tap_shortcut.setEnabled(on)
-        self._reset_cal.setEnabled(saved and not on)
-        if on:
-            self._monitor.start()
-            self._tap_btn.setFocus()
-            return
-        self._monitor.stop()
-
-    def _toggle_language(self) -> None:
-        self._set_language(LANG_EN if language() == LANG_JA else LANG_JA)
-
-    def _set_language(self, lang: str) -> None:
-        """表示言語を切り替えて保存する。窓は作り直さず、文字だけを入れ替える。"""
-        set_language(lang)
-        try:
-            save_app_state(self._data_dir, language=language())
-        except OSError:
-            pass
-        self._retranslate()
-
-    def _retranslate(self) -> None:
-        translate_tree(self)
-        self._lang_btn.setText(other_language_label())
-        self._cal_hint.setText(self._cal_hint_text())
-        self._refresh_cal_texts()
-        self._refresh_style_controls()
-        self._refresh_status()
-        self._vts.retranslate()
-        self._show_aux(self._session.clock.oshilog_bpm)
-
-    def _tap_text(self) -> str:
-        """「拍」ボタンの文字。補正中は打った数も付ける。"""
-        count = len(self._session.taps) if self._session.recording else 0
-        return f"{tr('拍')}  {count}" if count else tr("拍")
-
-    def _refresh_cal_texts(self) -> None:
-        self._cal_btn.setText(tr(CAL_SAVE if self._session.recording else CAL_START))
-        self._tap_btn.setText(self._tap_text())
-
-    def _cal_hint_text(self) -> str:
-        return tr(
-            "心拍数が半分や倍に出るときだけ使います。"
-            "「{start}」を押すと自分の心音が聞こえるので（ヘッドホン推奨）、"
-            "鼓動に合わせて「拍」かスペースキーを10回ほど押し、"
-            "「{save}」を押します。",
-            start=tr(CAL_START),
-            save=tr(CAL_SAVE),
-        )
-
-    def _on_cal_primary(self) -> None:
-        if self._session.recording:
-            self._commit_cal()
-        else:
-            self._begin_cal()
-
-    def _begin_cal(self) -> None:
-        self._session.begin_calibration(self._session.now)
-        self._sync_cal_ui()
-
-    def _discard_current_cal(self) -> None:
-        self._session.discard_calibration()
-        self._sync_cal_ui()
-        self._flash("補正を中止しました")
-
-    def _tap_now(self) -> None:
-        if self._session.tap(self._session.now):
-            self._tap_btn.setText(self._tap_text())
-
-    def _commit_cal(self) -> None:
-        saved = self._session.commit_calibration()
-        self._sync_cal_ui()
-        if not saved:
-            self._flash("音が録れていなかったので保存しませんでした。マイクを確かめてください")
-            return
-        self._save_current(notice="補正を保存しました")
-
-    def _confirm_reset(self) -> bool:
-        answer = QMessageBox.question(
-            self,
-            tr(CAL_RESET),
-            tr("保存した心拍の補正を全部消して、最初からやり直しますか？"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        return answer == QMessageBox.StandardButton.Yes
-
-    def _reset_saved_cal(self) -> None:
-        if not self._confirm_reset():
-            return
-        self._session.reset_calibration()
-        self._sync_cal_ui()
-        self._save_current(notice="保存した補正を消しました")
-
-    def _add_audio_sample(self) -> None:
-        path, _ok = QFileDialog.getOpenFileName(
-            self, tr("心音ファイルを追加"), "", tr(AUDIO_FILTER)
-        )
-        if not path:
-            return
-        try:
-            samples = load_audio_mono(Path(path))
-        except (OSError, ValueError, RuntimeError):
-            self._flash("この音声ファイルは読めませんでした")
-            return
-        if not samples:
-            self._flash("音声ファイルが空でした")
-            return
-        self._session.profile.calibration.append(samples)
-        self._session.rebuild_detector()
-        self._sync_cal_ui()
-        self._save_current(notice="心音サンプルを追加しました")
 
     def _write_profile(self, profile: HeartProfile) -> bool:
         try:
