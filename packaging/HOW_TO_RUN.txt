@@ -29,4 +29,6 @@ Windows: StreamHeartbeat-windows.zip の StreamHeartbeat.exe
 Mac（Apple チップ）: StreamHeartbeat-macOS.zip の StreamHeartbeat.app
 Mac（Intel）: StreamHeartbeat-macOS-intel.zip の StreamHeartbeat.app
 
+利用条件は 利用規約.txt、同梱しているソフトのライセンスは ライセンス フォルダにあります。
+
 詳しくは GitHub の README を見てください。
