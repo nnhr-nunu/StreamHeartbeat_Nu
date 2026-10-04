@@ -452,6 +452,8 @@ class HandRenderer:
         program.setUniformValue1f("uMorph", float(pose.morph))
         program.setUniformValue1f("uBlend", float(pose.blend))
         program.setUniformValue1f("uFlatten", float(pose.flatten))
+        for name, value in pose.shape.shape_uniforms().items():
+            program.setUniformValue1f(program.uniformLocation(name), float(value))  # type: ignore[arg-type]
         for i, axis in enumerate(pose.finger_axes()):
             program.setUniformValue(program.uniformLocation(f"uAxis[{i}]"), QVector4D(*axis))
         for i, (bx, by, ex, ey, _half) in enumerate(pose.segments()):
