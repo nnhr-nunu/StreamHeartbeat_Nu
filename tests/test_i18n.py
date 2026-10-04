@@ -560,7 +560,12 @@ def _all_texts(root: QWidget) -> list[str]:
 
 
 def _japanese_left(root: QWidget) -> list[str]:
-    return [text for text in _all_texts(root) if JAPANESE.search(text)]
+    """英語にしても残る日本語の文字。OBS が窓を探す題名は、案内文の中でも日本語のまま。"""
+    return [
+        text
+        for text in _all_texts(root)
+        if JAPANESE.search(text.replace(OUTPUT_WINDOW_TITLE, "").replace(OPERATOR_WINDOW_TITLE, ""))
+    ]
 
 
 def test_vts_panel_has_no_japanese_in_english(
@@ -658,3 +663,104 @@ def test_vts_panel_switch_updates_note_and_folder(
     finally:
         panel._client._state = OFF
         panel._refresh()
+
+
+# ---------------------------------------------------------------- 漏れ検査
+
+SRC = Path(i18n.__file__).parent
+# 画面に出さない日本語（理由つき）。ここに無い日本語の文字列は、英訳の表に無ければ落ちる
+NOT_UI = {
+    "StreamHeartbeat(ぬ)": "製品名。ウィンドウの題名や OS の表示名で、言語で変えない",
+    "StreamHeartbeat(ぬ) - 配信出力": "OBS が窓を探す目印。言語で変えない",
+    "不整脈！": "配信用の窓に描く文字（今は出していない）。配信の絵なので言語に追従させない",
+    "StreamHeartbeat: 拍（0〜1、拍の瞬間に 1）": "VTube Studio 側に出るパラメータの説明",
+    "StreamHeartbeat: 心拍数": "VTube Studio 側に出るパラメータの説明",
+    "OpenGL を初期化できません": "例外の文。操作画面は代わりに GL_FAIL_LABEL を出す",
+    "f'WAV を読めません: {exc}'": "例外の文。操作画面は固定の文を出す（追加は非表示）",
+    "日本語": "言語ボタンの文字。押した先の言語の名前なので、翻訳しない",
+}
+JAPANESE_RE = re.compile(r"[぀-ヿ一-鿿]")
+# 翻訳に関わらない場所（render/ はシェーダーや GL の例外、i18n_en*.py は表そのもの）
+SKIP_PARTS = ("render", "i18n_en.py", "i18n_en_vts.py")
+
+
+def _japanese_literals() -> list[tuple[str, int, str, str]]:
+    """(ファイル, 行, 種類, 文字) の一覧。docstring を除く、日本語を含む文字列。"""
+    import ast
+
+    found: list[tuple[str, int, str, str]] = []
+    for path in sorted(SRC.rglob("*.py")):
+        rel = path.relative_to(SRC).as_posix()
+        if any(rel.startswith(part) or rel == part for part in SKIP_PARTS):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings: set[int] = set()
+        in_fstring: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                body = node.body
+                if (
+                    body
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
+                    docstrings.add(id(body[0].value))
+            if isinstance(node, ast.JoinedStr):
+                for part in ast.walk(node):
+                    if part is not node:
+                        in_fstring.add(id(part))
+                if JAPANESE_RE.search("".join(
+                    v.value for v in node.values if isinstance(v, ast.Constant)
+                )):
+                    found.append((rel, node.lineno, "f-string", ast.unparse(node)))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docstrings
+                and id(node) not in in_fstring
+                and JAPANESE_RE.search(node.value)
+            ):
+                found.append((rel, node.lineno, "str", node.value))
+    return found
+
+
+def test_every_japanese_ui_literal_is_translated() -> None:
+    missing = [
+        f"{rel}:{line} {kind} {text[:60]!r}"
+        for rel, line, kind, text in _japanese_literals()
+        if text not in i18n.EN and text not in NOT_UI
+    ]
+    assert not missing, "英訳の表に無い日本語:\n" + "\n".join(missing)
+
+
+def test_not_ui_entries_are_still_used() -> None:
+    used = {text for _rel, _line, _kind, text in _japanese_literals()}
+    stale = [text for text in NOT_UI if text not in used]
+    assert not stale, f"もう使っていない例外: {stale}"
+
+
+def test_translation_placeholders_match() -> None:
+    field = re.compile(r"\{(\w+)\}")
+    bad = [
+        source
+        for source, english in i18n.EN.items()
+        if set(field.findall(source)) != set(field.findall(english))
+    ]
+    assert not bad, f"{{名前}} が日本語と英語で食い違う: {bad}"
+
+
+def test_english_translations_have_no_japanese() -> None:
+    bad = [source for source, english in i18n.EN.items() if JAPANESE_RE.search(english)]
+    assert not bad, f"英語に日本語が残っている: {bad}"
+
+
+def test_english_operator_window_has_no_japanese(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    operator._lang_btn.click()
+    # 言語ボタンの「日本語」だけは、押した先の言語の名前として日本語で出す
+    left = [text for text in _japanese_left(operator) if text != "日本語"]
+    assert left == []

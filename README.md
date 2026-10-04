@@ -198,7 +198,7 @@ X: [@nnhr_nunu](https://x.com/nnhr_nunu)
 
 **StreamHeartbeat(ぬ)** is a Windows / macOS app that picks up your own heart sound with a microphone and shows a heart beating in time with it. Put it in your OBS scene next to your avatar and share your nerves and excitement with your viewers.
 
-The app's interface and the detailed guide above are in Japanese.
+The app's interface can be switched between Japanese and English with the "English" / "日本語" button next to "Heartbeat calibration" at the bottom of the control window (the language is remembered). The detailed guide above is in Japanese.
 
 - **Video guide (Japanese):** [X post](https://x.com/nunu_hara/status/2106318291551781076)
 - **Download:** [latest release](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)
@@ -220,14 +220,14 @@ Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macO
 3. In section ② (style), choose a heart style and effect, then set the size, opacity and background color (green / white / black / transparent).
 4. In OBS, add a *Window Capture* source (on macOS: *macOS Screen Capture* with the *Window Capture* method) and select the window titled `StreamHeartbeat(ぬ) - 配信出力`.
 5. Remove the background in OBS: a *Chroma Key* filter for green, a *Color Key* filter for white or black. A transparent background needs no filter; on Windows, set the source's *Capture Method* to "Windows 10 (1903 and later)".
-6. When the bar at the top of the control window turns green ("心拍同期表示中"), the heart is beating with you.
+6. When the bar at the top of the control window turns green ("Synced to your heartbeat"), the heart is beating with you.
 
 **Troubleshooting**
 
-- *The BPM is half or double the real value:* open the calibration panel at the bottom of the control window (心拍の補正), press the start button, tap the beat button (or the space bar) about 10 times in time with your heartbeat, then save.
+- *The BPM is half or double the real value:* open the "Heartbeat calibration" panel at the bottom of the control window, press "Start calibration", tap the beat button (or the space bar) about 10 times in time with your heartbeat, then save.
 - *Windows says "Windows protected your PC":* the app is not distributed through the Microsoft Store; it is not a virus. Click "More info" → "Run anyway".
 - *macOS refuses to open the app:* close the dialog, open System Settings → Privacy & Security and click "Open Anyway". Allow microphone access when asked.
-- *"Cannot open the microphone" (マイクを開けません):* if OBS uses the same mic, turn off exclusive mode for that device in the Windows sound settings.
+- *"Cannot open the microphone":* if OBS uses the same mic, turn off exclusive mode for that device in the Windows sound settings.
 
 **Notes**
 

@@ -604,6 +604,14 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
             style.unpolish(self._status)
             style.polish(self._status)
 
+    def _refresh_status(self) -> None:
+        """上の帯の文。補正中は拍の数、そうでなければ心音を読めているか。"""
+        if self._session.recording:
+            self._set_banner_kind("record")
+            self._status.setText(tr("補正中  {label}", label=self._session.tap_label()))
+        else:
+            self._set_detect_status()
+
     def _set_detect_status(self) -> None:
         clock = self._session.clock
         if clock.detected:
@@ -694,6 +702,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._cal_hint.setText(self._cal_hint_text())
         self._refresh_cal_texts()
         self._refresh_style_controls()
+        self._refresh_status()
         self._vts.retranslate()
         self._show_aux(self._session.clock.oshilog_bpm)
 
@@ -863,11 +872,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         if recording and samples:
             self._monitor.write_mono(samples)
         self._session.tick(now, samples)
-        if recording:
-            self._set_banner_kind("record")
-            self._status.setText(tr("補正中  {label}", label=self._session.tap_label()))
-        else:
-            self._set_detect_status()
+        self._refresh_status()
         if not recording:
             mismatch = self._session.clock.bpm_mismatch()
             if mismatch:
