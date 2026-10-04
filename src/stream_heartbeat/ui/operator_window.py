@@ -694,6 +694,7 @@ class OperatorWindow(ProfileControlsMixin, QMainWindow):
         self._cal_hint.setText(self._cal_hint_text())
         self._refresh_cal_texts()
         self._refresh_style_controls()
+        self._vts.retranslate()
         self._show_aux(self._session.clock.oshilog_bpm)
 
     def _tap_text(self) -> str:

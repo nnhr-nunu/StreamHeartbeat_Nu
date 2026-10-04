@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stream_heartbeat.i18n import tr
 from stream_heartbeat.profile import HeartProfile, load_app_state, save_app_state
 from stream_heartbeat.render.heart_frames import (
     FLAT_ITEM_STYLES,
@@ -60,42 +61,58 @@ from stream_heartbeat.vts import (
     find_items_dir,
     item_framerate,
 )
+from stream_heartbeat.vts_text import (
+    API_SWITCH,
+    HIDE_BUTTON,
+    HOW_TO_LINES,
+    INTRO,
+    LABEL_CONNECTING,
+    LABEL_DENIED,
+    LABEL_NO_VTS,
+    LABEL_OFF,
+    LABEL_READY,
+    LABEL_WAITING_USER,
+    NOT_ITEMS_NOTICE,
+    NOTE_STALE,
+    PARAMS_CHECK,
+    PICK_NOTICE,
+    PICKING_BUTTON,
+    PIN_BUTTON,
+    PINNED_NOTICE,
+    REMADE_NOTICE,
+    REMAKE_BUTTON,
+    SHOW_BUTTON,
+    SIZE_LABEL,
+    T_BAD_STYLE,
+    T_NOT_SHOWN,
+    T_PICKING,
+    T_PINNED,
+    T_STALE_FAILED,
+    T_UNPINNED,
+    TROUBLE_LINES,
+)
 
-# VTube Studio の設定（プラグインの欄）にあるスイッチの名前
-API_SWITCH = "APIの起動（プラグインを許可）"
 STATE_LABELS = {
-    OFF: "つないでいません",
-    CONNECTING: "VTube Studio につないでいます…",
-    WAITING_USER: "VTube Studio の画面に確認が出ています。「許可」を押してください",
-    READY: "VTube Studio とつながりました",
-    NO_VTS: (
-        f"VTube Studio とつながりません。VTube Studio を起動して、設定の「{API_SWITCH}」を"
-        "オンにしてください（つながるまで 5 秒ごとに試します）"
-    ),
-    DENIED: (
-        "VTube Studio で許可されなかったので、つなぐのをやめました。"
-        "つなぐときは、もう一度チェックを入れてください"
-    ),
+    OFF: LABEL_OFF,
+    CONNECTING: LABEL_CONNECTING,
+    WAITING_USER: LABEL_WAITING_USER,
+    READY: LABEL_READY,
+    NO_VTS: LABEL_NO_VTS,
+    DENIED: LABEL_DENIED,
 }
 # つなげないときは目立たせる
 WARN_STATES = frozenset({NO_VTS, DENIED})
-INTRO = "VTube Studio のモデルの胸に心臓を付けて、心拍に合わせて動かします。"
-SHOW_BUTTON = "心臓を出す"
-REMAKE_BUTTON = "作り直す（今の見た目で）"
-HIDE_BUTTON = "しまう"
-PIN_BUTTON = "心臓を付ける場所を選ぶ"
-PICKING_BUTTON = "クリック待ち…（もう一度押すとやめる）"
-SIZE_LABEL = "大きさ"
-PARAMS_CHECK = "心拍を VTube Studio のパラメータにも送る（上級者向け）"
 # 見た目を変えてから VTube Studio の心臓を作り直すまで待つ秒（続けて変えている間は待つ）
 REMAKE_WAIT_S = 0.8
 
 
-def style_names(keys: frozenset[str]) -> str:
+def style_names(keys: frozenset[str], *, translated: bool = True) -> str:
     """スタイルの一覧から、keys に入るものの表示名を短くまとめる（例: リアル1〜3、機械）。
 
-    手で書くとスタイルを足したときに古くなるので、一覧から作る。
+    手で書くとスタイルを足したときに古くなるので、一覧から作る。translated が偽なら、
+    表示言語に関わらず日本語で作る（テストや案内文の原文に使う）。
     """
+    say = tr if translated else _plain
     groups: dict[str, list[str]] = {}
     for key, _look, label in STYLES:
         if key in keys:
@@ -103,104 +120,73 @@ def style_names(keys: frozenset[str]) -> str:
             groups.setdefault(base, []).append(label[len(base) :])
     parts = []
     for base, nums in groups.items():
+        # 表示名の数字より前が、その言語での名前（英語は Realistic、日本語は リアル）
+        name = say(base + nums[0]).rstrip("0123456789 ")
         if not nums[0]:
-            parts.append(base)
+            parts.append(say(base))
         elif len(nums) == 1:
-            parts.append(base + nums[0])
+            parts.append(say("{name}{a}", name=name, a=nums[0]))
         elif len(nums) == 2:
-            parts.append(f"{base}{nums[0]}・{nums[1]}")
+            parts.append(say("{name}{a}・{b}", name=name, a=nums[0], b=nums[1]))
         else:
-            parts.append(f"{base}{nums[0]}〜{nums[-1]}")
-    return "、".join(parts)
+            parts.append(say("{name}{a}〜{b}", name=name, a=nums[0], b=nums[-1]))
+    return say("、").join(parts)
 
 
-ITEM_STYLE_NAMES = style_names(ITEM_STYLES)
-NOTE_BAD_STYLE = f"このスタイルは VTube Studio に出せません。出せるのは{ITEM_STYLE_NAMES}です"
-NOTE_NOT_SHOWN = f"次は「{SHOW_BUTTON}」を押してください"
-NOTE_STALE = "見た目を変えました。少し待つと、VTube Studio の心臓も同じ見た目になります"
-NOTE_STALE_FAILED = (
-    f"VTube Studio の心臓を今の見た目にできませんでした。「{REMAKE_BUTTON}」を押してください"
+def _plain(text: str, **fmt: object) -> str:
+    """翻訳しない tr（日本語の原文を作るとき）。"""
+    return text.format(**fmt) if fmt else text
+
+
+def _say(template: str, **names: object) -> str:
+    """ひな形を今の言語で組む。値のうち文字（ボタン名など）は、それぞれ訳してから入れる。"""
+    return tr(template, **{k: tr(v) if isinstance(v, str) else v for k, v in names.items()})
+
+
+def state_label(state: str) -> str:
+    template = STATE_LABELS.get(state)
+    return state if template is None else _say(template, switch=API_SWITCH)
+
+
+ITEM_STYLE_NAMES = style_names(ITEM_STYLES, translated=False)
+def _guide_names() -> dict[str, object]:
+    return {
+        "switch": API_SWITCH,
+        "port": DEFAULT_PORT,
+        "show": SHOW_BUTTON,
+        "pin": PIN_BUTTON,
+        "hide": HIDE_BUTTON,
+        "remake": REMAKE_BUTTON,
+        "size": SIZE_LABEL,
+        "params": PARAMS_CHECK,
+        "beat": PARAM_BEAT,
+        "bpm": PARAM_BPM,
+    }
+
+
+def _guide(lines: tuple[str, ...], names: str) -> str:
+    return "\n".join(_say(line, names=names, **_guide_names()) if line else "" for line in lines)
+
+
+def how_to_text() -> str:
+    return _guide(HOW_TO_LINES, style_names(ITEM_STYLES))
+
+
+def trouble_text() -> str:
+    return _guide(TROUBLE_LINES, "")
+
+
+# 日本語の原文（案内文は表示言語に関わらずこの形）。テストが画面の文と突き合わせる
+NOTE_BAD_STYLE = T_BAD_STYLE.format(names=ITEM_STYLE_NAMES)
+NOTE_NOT_SHOWN = T_NOT_SHOWN.format(show=SHOW_BUTTON)
+NOTE_STALE_FAILED = T_STALE_FAILED.format(remake=REMAKE_BUTTON)
+NOTE_UNPINNED = T_UNPINNED.format(pin=PIN_BUTTON)
+NOTE_PINNED = T_PINNED.format(size=SIZE_LABEL)
+NOTE_PICKING = T_PICKING.format(pick=PICK_NOTICE)
+HOW_TO = "\n".join(
+    line.format(names=ITEM_STYLE_NAMES, **_guide_names()) for line in HOW_TO_LINES
 )
-REMADE_NOTICE = "VTube Studio の心臓も今の見た目にしました"
-NOTE_UNPINNED = (
-    f"心臓を出しました。次は「{PIN_BUTTON}」を押して、モデルに付ける場所を決めてください"
-)
-NOTE_PINNED = f"心臓をモデルに付けています。「{SIZE_LABEL}」で大きさを変えられます"
-PICK_NOTICE = (
-    "VTube Studio の画面に切り替えて、映っているモデルの胸（心臓を付けたい所）を"
-    "マウスで左クリックしてください"
-)
-# クリックを待つあいだ出し続ける説明（知らせはすぐ消えるので）
-NOTE_PICKING = (
-    PICK_NOTICE + "。心臓はクリックの邪魔にならないよう、いったん画面の左端へ寄せています。"
-    "モデルの絵が無い所や右クリックでは決まりません"
-)
-PINNED_NOTICE = "モデルに付けました。次からは心臓を出すたびに、自動でここへ付けます"
-NOT_ITEMS_NOTICE = (
-    "Items フォルダを選んでください"
-    "（VTube Studio のフォルダ → VTube Studio_Data → StreamingAssets → Items）"
-)
-# はじめての人がこれだけ読めば最後まで進めるよう、各手順で「何をして、何が見えるか」まで書く
-HOW_TO = (
-    "【準備（はじめの 1 回だけ）】\n"
-    "1. VTube Studio を起動して、モデルを表示しておきます。\n"
-    "2. VTube Studio の設定（歯車のアイコン）を開き、プラグインの欄にある"
-    f"「{API_SWITCH}」をオンにします。ポート番号は {DEFAULT_PORT} のままにします。\n"
-    "　歯車が見えないときは、VTube Studio の画面をダブルクリックすると出ます。\n"
-    "3. この欄の「VTube Studio とつなぐ」にチェックを入れます。\n"
-    "4. VTube Studio の画面に、このアプリ（StreamHeartbeat）をつないでよいかの確認が出るので、"
-    "「許可」を押します。この欄に「VTube Studio とつながりました」と出れば準備完了です。\n"
-    "\n"
-    "【心臓をモデルに付ける】\n"
-    f"5. 「{SHOW_BUTTON}」を押します。VTube Studio の画面に心臓が出ます"
-    "（スタイルによっては数秒かかります）。\n"
-    f"6. 「{PIN_BUTTON}」を押します。心臓はクリックの邪魔にならないよう、"
-    "いったん VTube Studio の画面の左端へよけます。\n"
-    "7. VTube Studio の画面に切り替えて、モデルの胸（心臓を付けたい所）を左クリックします。"
-    "心臓がそこへ移り、以後はモデルが動いても一緒についていきます。\n"
-    "　肩や頭など、モデルの上ならどこにでも付けられます。モデルの無い所や右クリックでは"
-    "決まりません。やめるときはボタンをもう一度押します。\n"
-    f"8. 「{SIZE_LABEL}」のつまみで、心臓の大きさを合わせます。\n"
-    "\n"
-    "【次からは】\n"
-    "・付けた場所はモデルごとに、大きさは全体で覚えています。"
-    "「VTube Studio とつなぐ」にチェックを入れたままにしておけば、"
-    "次からはこのアプリと VTube Studio を起動するだけで、同じ所に心臓が出ます。"
-    "VTube Studio をあとから起動しても、自動でつながります。\n"
-    "・スタイル・心臓の向き・演出を変えると、少し待ったあとで VTube Studio の心臓も"
-    "自動で同じ見た目になります。\n"
-    "・演出の心臓わしづかみ・聴診器・はじけるハートも、VTube Studio の心臓に付きます。"
-    "クリックで強く握る・聴診器がマウスについてくる動きは配信用の窓だけで、VTube Studio では"
-    "手を添えたまま・配信用の窓で置いた所に聴診器を当てたままになります。\n"
-    f"・心臓を消すときは「{HIDE_BUTTON}」を押します。次に起動しても出ません"
-    f"（また出すときは「{SHOW_BUTTON}」）。\n"
-    f"・VTube Studio に出せるスタイル: {ITEM_STYLE_NAMES}\n"
-    "\n"
-    "【パラメータ（上級者向け）】\n"
-    f"「{PARAMS_CHECK}」にチェックを入れると、次の 2 つを送ります。\n"
-    f"・{PARAM_BEAT}: 拍の瞬間に 1、拍と拍のあいだは 0 に近い値\n"
-    f"・{PARAM_BPM}: 心拍数\n"
-    "VTube Studio のモデル設定で、パラメータの入力にこれを選ぶと、"
-    "拍に合わせてモデルの体や表情を動かせます。"
-)
-TROUBLE = (
-    "・「VTube Studio とつながりません」と出る\n"
-    f"　→ VTube Studio が起動しているか、「{API_SWITCH}」がオンか、"
-    f"ポート番号が {DEFAULT_PORT} のままかを確かめてください\n"
-    "・「確認が出ています」のまま進まない\n"
-    "　→ VTube Studio の画面を前に出すと、確認が出ています。「許可」を押してください\n"
-    "・「許可されなかった」と出る\n"
-    "　→ もう一度チェックを入れ、VTube Studio に出た確認で「許可」を押してください\n"
-    "・心臓が出ない\n"
-    "　→ 下の「書き出し先」が VTube Studio の Items フォルダになっているか確かめてください。"
-    "Steam 以外で入れた場合は「フォルダを選ぶ」で選び直します\n"
-    "・VTube Studio の心臓の見た目が、配信用の窓と違う\n"
-    f"　→ 「{REMAKE_BUTTON}」を押してください\n"
-    "・VTube Studio 側で心臓を消してしまった\n"
-    f"　→ 「{SHOW_BUTTON}」をもう一度押してください\n"
-    "・心臓の位置がずれた・別の所に付け直したい\n"
-    f"　→ 「{PIN_BUTTON}」を押して、VTube Studio の画面でモデルをクリックし直してください"
-)
+TROUBLE = "\n".join(line.format(**_guide_names()) for line in TROUBLE_LINES)
 
 
 def _saved_pins(raw: object) -> dict[str, dict]:
@@ -288,7 +274,7 @@ class VtsPanel(QWidget):
         intro.setObjectName("meta")
         intro.setWordWrap(True)
         self._enable = QCheckBox("VTube Studio とつなぐ")
-        self._status = QLabel(STATE_LABELS[OFF])
+        self._status = QLabel(state_label(OFF))
         self._status.setObjectName("meta")
         self._status.setWordWrap(True)
         self._status.hide()
@@ -311,12 +297,12 @@ class VtsPanel(QWidget):
         self._folder.setObjectName("meta")
         self._folder.setWordWrap(True)
         self._folder_btn = QPushButton("フォルダを選ぶ")
-        how_to = QLabel(HOW_TO)
-        how_to.setObjectName("guide")
-        how_to.setWordWrap(True)
-        trouble = QLabel(TROUBLE)
-        trouble.setObjectName("guide")
-        trouble.setWordWrap(True)
+        self._how_to = QLabel(how_to_text())
+        self._how_to.setObjectName("guide")
+        self._how_to.setWordWrap(True)
+        self._trouble = QLabel(trouble_text())
+        self._trouble.setObjectName("guide")
+        self._trouble.setWordWrap(True)
 
         item_row = QHBoxLayout()
         item_row.addWidget(self._item_btn, 1)
@@ -339,10 +325,10 @@ class VtsPanel(QWidget):
         trouble_inner = QWidget()
         trouble_col = QVBoxLayout(trouble_inner)
         trouble_col.setContentsMargins(0, 0, 0, 0)
-        trouble_col.addWidget(trouble)
+        trouble_col.addWidget(self._trouble)
         trouble_col.addLayout(folder_row)
         guide_wrap, _guide_folds = make_fold_row(
-            [("使い方", how_to), ("上手くいかない時", trouble_inner)]
+            [("使い方", self._how_to), ("上手くいかない時", trouble_inner)]
         )
 
         layout = QVBoxLayout(self)
@@ -370,6 +356,15 @@ class VtsPanel(QWidget):
         if state.get("vts_enabled"):
             self._enable.setChecked(True)
 
+    def retranslate(self) -> None:
+        """表示言語が変わったとき、実行中に組み立てた文を作り直す（静的な部品は走査が付け替える）。"""
+        self._how_to.setText(how_to_text())
+        self._trouble.setText(trouble_text())
+        self._status.setText(state_label(self._client.state))
+        self._show_folder()
+        self._view = None
+        self._refresh()
+
     # ------------------------------------------------------------ 状態
 
     def _on_state(self, state: str) -> None:
@@ -377,7 +372,7 @@ class VtsPanel(QWidget):
             # 切れると出し終えた知らせは来ない
             self._busy = False
             self._pending = None
-        self._status.setText(STATE_LABELS.get(state, state))
+        self._status.setText(state_label(state))
         self._status.setVisible(state != OFF)
         _set_kind(self._status, "warn" if state in WARN_STATES else "meta")
         if state == DENIED:
@@ -400,27 +395,30 @@ class VtsPanel(QWidget):
         if not ready:
             note, warn = "", False
         elif picking:
-            note, warn = NOTE_PICKING, True
+            note, warn = _say(T_PICKING, pick=PICK_NOTICE), True
         elif not can_item:
-            note, warn = NOTE_BAD_STYLE, True
+            note, warn = _say(T_BAD_STYLE, names=style_names(ITEM_STYLES)), True
         elif not shown:
-            note, warn = NOTE_NOT_SHOWN, False
+            note, warn = _say(T_NOT_SHOWN, show=SHOW_BUTTON), False
         elif key != self._made_key:
             failed = key == self._failed_key
-            note, warn = (NOTE_STALE_FAILED, True) if failed else (NOTE_STALE, False)
+            if failed:
+                note, warn = _say(T_STALE_FAILED, remake=REMAKE_BUTTON), True
+            else:
+                note, warn = tr(NOTE_STALE), False
         elif self._heart.model_id in self._heart.pins:
-            note, warn = NOTE_PINNED, False
+            note, warn = _say(T_PINNED, size=SIZE_LABEL), False
         else:
-            note, warn = NOTE_UNPINNED, False
+            note, warn = _say(T_UNPINNED, pin=PIN_BUTTON), False
         view = (ready, can_item, shown, picking, note, warn)
         if view == self._view:
             return
         self._view = view
-        self._item_btn.setText(REMAKE_BUTTON if shown else SHOW_BUTTON)
+        self._item_btn.setText(tr(REMAKE_BUTTON if shown else SHOW_BUTTON))
         self._item_btn.setEnabled(ready and can_item)
         self._hide_btn.setEnabled(ready and shown)
         self._pin_btn.setEnabled(ready and shown)
-        self._pin_btn.setText(PICKING_BUTTON if picking else PIN_BUTTON)
+        self._pin_btn.setText(tr(PICKING_BUTTON if picking else PIN_BUTTON))
         self._note.setText(note)
         self._note.setVisible(bool(note))
         _set_kind(self._note, "warn" if warn else "meta")
@@ -471,14 +469,14 @@ class VtsPanel(QWidget):
     def _show_folder(self) -> None:
         folder = self._resolved_dir()
         if folder is None:
-            self._folder.setText("書き出し先: VTube Studio の Items フォルダが見つかりません")
+            self._folder.setText(tr("書き出し先: VTube Studio の Items フォルダが見つかりません"))
         else:
-            self._folder.setText(f"書き出し先: {folder}")
+            self._folder.setText(tr("書き出し先: {folder}", folder=folder))
 
     def _choose_folder(self) -> None:
         start = str(self._resolved_dir() or "")
         chosen = QFileDialog.getExistingDirectory(
-            self, "VTube Studio の Items フォルダ（StreamingAssets の中）", start
+            self, tr("VTube Studio の Items フォルダ（StreamingAssets の中）"), start
         )
         if not chosen:
             return
@@ -487,7 +485,7 @@ class VtsPanel(QWidget):
         if folder.name.lower() != "items" and (folder / "Items").is_dir():
             folder = folder / "Items"
         if folder.name.lower() != "items":
-            self._notify(NOT_ITEMS_NOTICE)
+            self._notify(tr(NOT_ITEMS_NOTICE))
             return
         self._items_dir = folder
         self._save(vts_items_dir=str(folder))
@@ -504,16 +502,16 @@ class VtsPanel(QWidget):
         """
         profile = self._session.profile
         if profile.style not in ITEM_STYLES:
-            self._notify(NOTE_BAD_STYLE)
+            self._notify(_say(T_BAD_STYLE, names=style_names(ITEM_STYLES)))
             return
         if self._client.state != READY:
-            self._notify("VTube Studio につながってから押してください")
+            self._notify(tr("VTube Studio につながってから押してください"))
             return
         stetho = self._stetho_offset()
         key = look_key(profile, stetho)
         folder = self._resolved_dir()
         if folder is None:
-            self._notify(NOT_ITEMS_NOTICE)
+            self._notify(tr(NOT_ITEMS_NOTICE))
             if auto:
                 self._failed_key = key
                 return
@@ -526,7 +524,9 @@ class VtsPanel(QWidget):
             count = write_frames(render_frames(profile, stetho=stetho), folder / ITEM_FOLDER)
         except (OSError, RuntimeError):
             self._failed_key = key
-            self._notify("アイテムの画像を書き出せませんでした（書き出し先のフォルダを確かめてください）")
+            self._notify(
+                tr("アイテムの画像を書き出せませんでした（書き出し先のフォルダを確かめてください）")
+            )
             return
         finally:
             QApplication.restoreOverrideCursor()
@@ -544,15 +544,20 @@ class VtsPanel(QWidget):
             self._save(vts_item_shown=True)
             pinned = self._heart.model_id in self._heart.pins
             if auto:
-                self._notify(REMADE_NOTICE)
+                self._notify(tr(REMADE_NOTICE))
             elif pinned:
-                self._notify("VTube Studio に心臓を出し、覚えている場所に付けました")
+                self._notify(tr("VTube Studio に心臓を出し、覚えている場所に付けました"))
             else:
                 self._notify(
-                    f"VTube Studio に心臓を出しました。次は「{PIN_BUTTON}」を押してください"
+                    _say(
+                        "VTube Studio に心臓を出しました。次は「{pin}」を押してください",
+                        pin=PIN_BUTTON,
+                    )
                 )
         else:
-            self._notify(f"VTube Studio に出せませんでした（{self._heart.last_error}）")
+            self._notify(
+                _say("VTube Studio に出せませんでした（{error}）", error=self._heart.last_error)
+            )
         self._refresh()
 
     def _auto_remake(self) -> None:
@@ -592,19 +597,23 @@ class VtsPanel(QWidget):
         if self._heart.picking:
             self._heart.cancel_pick()
         elif self._client.state != READY:
-            self._notify("VTube Studio につながってから押してください")
+            self._notify(tr("VTube Studio につながってから押してください"))
         elif not self._heart.start_pick(self._picked):
-            self._notify(f"先に「{SHOW_BUTTON}」で VTube Studio に心臓を出してください")
+            self._notify(
+                _say("先に「{show}」で VTube Studio に心臓を出してください", show=SHOW_BUTTON)
+            )
         else:
-            self._notify(PICK_NOTICE)
+            self._notify(tr(PICK_NOTICE))
         self._refresh()
 
     def _picked(self, pin: dict | None) -> None:
         if pin is None:
-            self._notify(f"モデルに付けられませんでした（{self._heart.last_error}）")
+            self._notify(
+                _say("モデルに付けられませんでした（{error}）", error=self._heart.last_error)
+            )
         else:
             self._save(vts_pins=self._heart.pins)
-            self._notify(PINNED_NOTICE)
+            self._notify(tr(PINNED_NOTICE))
         self._refresh()
 
     def _on_size(self, value: int) -> None:

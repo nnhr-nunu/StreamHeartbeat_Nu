@@ -536,3 +536,125 @@ def test_splash_text_in_english() -> None:
 
     set_language(LANG_EN)
     assert tr(WAIT_TEXT) == "Starting up. Please wait…"
+
+
+# ---------------------------------------------------------------- VTube Studio 連携の欄
+
+
+def _all_texts(root: QWidget) -> list[str]:
+    """隠れている部品を含め、画面に出る文字をすべて集める。"""
+    out: list[str] = []
+    for widget in [root, *root.findChildren(QWidget)]:
+        if widget.property(SKIP_PROP):
+            continue
+        out.append(widget.toolTip())
+        if isinstance(widget, (QLabel, QAbstractButton)):
+            out.append(widget.text())
+        if isinstance(widget, QGroupBox):
+            out.append(widget.title())
+        if isinstance(widget, QLineEdit):
+            out.append(widget.placeholderText())
+        if isinstance(widget, QComboBox):
+            out.extend(widget.itemText(i) for i in range(widget.count()))
+    return out
+
+
+def _japanese_left(root: QWidget) -> list[str]:
+    return [text for text in _all_texts(root) if JAPANESE.search(text)]
+
+
+def test_vts_panel_has_no_japanese_in_english(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    from stream_heartbeat.vts import (
+        CONNECTING,
+        DENIED,
+        NO_VTS,
+        OFF,
+        READY,
+        WAITING_USER,
+    )
+
+    operator, _output = windows
+    panel = operator._vts
+    profile = operator._session.profile
+    style = profile.style
+    operator._lang_btn.click()
+    try:
+        for state in (OFF, CONNECTING, WAITING_USER, NO_VTS, DENIED, READY):
+            panel._client._state = state
+            panel._on_state(state)
+            assert _japanese_left(panel) == [], state
+        panel._client._state = READY
+        profile.style = "realistic"
+        panel._heart.instance_id = None
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 出していない
+        panel._heart.instance_id = "inst1"
+        panel._made_key = None
+        panel._failed_key = None
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 見た目が古い
+        panel._failed_key = panel._look_key()
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 古くて作り直せなかった
+        panel._made_key = panel._look_key()
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 出したが留めていない
+        panel._heart.model_id = "m1"
+        panel._heart.pins = {"m1": {}}
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 留めた
+        panel._heart._pick_done = lambda _pin: None
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 留め待ち
+        panel._heart._pick_done = None
+        profile.style = "echo"
+        panel._refresh()
+        assert _japanese_left(panel) == []  # 出せないスタイル
+    finally:
+        panel._client._state = OFF
+        panel._heart.instance_id = None
+        panel._heart._pick_done = None
+        panel._heart.model_id = ""
+        panel._heart.pins = {}
+        profile.style = style
+        panel._on_state(OFF)
+
+
+def test_style_names_in_english() -> None:
+    from stream_heartbeat.render.heart_frames import ITEM_STYLES
+    from stream_heartbeat.ui.vts_panel import style_names
+
+    set_language(LANG_EN)
+    assert style_names(ITEM_STYLES) == "Realistic 1–3, X-ray 3, Cute 1 & 2, Chic 1 & 2, Mechanical"
+    assert style_names(ITEM_STYLES, translated=False).startswith("リアル1〜3")
+    set_language(LANG_JA)
+    assert style_names(ITEM_STYLES) == "リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械"
+
+
+def test_vts_panel_switch_updates_note_and_folder(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    from stream_heartbeat.vts import OFF, READY
+
+    operator, _output = windows
+    panel = operator._vts
+    try:
+        panel._client._state = READY
+        panel._refresh()
+        ja_note = panel._note.text()
+        ja_folder = panel._folder.text()
+        assert ja_note and ja_folder.startswith("書き出し先")
+        operator._lang_btn.click()
+        assert panel._note.text() != ja_note and not JAPANESE.search(panel._note.text())
+        assert panel._folder.text().startswith("Export folder")
+        assert panel._how_to.text().startswith("[Setup (first time only)]")
+        assert panel._trouble.text().startswith('- "Cannot connect to VTube Studio"')
+        operator._lang_btn.click()
+        assert panel._note.text() == ja_note
+        assert panel._folder.text() == ja_folder
+        assert panel._how_to.text().startswith("【準備（はじめの 1 回だけ）】")
+    finally:
+        panel._client._state = OFF
+        panel._refresh()
