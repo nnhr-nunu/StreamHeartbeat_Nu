@@ -186,6 +186,18 @@ X: [@nnhr_nunu](https://x.com/nnhr_nunu)
 バグ報告は X の DM などでお願いいたします。
 配信でご利用いただける場合、もしよければフォローしていただけたらとても嬉しいです。
 
+## クレジット表記のお願い
+
+配信や動画などでこのソフトを使っていただいた場合は、概要欄などに次の表記をお願いします。
+
+```
+StreamHeartbeat(ぬ)
+開発者：ぬぬはら - 催眠音声制作者
+YouTube：https://www.youtube.com/@nnhr_nunu
+X(Twitter)：https://x.com/nnhr_nunu
+使い方など：https://github.com/nnhr-nunu/StreamHeartbeat_Nu
+```
+
 ## 利用上の注意
 
 - これは医療機器ではありません。表示される心拍数は目安で、診断・治療には使えません。
@@ -235,3 +247,5 @@ Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macO
 - Use at your own risk; the developer accepts no liability for any problems caused by using this software.
 
 **Developer / contact:** Nunuhara — X: [@nnhr_nunu](https://x.com/nnhr_nunu). Bug reports by DM are welcome.
+
+**Credit:** if you use this software in a stream or video, please put the credit block from the section "クレジット表記のお願い" above in the description.
