@@ -28,16 +28,24 @@ jobs:
         run: ruff check src tests
       - name: Build exe
         if: github.event_name != 'pull_request'
-        run: >
-          pyinstaller --noconfirm --clean --windowed --name StreamHeartbeat
-          --icon src/stream_heartbeat/assets/app_icon.ico
-          --version-file packaging/windows_version.txt
-          --collect-all PySide6
-          --hidden-import PySide6.QtMultimedia
-          --add-data "src/stream_heartbeat/assets;stream_heartbeat/assets"
-          src/stream_heartbeat/__main__.py
+        run: pyinstaller --noconfirm --clean packaging/StreamHeartbeat-windows.spec
+      # 使う Qt の部品が入っていて、使わない大きな Qt（GPL だけの部品・WebEngine など）が入っていないか
+      - name: Check Qt files
+        if: github.event_name != 'pull_request'
+        run: |
+          $qt = "dist/StreamHeartbeat/_internal/PySide6"
+          $need = "plugins/platforms/qwindows.dll", "plugins/styles/qmodernwindowsstyle.dll",
+            "plugins/imageformats/qsvg.dll", "plugins/multimedia/ffmpegmediaplugin.dll",
+            "opengl32sw.dll", "Qt6OpenGLWidgets.dll", "Qt6Multimedia.dll", "Qt6WebSockets.dll"
+          foreach ($f in $need) { if (-not (Test-Path "$qt/$f")) { throw "Qt の部品が足りない: $f" } }
+          $extra = Get-ChildItem -Recurse "dist/StreamHeartbeat" -Include "Qt6VirtualKeyboard*", "Qt6Quick*",
+            "Qt6Qml*", "Qt6WebEngine*", "Qt6Graphs*", "Qt6Charts*", "Qt6Pdf*", "Qt63D*"
+          if ($extra) { throw "使わない Qt が入っている: $($extra.Name -join ', ')" }
+          "{0:N0} MB" -f ((Get-ChildItem -Recurse dist/StreamHeartbeat | Measure-Object Length -Sum).Sum / 1MB)
       - if: github.event_name != 'pull_request'
-        run: Copy-Item packaging/HOW_TO_RUN.txt dist/StreamHeartbeat/使いかた.txt
+        run: |
+          Copy-Item packaging/HOW_TO_RUN.txt dist/StreamHeartbeat/使いかた.txt
+          python packaging/write_licenses.py dist/StreamHeartbeat
       - if: github.event_name != 'pull_request'
         run: Compress-Archive -Path dist/StreamHeartbeat/* -DestinationPath StreamHeartbeat-windows.zip -Force
       - if: github.event_name != 'pull_request'
@@ -150,6 +158,7 @@ jobs:
           mkdir pkg
           ditto dist/StreamHeartbeat.app pkg/StreamHeartbeat.app
           cp packaging/HOW_TO_RUN.txt pkg/使いかた.txt
+          python packaging/write_licenses.py pkg
           ditto -c -k --sequesterRsrc pkg "${{ matrix.zip }}"
           ls -l "${{ matrix.zip }}"
       - if: github.event_name != 'pull_request'
