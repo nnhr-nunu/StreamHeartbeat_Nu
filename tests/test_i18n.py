@@ -275,8 +275,7 @@ def shared_windows(
 ) -> Iterator[tuple[OperatorWindow, OutputWindow]]:
     """窓は 1 組だけ作って使い回す。
 
-    操作用ウィンドウは作るたびにマイクと音の部品を開くので、数を増やすと全体の実行が
-    Windows で不意に落ちる（テストごとに作ると増えすぎる）。
+    操作用ウィンドウは作るたびにマイクと音の部品を開くので、テストごとに作ると遅い。
     """
     del qapp
     data = tmp_path_factory.mktemp("i18n_data")

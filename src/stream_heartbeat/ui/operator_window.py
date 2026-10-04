@@ -489,6 +489,9 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
 
     def _on_mics_changed(self) -> None:
         """保存したマイクが戻ればそれに、抜けたら既定のマイクに切り替える。"""
+        # 閉じたあとに届いた知らせで、止めたマイクを開き直さない（止める人がいなくなる）
+        if self._closing:
+            return
         self._fill_mics()
         self._mics.blockSignals(True)
         self._select_mic(self._session.profile.mic_id)
