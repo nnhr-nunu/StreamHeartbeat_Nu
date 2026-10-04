@@ -5,19 +5,26 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
 
+from stream_heartbeat.i18n import FOLD_TITLE_PROP, tr
+
 
 def fold_toggle(title: str, inner: QWidget, *, expanded: bool = False) -> QToolButton:
-    """押すと inner を出し入れする見出しボタン（置き場所は呼ぶ側が決める）。"""
+    """押すと inner を出し入れする見出しボタン（置き場所は呼ぶ側が決める）。
+
+    title は日本語の原文。言語を変えたとき i18n.translate_tree が組み直せるよう、
+    原文を部品に覚えさせる。
+    """
     toggle = QToolButton()
     toggle.setObjectName("fold")
     toggle.setCheckable(True)
     toggle.setChecked(expanded)
     toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
     toggle.setArrowType(Qt.ArrowType.NoArrow)
+    toggle.setProperty(FOLD_TITLE_PROP, title)
 
     def _sync(on: bool) -> None:
         inner.setVisible(on)
-        toggle.setText(f"{'▼' if on else '▶'} {title}")
+        toggle.setText(f"{'▼' if on else '▶'} {tr(title)}")
 
     toggle.toggled.connect(_sync)
     _sync(expanded)
