@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from unittest.mock import patch
 
 from stream_heartbeat.config import CAL_MAX_S
 from stream_heartbeat.detect import BUNDLED_CORR_MIN
@@ -9,8 +8,7 @@ from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.session import HeartSession
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_tick_feeds_clock_from_peaks(_bundled: object) -> None:
+def test_tick_feeds_clock_from_peaks() -> None:
     session = HeartSession()
     t = 0.0
     for i in range(2500):
@@ -40,8 +38,7 @@ def test_arrhythmia_text_respects_toggle() -> None:
     assert "不整脈！" not in on_texts
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_commit_calibration_uses_taps(_bundled: object) -> None:
+def test_commit_calibration_uses_taps() -> None:
     session = HeartSession()
     session.begin_calibration(0.0)
     audio = [0.01] * 4000
@@ -98,8 +95,7 @@ def test_hidden_beat_text_does_not_spawn_burst() -> None:
     assert shown.overlay.bursts_at(0.05)
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_preview_emits_beat_text(_bundled: object) -> None:
+def test_preview_emits_beat_text() -> None:
     session = HeartSession(HeartProfile(show_beat_text=True, beat_text="ドクン"))
 
     class _Silent:
@@ -117,8 +113,7 @@ def test_preview_emits_beat_text(_bundled: object) -> None:
     assert "ドクン" in texts
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_user_calibration_keeps_lenient_match(_bundled: object) -> None:
+def test_user_calibration_keeps_lenient_match() -> None:
     session = HeartSession()
     session.profile.calibration = [[0.3 * math.sin(i * 0.5) for i in range(2000)]]
     session.rebuild_detector()
@@ -134,8 +129,7 @@ class _SilentDetector:
         return
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_preview_jitter_moves_burst_position(_bundled: object) -> None:
+def test_preview_jitter_moves_burst_position() -> None:
     xs: set[float] = set()
     for _ in range(10):
         session = HeartSession(
@@ -191,8 +185,7 @@ def _thud(pos: int, width: int = 40) -> float:
     return 0.01
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_chunked_audio_keeps_lock_when_wall_clock_lags(_bundled: object) -> None:
+def test_chunked_audio_keeps_lock_when_wall_clock_lags() -> None:
     session = HeartSession()
     sr = 1000
     wall = 0.0
@@ -240,8 +233,7 @@ def test_silent_calibration_is_not_saved() -> None:
     assert session.recording is False
 
 
-@patch("stream_heartbeat.session.bundled_heart_sessions", return_value=[])
-def test_long_calibration_takes_are_trimmed(_bundled: object) -> None:
+def test_long_calibration_takes_are_trimmed() -> None:
     beat = [math.sin(i * 0.3) * math.exp(-i / 300.0) * 0.6 for i in range(1600)]
     take: list[float] = []
     for _ in range(40):

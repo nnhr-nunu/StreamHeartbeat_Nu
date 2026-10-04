@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from stream_heartbeat.bundled import bundled_heart_sessions
 from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.config import CAL_MAX_S, TAP_GOAL
 from stream_heartbeat.detect import (
@@ -36,14 +35,11 @@ class HeartSession:
 
     def rebuild_detector(self) -> None:
         tap = self.profile.tap_interval
-        bundled = bundled_heart_sessions()
-        bundled_tmpl = CalibrationTemplate.from_sessions(bundled) if bundled else None
-        user_tmpl = None
+        template = None
         # 以前の版で積み増した長い録音もここで心音の所だけに切り詰める
         self.profile.calibration = compact_calibration(self.profile.calibration)
         if self.profile.calibration:
-            user_tmpl = CalibrationTemplate.from_sessions(self.profile.calibration)
-        template = CalibrationTemplate.merge(user_tmpl, bundled_tmpl)
+            template = CalibrationTemplate.from_sessions(self.profile.calibration)
         self.detector = HeartSoundDetector(
             template=template,
             corr_min=BUNDLED_CORR_MIN,
