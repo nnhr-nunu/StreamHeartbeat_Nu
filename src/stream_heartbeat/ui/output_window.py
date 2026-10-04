@@ -19,11 +19,12 @@ from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.paths import cache_dir
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.gl_platform import core_profile
-from stream_heartbeat.render.grip_pose import HandPose, grip_pose, held_grip
+from stream_heartbeat.render.grip_pose import HEART_BODY, GripBody, HandPose, grip_pose, held_grip
 from stream_heartbeat.render.hand_gl import HandRenderer, HandRendererError
 from stream_heartbeat.render.heart_gl import BASE_SCALE, HeartRenderer, HeartRendererError
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.mesh_cache import shared_heart_mesh
+from stream_heartbeat.render.model_body import follow_scale, grip_for_look
 from stream_heartbeat.render.mri_gl import MriRenderer
 from stream_heartbeat.render.orbit import Orbit
 from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
@@ -228,11 +229,15 @@ class OutputCanvas(QOpenGLWidget):
         style = profile.style
         effect = self.effect
         grip = self._motion.grip if effect == EFFECT_GRIP else 0.0
+        # Blender の心臓は形そのものが拍で動くので、手の胴と握り直しをその形と縮みに合わせる
+        body, grip_cycle = self._grip_body(cycle) if effect == EFFECT_GRIP else (HEART_BODY, cycle)
         # 掴んでいる間は、鼓動に合わせて握り直す強さで心臓が潰れる
-        squash_x, squash_y = grip_squash(held_grip(grip, cycle) if effect == EFFECT_GRIP else 0.0)
+        squash_x, squash_y = grip_squash(
+            held_grip(grip, grip_cycle) if effect == EFFECT_GRIP else 0.0
+        )
         # 立体の心臓を掴むときは、手と心臓が同じ形を使う（指の所が凹む）
         gl_hand = effect == EFFECT_GRIP and self.uses_gl and not self._hand_failed
-        pose = self._grip_pose(cycle, grip) if gl_hand else None
+        pose = self._grip_pose(grip_cycle, grip, body) if gl_hand else None
 
         gl_mri = style == "mri" and self._mri is not None
         # レントゲン1・2 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
@@ -372,7 +377,22 @@ class OutputCanvas(QOpenGLWidget):
             )
         painter.end()
 
-    def _grip_pose(self, cycle: CardiacCycle, grip: float) -> HandPose:
+    def _model_shown(self) -> bool:
+        """Blender の心臓を描いている（形のファイルが読めずに作った心臓で描いているときは偽）。"""
+        renderer = self._renderer
+        return (
+            self.uses_gl
+            and self._look().program == "model"
+            and renderer is not None
+            and renderer.model_error is None
+        )
+
+    def _grip_body(self, cycle: CardiacCycle) -> tuple[GripBody, CardiacCycle]:
+        if not self._model_shown():
+            return HEART_BODY, cycle
+        return grip_for_look(self._look(), cycle)
+
+    def _grip_pose(self, cycle: CardiacCycle, grip: float, body: GripBody) -> HandPose:
         profile = self._session.profile
         look = self._look()
         return grip_pose(
@@ -381,6 +401,7 @@ class OutputCanvas(QOpenGLWidget):
             cycle=cycle,
             grip=grip,
             time_s=self._now,
+            body=body,
         )
 
     def _paint_gl_hand(self, painter: QPainter, pose: HandPose) -> bool:
@@ -438,11 +459,16 @@ class OutputCanvas(QOpenGLWidget):
         elif effect in STETHO_EFFECTS:
             rel = self._motion.stetho or (profile.stetho_x, profile.stetho_y)
             pos = QPointF(rect.left() + rel[0] * rect.width(), rect.top() + rel[1] * rect.height())
+            frame = self._heart_frame(rect)
+            if self._model_shown():
+                # Blender の心臓は形が縮むので、当てた所も表面と一緒に真ん中へ寄る
+                away = pos - frame.center
+                pos = frame.center + away * follow_scale(cycle, away.x(), -away.y())
             paint_stethoscope(
                 painter,
                 rect,
                 pos,
-                self._heart_frame(rect),
+                frame,
                 cycle,
                 time_s=self._now,
                 opacity=profile.opacity,

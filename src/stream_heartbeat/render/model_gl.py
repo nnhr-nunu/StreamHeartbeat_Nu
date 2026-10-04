@@ -1,7 +1,8 @@
 """Blender の心臓を OpenGL で描く。HeartRenderer が「リアル1」の見た目のときに呼ぶ。
 
 カメラ・拡大・回転・握りつぶしは heart_gl と同じ決め方。Blender の形は最初から体の向きに
-なっているので、heart_gl の解剖の傾きは足さない。手の凹みと断面は無い。
+なっているので、heart_gl の解剖の傾きは足さない。断面は無い。手で掴むと指の所が凹む
+（手はこの心臓の胴の形 model_body に巻き付く）。
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from PySide6.QtOpenGL import (
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.gl_platform import glsl
-from stream_heartbeat.render.grip_pose import BODY_CENTER
+from stream_heartbeat.render.grip_pose import BODY_CENTER, HandPose
 from stream_heartbeat.render.heart_shaders import Look
 from stream_heartbeat.render.model_mesh import (
     ENV_PATH,
@@ -183,9 +184,11 @@ class ModelRenderer:
         squash_x: float = 1.0,
         squash_y: float = 1.0,
         lift: float = 0.0,
+        hand: HandPose | None = None,
     ) -> None:
+        """hand は心臓を掴んでいる手の形（指の所が凹む）。"""
         # heart_gl が先に読み込まれている（循環を避けてここで読む）
-        from stream_heartbeat.render.heart_gl import BASE_SCALE, camera_matrices
+        from stream_heartbeat.render.heart_gl import BASE_SCALE, camera_matrices, set_dent_uniforms
 
         gl = self._gl
         program = self._program
@@ -231,12 +234,25 @@ class ModelRenderer:
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue1f("uPulse", float(cycle.squeeze))
         program.setUniformValue1f("uEnvYaw", ENV_YAW)
+        program.setUniformValue1f("uAtriaL", float(cycle.atria_l))
+        program.setUniformValue1f("uAurL", float(cycle.auricle_l))
+        set_dent_uniforms(program, hand)
         if material == MATERIAL_GLASS:
             # 奥の面を先に描き、手前の面を重ねる（中の血管の凹凸が透けて見える）
+            program.setUniformValue1i("uPass", 2)
             gl.glCullFace(GL_FRONT)
             _draw_elements(mesh.index_count)
-        gl.glCullFace(GL_BACK)
-        _draw_elements(mesh.index_count)
+            gl.glCullFace(GL_BACK)
+            _draw_elements(mesh.index_count)
+        else:
+            # 不透明な所を先に描き、透けて消えていく血管の先は奥行きを書かずに重ねる
+            gl.glCullFace(GL_BACK)
+            program.setUniformValue1i("uPass", 0)
+            _draw_elements(mesh.index_count)
+            gl.glDepthMask(False)
+            program.setUniformValue1i("uPass", 1)
+            _draw_elements(mesh.index_count)
+            gl.glDepthMask(True)
         self._env.release(1)
         self._gradient.release(0)
         program.release()

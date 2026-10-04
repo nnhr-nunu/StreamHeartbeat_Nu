@@ -120,6 +120,34 @@ SHADE_GRIP = 0.22
 SHADE_SHIFT = (0.035, -0.045)
 
 
+@dataclass(frozen=True)
+class GripBody:
+    """手を巻き付ける胴の形（正面から見た輪郭・奥行き）と、それに合わせた手の大きさ・当てる所。
+
+    作った心臓は HEART_BODY。形そのものが拍で動く Blender の心臓（model_body）は、コマごとに
+    今の輪郭を渡し、鼓動の縮み・寄り（beat_*・rock）は 0 にする。
+    """
+
+    rim: tuple[float, ...] = BODY_RIM
+    depth: float = BODY_DEPTH
+    hand_width: float = HAND_WIDTH
+    anchor: tuple[float, float] = ANCHOR
+    beat_squeeze: float = BEAT_SQUEEZE
+    beat_fill: float = BEAT_FILL
+    beat_shift: tuple[float, float, float] = BEAT_SHIFT
+    rock: float = ROCK
+
+    def shape_uniforms(self) -> dict[str, object]:
+        """GRIP_SHAPE_GLSL へ渡す値（輪郭と奥行き）。"""
+        values: dict[str, object] = {"uGripDepth": self.depth}
+        for i, r in enumerate(self.rim):
+            values[f"uGripRim[{i}]"] = r
+        return values
+
+
+HEART_BODY = GripBody()
+
+
 def grip_squash(grip: float) -> tuple[float, float]:
     """握る強さ 0〜1 に対する心臓の潰れ（横・縦の倍率）。"""
     g = max(0.0, min(1.0, grip))
@@ -132,33 +160,33 @@ def held_grip(grip: float, cycle: CardiacCycle) -> float:
     return max(0.0, min(1.0, grip + pulse))
 
 
-def rim_at(phi: float) -> float:
+def rim_at(phi: float, rim: tuple[float, ...] = BODY_RIM) -> float:
     """胴の真ん中から角度 phi（ラジアン）の向きの、輪郭までの長さ。"""
-    steps = len(BODY_RIM)
+    steps = len(rim)
     x = (phi + math.pi) / (2.0 * math.pi) * steps
     i = math.floor(x)
     t = x - i
-    return BODY_RIM[i % steps] * (1.0 - t) + BODY_RIM[(i + 1) % steps] * t
+    return rim[i % steps] * (1.0 - t) + rim[(i + 1) % steps] * t
 
 
-def arc_radius(r: float) -> float:
+def arc_radius(r: float, depth: float = BODY_DEPTH) -> float:
     """正面のてっぺんから輪郭まで表面に沿った長さ（楕円の 4 分の 1）を、90° で割った値。"""
-    d = BODY_DEPTH
+    d = depth
     return 0.5 * (3.0 * (r + d) - math.sqrt((3.0 * r + d) * (r + 3.0 * d)))
 
 
-def arc_length(theta: float, r: float) -> float:
+def arc_length(theta: float, r: float, depth: float = BODY_DEPTH) -> float:
     """正面のてっぺんから角度 theta まで表面に沿った長さ（x = r sinθ, z = 奥行き cosθ の楕円）。
 
     正面では r、輪郭では奥行きの速さで伸びる。輪郭までの長さは arc_radius × 90° に合う。
     """
-    a = arc_radius(r)
+    a = arc_radius(r, depth)
     return a * theta + 0.5 * (r - a) * math.sin(2.0 * theta)
 
 
-def arc_angle(length: float, r: float) -> float:
+def arc_angle(length: float, r: float, depth: float = BODY_DEPTH) -> float:
     """arc_length の逆（ニュートン法 3 回）。"""
-    a = arc_radius(r)
+    a = arc_radius(r, depth)
     theta = length / a
     for _ in range(3):
         f = a * theta + 0.5 * (r - a) * math.sin(2.0 * theta) - length
@@ -166,28 +194,30 @@ def arc_angle(length: float, r: float) -> float:
     return theta
 
 
-def wrap(fx: float, fy: float, lift: float = 0.0) -> tuple[float, float, float, float]:
+def wrap(
+    fx: float, fy: float, lift: float = 0.0, body: GripBody = HEART_BODY
+) -> tuple[float, float, float, float]:
     """紙の点を胴の表面へ: (x, y, z, 向き)。向きは正面 1・輪郭 0・裏 -1。"""
     rho = math.hypot(fx, fy)
     phi = math.atan2(fy, fx) if rho > 1e-9 else 0.0
-    r = rim_at(phi)
-    theta = arc_angle(rho, r)
+    r = rim_at(phi, body.rim)
+    theta = arc_angle(rho, r, body.depth)
     s = math.sin(theta) * r * (1.0 + lift)
     return (
         s * math.cos(phi),
         s * math.sin(phi),
-        BODY_DEPTH * math.cos(theta) * (1.0 + lift),
+        body.depth * math.cos(theta) * (1.0 + lift),
         math.cos(theta),
     )
 
 
-def unwrap(x: float, y: float, z: float) -> tuple[float, float]:
+def unwrap(x: float, y: float, z: float, body: GripBody = HEART_BODY) -> tuple[float, float]:
     """胴の表面の点を紙へ戻す（wrap の逆）。"""
     rxy = math.hypot(x, y)
     phi = math.atan2(y, x) if rxy > 1e-9 else 0.0
-    r = rim_at(phi)
-    theta = math.atan2(rxy / r, z / BODY_DEPTH)
-    rho = arc_length(theta, r)
+    r = rim_at(phi, body.rim)
+    theta = math.atan2(rxy / r, z / body.depth)
+    rho = arc_length(theta, r, body.depth)
     return rho * math.cos(phi), rho * math.sin(phi)
 
 
@@ -239,6 +269,7 @@ class HandPose:
     dent: float  # 指の下の凹み（世界）
     bulge: float  # 指の間の盛り上がり（世界）
     shade: float  # 指の影の濃さ
+    shape: GripBody = HEART_BODY  # 巻き付ける胴の形
 
     def sheet_point(self, u: float, v: float) -> tuple[float, float]:
         """素材の画素（指は開く前）を紙の点へ。"""
@@ -281,7 +312,7 @@ class HandPose:
         指先が浮く前の、表面の上の置き場所で測る（浮いた後の向きは finger_point）。
         """
         bx, by, ex, ey, _half = self.segments()[index]
-        return wrap(bx + (ex - bx) * along, by + (ey - by) * along)[3]
+        return wrap(bx + (ex - bx) * along, by + (ey - by) * along, body=self.shape)[3]
 
     def stiff_curl(self) -> float:
         """指先の方が表面に沿う割合（握った手の絵へ替わるほど貼り付いたままに戻す）。"""
@@ -294,7 +325,7 @@ class HandPose:
 
         hand_gl の頂点シェーダーと同じ式（筒に起こす所は除く）。指の途中から先は接線の方へ浮く。
         """
-        on = wrap(fx, fy, lift)
+        on = wrap(fx, fy, lift, self.shape)
         bx, by, ex, ey, _half = self.segments()[index]
         length = math.hypot(ex - bx, ey - by)
         dx, dy = (ex - bx) / length, (ey - by) / length
@@ -302,9 +333,10 @@ class HandPose:
         start = STIFF_FROM * length
         if index == 0 or s <= start:
             return on
-        center = wrap(bx + dx * s, by + dy * s, lift)
-        a = wrap(bx + dx * start, by + dy * start, lift)
-        b = wrap(bx + dx * (start + STIFF_STEP), by + dy * (start + STIFF_STEP), lift)
+        body = self.shape
+        center = wrap(bx + dx * s, by + dy * s, lift, body)
+        a = wrap(bx + dx * start, by + dy * start, lift, body)
+        b = wrap(bx + dx * (start + STIFF_STEP), by + dy * (start + STIFF_STEP), lift, body)
         lifted = 1.0 - self.stiff_curl()
         run = (s - start) / STIFF_STEP
         x, y, z = (on[j] + (a[j] + (b[j] - a[j]) * run - center[j]) * lifted for j in range(3))
@@ -318,6 +350,7 @@ class HandPose:
             "uHandC": self.center,
             "uHandS": self.body,
             "uHandDent": (self.dent, self.bulge, self.shade),
+            **self.shape.shape_uniforms(),
         }
         for i, (bx, by, ex, ey, half) in enumerate(segs):
             values[f"uHandSeg[{i}]"] = (bx, by, ex, ey)
@@ -332,46 +365,50 @@ def grip_pose(
     cycle: CardiacCycle,
     grip: float,
     time_s: float,
+    body: GripBody = HEART_BODY,
 ) -> HandPose:
     """shift は心臓の置き場所のずれ（look.shift_x / shift_y）、size は心臓の大きさ（世界）。
 
     grip はクリックの握り（0〜1）。鼓動に合わせた締め付けはここで足す（held_grip）。
+    body は巻き付ける胴の形（Blender の心臓では model_body の今の形）。
     """
     clicked = max(0.0, min(1.0, grip))
     g = held_grip(clicked, cycle)
     sx, sy = grip_squash(g)
-    beat = 1.0 - BEAT_SQUEEZE * cycle.squeeze + BEAT_FILL * cycle.fill
+    beat = 1.0 - body.beat_squeeze * cycle.squeeze + body.beat_fill * cycle.fill
     jolt = kick(cycle.age)
     # 心臓は縮むときに左へ寄り、少し左回りに揺れる（heart_shaders の rock と同じ向き）
-    rock = ROCK * cycle.squeeze
+    rock = body.rock * cycle.squeeze
+    move = body.beat_shift
     center = (
-        shift[0] + size * (sx * BODY_CENTER[0] + BEAT_SHIFT[0] * cycle.squeeze),
-        shift[1] + size * (sy * BODY_CENTER[1] + BEAT_SHIFT[1] * cycle.squeeze),
-        size * (BODY_CENTER[2] + BEAT_SHIFT[2] * cycle.squeeze),
+        shift[0] + size * (sx * BODY_CENTER[0] + move[0] * cycle.squeeze),
+        shift[1] + size * (sy * BODY_CENTER[1] + move[1] * cycle.squeeze),
+        size * (BODY_CENTER[2] + move[2] * cycle.squeeze),
     )
-    body = (size * sx * beat, size * sy * beat, size * beat)
+    extent = (size * sx * beat, size * sy * beat, size * beat)
     # クリックで握り込むと小さく震える
     shake = SHAKE * clicked
-    ax = ANCHOR[0] + shake * math.sin(time_s * SHAKE_SPEED[0])
+    ax = body.anchor[0] + shake * math.sin(time_s * SHAKE_SPEED[0])
     blend = _smoothstep(BLEND_FROM, BLEND_TO, g)
-    ay = ANCHOR[1] + GRIP_PUSH * g + KICK_PUSH * jolt + shake * math.cos(time_s * SHAKE_SPEED[1])
+    ay = body.anchor[1] + GRIP_PUSH * g + KICK_PUSH * jolt
+    ay += shake * math.cos(time_s * SHAKE_SPEED[1])
     anchor = _rotate(ax, ay, rock)
     # 握ると指を寄せ、拍の頭で揺さぶられ、充満で心臓が膨らむと押し開かれる
     spread = 1.0 - GRIP_CLOSE * g + 0.15 * cycle.fill
     fan = tuple(a * spread + math.copysign(KICK_FAN * jolt, a) for a in FAN_REST)
     lift = LIFT
-    palm = wrap(anchor[0], anchor[1], lift)
+    palm = wrap(anchor[0], anchor[1], lift, body)
     return HandPose(
         center=center,
-        body=body,
+        body=extent,
         size=size,
         anchor=anchor,
         turn=TURN + rock,
-        px=HAND_WIDTH / HAND_WIDTH_PX,
+        px=body.hand_width / HAND_WIDTH_PX,
         fan=fan,  # type: ignore[arg-type]
         lift=lift,
         sink=SINK * (0.35 + 0.65 * g),
-        palm_z=palm[2] * body[2] / size,
+        palm_z=palm[2] * extent[2] / size,
         grip=g,
         morph=g,
         blend=blend,
@@ -379,6 +416,7 @@ def grip_pose(
         dent=size * (DENT_REST + DENT_GRIP * g),
         bulge=size * (BULGE_REST + BULGE_GRIP * g) * (0.7 + 0.8 * cycle.fill),
         shade=SHADE_REST + SHADE_GRIP * g,
+        shape=body,
     )
 
 
@@ -451,24 +489,20 @@ def _smoothstep(a: float, b: float, x: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-def _glsl_floats(values: tuple[float, ...]) -> str:
-    return ", ".join(f"{v:.4f}" for v in values)
-
-
-# 胴の形と、紙と表面の行き来（wrap / unwrap と同じ式）
+# 胴の形と、紙と表面の行き来（wrap / unwrap と同じ式）。輪郭と奥行きは GripBody.shape_uniforms
 GRIP_SHAPE_GLSL = f"""
 const float GRIP_PI = 3.14159265;
-const float GRIP_DEPTH = {BODY_DEPTH:.4f};
-const float GRIP_RIM[{len(BODY_RIM)}] = float[{len(BODY_RIM)}]({_glsl_floats(BODY_RIM)});
+uniform float uGripDepth;
+uniform float uGripRim[{len(BODY_RIM)}];
 float gripRim(float phi) {{
     float x = (phi + GRIP_PI) / (2.0 * GRIP_PI) * {float(len(BODY_RIM)):.1f};
     float i = floor(x);
     int a = int(mod(i, {float(len(BODY_RIM)):.1f}));
     int b = int(mod(i + 1.0, {float(len(BODY_RIM)):.1f}));
-    return mix(GRIP_RIM[a], GRIP_RIM[b], x - i);
+    return mix(uGripRim[a], uGripRim[b], x - i);
 }}
 float gripArc(float r) {{
-    float d = GRIP_DEPTH;
+    float d = uGripDepth;
     return 0.5 * (3.0 * (r + d) - sqrt((3.0 * r + d) * (r + 3.0 * d)));
 }}
 float gripArcLength(float th, float r) {{
@@ -491,13 +525,13 @@ vec4 gripWrap(vec2 f, float lift) {{
     float r = gripRim(phi);
     float th = gripArcAngle(rho, r);
     float s = sin(th) * r * (1.0 + lift);
-    return vec4(s * cos(phi), s * sin(phi), GRIP_DEPTH * cos(th) * (1.0 + lift), cos(th));
+    return vec4(s * cos(phi), s * sin(phi), uGripDepth * cos(th) * (1.0 + lift), cos(th));
 }}
 vec2 gripUnwrap(vec3 b) {{
     float rxy = length(b.xy);
     float phi = rxy > 1e-6 ? atan(b.y, b.x) : 0.0;
     float r = gripRim(phi);
-    float th = atan(rxy / r, b.z / GRIP_DEPTH);
+    float th = atan(rxy / r, b.z / uGripDepth);
     return gripArcLength(th, r) * vec2(cos(phi), sin(phi));
 }}
 """

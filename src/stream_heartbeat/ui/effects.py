@@ -31,6 +31,7 @@ from stream_heartbeat.render.grip_pose import BODY_CENTER as GRIP_BODY_CENTER
 from stream_heartbeat.render.grip_pose import grip_squash as grip_squash  # 配信用の窓も使う
 from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG, view_fit
 from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.render.model_body import MODEL_HALF
 from stream_heartbeat.ui.heart_paint import CUTE_REIWA, heart_lift
 
 EFFECT_NONE = ""
@@ -170,7 +171,9 @@ def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) ->
     """立体の心臓を正面から描いたときの画面上の置き場所（heart_gl のカメラと同じ式）。
 
     lift は画面の上へ寄せる量（窓の高さに対する割合。heart_gl の lift と同じ）。
+    Blender の心臓（リアル1）は胴の大きさが違う（真ん中は同じ所に置いてある）。
     """
+    half = MODEL_HALF if look.program == "model" else BODY_HALF
     screen = rect.height() * view_fit(rect.width(), rect.height())
     px_per_unit = screen / (2.0 * CAMERA_DISTANCE * math.tan(math.radians(FOV_DEG / 2.0)))
     size = max(0.05, scale) * look.size_factor
@@ -182,8 +185,8 @@ def gl_heart_frame(rect: QRectF, scale: float, look: Look, lift: float = 0.0) ->
     )
     return HeartFrame(
         center=center,
-        half_w=BODY_HALF[0] * size * px_per_unit,
-        half_h=BODY_HALF[1] * size * px_per_unit,
+        half_w=half[0] * size * px_per_unit,
+        half_h=half[1] * size * px_per_unit,
     )
 
 

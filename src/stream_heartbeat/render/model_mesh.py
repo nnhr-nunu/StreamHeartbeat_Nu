@@ -12,6 +12,7 @@ import json
 import struct
 import zlib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 MAGIC = b"SHHM1\n"
@@ -45,7 +46,16 @@ class ModelMesh:
         return len(self.delta_scales)
 
 
-def load_model_mesh(path: Path = MODEL_PATH) -> ModelMesh:
+@dataclass(frozen=True)
+class ModelAnim:
+    """拍の動き（キーの重みの並び）だけ。手や聴診器を心臓の動きに合わせるのに使う。"""
+
+    anim_times: tuple[float, ...]
+    anim_weights: tuple[tuple[float, ...], ...]
+
+
+def _read_head(path: Path) -> tuple[dict, bytes]:
+    """(見出し, 縮めた中身)。"""
     try:
         data = path.read_bytes()
     except OSError as exc:
@@ -56,7 +66,31 @@ def load_model_mesh(path: Path = MODEL_PATH) -> ModelMesh:
         start = len(MAGIC)
         head_len = struct.unpack_from("<I", data, start)[0]
         head = json.loads(data[start + 4 : start + 4 + head_len].decode("utf-8"))
-        payload = zlib.decompress(data[start + 4 + head_len :])
+    except (struct.error, ValueError) as exc:
+        raise ModelMeshError("心臓の形のファイルが壊れています") from exc
+    return head, data[start + 4 + head_len :]
+
+
+@lru_cache(maxsize=1)
+def load_model_anim(path: Path = MODEL_PATH) -> ModelAnim | None:
+    """拍の動きだけを読む（形は広げないので軽い）。読めなければ None。"""
+    try:
+        head, _packed = _read_head(path)
+        anim = ModelAnim(
+            anim_times=tuple(float(t) for t in head["anim_times"]),
+            anim_weights=tuple(tuple(float(w) for w in row) for row in head["anim_weights"]),
+        )
+    except (ModelMeshError, KeyError, TypeError, ValueError):
+        return None
+    if not anim.anim_times or len(anim.anim_times) != len(anim.anim_weights):
+        return None
+    return anim
+
+
+def load_model_mesh(path: Path = MODEL_PATH) -> ModelMesh:
+    head, packed = _read_head(path)
+    try:
+        payload = zlib.decompress(packed)
         mesh = ModelMesh(
             payload=payload,
             vertex_count=int(head["vertices"]),
@@ -77,7 +111,7 @@ def load_model_mesh(path: Path = MODEL_PATH) -> ModelMesh:
     return mesh
 
 
-def beat_weights(mesh: ModelMesh, age: float, interval: float) -> tuple[float, ...]:
+def beat_weights(mesh: ModelMesh | ModelAnim, age: float, interval: float) -> tuple[float, ...]:
     """拍から age 秒たったときの、シェイプキーの重み。
 
     アニメの最後のコマが休んでいる形。拍の瞬間はそこから始め（コマの 0 秒を足す）、

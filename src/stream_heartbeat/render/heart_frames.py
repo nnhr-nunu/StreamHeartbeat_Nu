@@ -20,6 +20,7 @@ from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.grip_pose import grip_pose, grip_squash, held_grip
 from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
+from stream_heartbeat.render.model_body import follow_scale, grip_for_look
 from stream_heartbeat.ui.effect_burst import paint_beat_pops
 from stream_heartbeat.ui.effect_grip import paint_grip_hand
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope, stetho_radius
@@ -152,16 +153,19 @@ def render_frames(
     yaw = 0.0 if grip else profile.heart_yaw_deg
     pitch = 0.0 if grip else profile.heart_pitch_deg
     for k, cycle in enumerate(cycles):
-        # 手を添えている間も、鼓動に合わせて握り直す強さで心臓が潰れる（配信用の窓と同じ）
-        squash_x, squash_y = grip_squash(held_grip(0.0, cycle)) if grip else (1.0, 1.0)
+        # 手を添えている間も、鼓動に合わせて握り直す強さで心臓が潰れる（配信用の窓と同じ。
+        # Blender の心臓は手の胴と握り直しをその形と縮みに合わせる）
+        body, grip_cycle = grip_for_look(look, cycle)
+        squash_x, squash_y = grip_squash(held_grip(0.0, grip_cycle)) if grip else (1.0, 1.0)
         pose = None
         if grip:
             pose = grip_pose(
                 shift=(look.shift_x, look.shift_y),
                 size=BASE_SCALE * ITEM_SCALE * look.size_factor,
-                cycle=cycle,
+                cycle=grip_cycle,
                 grip=0.0,
                 time_s=ages[k],
+                body=body,
             )
         image = heart.render(
             width=size,
@@ -189,7 +193,8 @@ def render_frames(
                 see_through=look.additive or look.cutout,
             )
         if layer is None and effect:
-            layer = _effect_layer(size, frame, effect, cycle, ages[k], k == rest, stetho)
+            model = look.program == "model"
+            layer = _effect_layer(size, frame, effect, cycle, ages[k], k == rest, stetho, model)
         if layer is not None:
             _overlay(image, layer)
         frames.append(image)
@@ -226,8 +231,12 @@ def _effect_layer(
     age: float,
     resting: bool,
     stetho: tuple[float, float],
+    model: bool = False,
 ) -> QImage:
-    """心臓の上に重ねる演出（平らな手・聴診器・はじけるハート）を、背景の透けた絵にする。"""
+    """心臓の上に重ねる演出（平らな手・聴診器・はじけるハート）を、背景の透けた絵にする。
+
+    model は Blender の心臓（形が縮むので、聴診器を当てた所も表面と一緒に寄る）。
+    """
     layer = _clear_image(size)
     rect = QRectF(0, 0, size, size)
     painter = QPainter(layer)
@@ -238,6 +247,9 @@ def _effect_layer(
         pos = point_from_heart(frame, stetho, STETHO_REACH)
         # チェストピースは薄くする所より上に当てる（下に置いてあっても消えかけない）
         pos.setY(min(pos.y(), size * FADE_FROM - stetho_radius(frame) * 1.2))
+        if model:
+            away = pos - frame.center
+            pos = frame.center + away * follow_scale(cycle, away.x(), -away.y())
         paint_stethoscope(
             painter,
             rect,

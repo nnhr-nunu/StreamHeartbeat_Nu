@@ -242,6 +242,7 @@ class HeartRenderer:
                 squash_x=squash_x,
                 squash_y=squash_y,
                 lift=lift,
+                hand=hand,
             )
             return
         gl = self._gl
