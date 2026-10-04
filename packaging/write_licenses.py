@@ -23,7 +23,15 @@ TERMS = """\
 StreamHeartbeat(ぬ) 利用規約
 
 1. 無料で使えます。個人・法人を問わず、収益化している配信や動画でも使えます。
-2. クレジットの表記は任意です。
+2. クレジットの表記は任意です。ただ、配信や動画で使っていただいたときは、
+   概要欄などに次の表記をしていただけるととても嬉しいです。
+
+     StreamHeartbeat(ぬ)
+     開発者：ぬぬはら - 催眠音声制作者
+     YouTube：https://www.youtube.com/@nnhr_nunu
+     X(Twitter)：https://x.com/nnhr_nunu
+     使い方など：https://github.com/nnhr-nunu/StreamHeartbeat_Nu
+
 3. 応援用の購入は任意です。購入しても機能は変わりません。
 4. この zip と中のファイルを、ほかの場所で再配布・販売しないでください。
    紹介するときは配布ページへのリンクでお願いします。
