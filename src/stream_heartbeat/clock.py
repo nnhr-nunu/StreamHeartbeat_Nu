@@ -34,6 +34,8 @@ class CardiacCycle:
     atria_l: float = 0.0
     auricle_r: float = 0.0
     auricle_l: float = 0.0
+    # 拍の間隔（秒）。Blender の心臓は、速い心拍ではアニメを速めて間隔に収める
+    interval: float = 1.0
 
 
 # 心房は心室より先に縮む。右房は次の拍のこの秒数前から、左房はさらに少し遅れて
@@ -206,6 +208,7 @@ class BeatClock:
             atria_l=atria_l,
             auricle_r=auricle_r,
             auricle_l=auricle_l,
+            interval=interval,
         )
 
     def pulse_scale(self, t: float) -> float:

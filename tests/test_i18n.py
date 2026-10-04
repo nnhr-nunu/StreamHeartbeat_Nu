@@ -639,10 +639,10 @@ def test_style_names_in_english() -> None:
     from stream_heartbeat.ui.vts_panel import style_names
 
     set_language(LANG_EN)
-    assert style_names(ITEM_STYLES) == "Realistic 1–3, X-ray 3, Cute 1 & 2, Chic 1 & 2, Mechanical"
-    assert style_names(ITEM_STYLES, translated=False).startswith("リアル1〜3")
+    assert style_names(ITEM_STYLES) == "Realistic 1–4, X-ray 3, Cute 1 & 2, Chic 1 & 2, Mechanical"
+    assert style_names(ITEM_STYLES, translated=False).startswith("リアル1〜4")
     set_language(LANG_JA)
-    assert style_names(ITEM_STYLES) == "リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械"
+    assert style_names(ITEM_STYLES) == "リアル1〜4、レントゲン3、かわいい1・2、オシャレ1・2、機械"
 
 
 def test_vts_panel_switch_updates_note_and_folder(

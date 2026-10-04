@@ -55,8 +55,10 @@ class HeartProfile:
     oshilog_public_id: str = ""
     oshilog_bpm_url: str = ""
     tap_interval: float = 0.0
-    # スタイルの中の見た目（リアルの 1〜3、レントゲンの女性の像など）
-    realistic_look: str = "surgical"
+    # スタイルの中の見た目（リアルの 1〜4、レントゲンの女性の像など）。リアル1 は Blender の心臓
+    realistic_look: str = "model"
+    # Blender の心臓（リアル1）の材質（"real": 赤 / "gradient": グラデ / "glass": ガラス）
+    heart_material: str = "real"
     heart_yaw_deg: float = -18.0
     heart_pitch_deg: float = 12.0
     backdrop: str = DEFAULT_BACKDROP
