@@ -220,6 +220,8 @@ def test_grip_follows_the_model_contraction() -> None:
     assert rest_body.rim == pytest.approx(MODEL_RIM, abs=0.01)
     # 形そのものが動くので、作った心臓の鼓動の縮み・寄りは足さない
     assert rest_body.beat_squeeze == 0.0 and rest_body.rock == 0.0
+    # 拍の頭で手が跳ねて指がぶるっと震えない（この心臓は拍より後でゆっくり縮む）
+    assert rest_body.kick == 0.0 and HEART_BODY.kick == 1.0
     squeezes = []
     for k in range(40):
         body, cycle = model_grip(clock.cycle(last + interval * k / 40))

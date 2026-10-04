@@ -125,7 +125,7 @@ class GripBody:
     """手を巻き付ける胴の形（正面から見た輪郭・奥行き）と、それに合わせた手の大きさ・当てる所。
 
     作った心臓は HEART_BODY。形そのものが拍で動く Blender の心臓（model_body）は、コマごとに
-    今の輪郭を渡し、鼓動の縮み・寄り（beat_*・rock）は 0 にする。
+    今の輪郭を渡し、鼓動の縮み・寄り（beat_*・rock）と拍の頭で手が跳ねる動き（kick）は 0 にする。
     """
 
     rim: tuple[float, ...] = BODY_RIM
@@ -136,6 +136,7 @@ class GripBody:
     beat_fill: float = BEAT_FILL
     beat_shift: tuple[float, float, float] = BEAT_SHIFT
     rock: float = ROCK
+    kick: float = 1.0
 
     def shape_uniforms(self) -> dict[str, object]:
         """GRIP_SHAPE_GLSL へ渡す値（輪郭と奥行き）。"""
@@ -376,7 +377,7 @@ def grip_pose(
     g = held_grip(clicked, cycle)
     sx, sy = grip_squash(g)
     beat = 1.0 - body.beat_squeeze * cycle.squeeze + body.beat_fill * cycle.fill
-    jolt = kick(cycle.age)
+    jolt = body.kick * kick(cycle.age)
     # 心臓は縮むときに左へ寄り、少し左回りに揺れる（heart_shaders の rock と同じ向き）
     rock = body.rock * cycle.squeeze
     move = body.beat_shift

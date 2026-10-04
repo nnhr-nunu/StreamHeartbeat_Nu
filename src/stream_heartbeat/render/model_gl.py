@@ -25,6 +25,7 @@ from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.gl_platform import glsl
 from stream_heartbeat.render.grip_pose import BODY_CENTER, HandPose
 from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.render.model_body import model_squeeze
 from stream_heartbeat.render.model_mesh import (
     ENV_PATH,
     GRADIENT_PATH,
@@ -232,7 +233,8 @@ class ModelRenderer:
         program.setUniformValue("uWeights", QVector3D(*weights[:3]))
         program.setUniformValue1i("uMaterial", MATERIAL_INDEX[material])
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
-        program.setUniformValue1f("uPulse", float(cycle.squeeze))
+        # 血の気は拍の頭ではなく、この心臓の形が縮むのに合わせる（拍より 0.3〜0.5 秒遅れて縮む）
+        program.setUniformValue1f("uPulse", float(model_squeeze(weights)))
         program.setUniformValue1f("uEnvYaw", ENV_YAW)
         program.setUniformValue1f("uAtriaL", float(cycle.atria_l))
         program.setUniformValue1f("uAurL", float(cycle.auricle_l))
