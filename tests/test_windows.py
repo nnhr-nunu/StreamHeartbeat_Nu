@@ -393,3 +393,23 @@ def test_startup_splash_shows_steps_and_closes(qapp: QApplication) -> None:
     splash.finish(QWidget())
     qapp.processEvents()
     assert not splash.isVisible()
+
+
+def test_closed_windows_do_not_reopen_mic_on_device_change(qapp: QApplication) -> None:
+    """閉じた窓が、マイクの抜き差しの知らせでマイクを開き直さない。
+
+    テストの窓は閉じても残る。残った窓が知らせのたびにマイクを開き直すと、窓の数だけ
+    音声の裏スレッドが同時に走り、pytest-qt の Qt ログ捕捉と重なって全体が native で落ちた。
+    """
+    windows = []
+    for _ in range(30):
+        session = HeartSession()
+        output = OutputWindow(session)
+        operator = OperatorWindow(session, output)
+        operator.close()
+        output.close()
+        windows.append(operator)
+    for operator in windows:
+        operator._devices.audioInputsChanged.emit()
+    qapp.processEvents()
+    assert all(operator._mic._source is None for operator in windows)
