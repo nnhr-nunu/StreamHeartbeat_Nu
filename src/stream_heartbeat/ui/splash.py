@@ -15,6 +15,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPaintEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
+from stream_heartbeat.i18n import tr
 from stream_heartbeat.ui.app_icon import PROCESS_DISPLAY_NAME, load_app_icon
 
 SPLASH_W = 360
@@ -95,7 +96,9 @@ class StartupSplash(QWidget):
         body.setPixelSize(14)
         painter.setFont(body)
         painter.setPen(_SUB)
-        painter.drawText(QRectF(left, 56, width, 24), Qt.AlignmentFlag.AlignVCenter, WAIT_TEXT)
+        painter.drawText(
+            QRectF(left, 56, width, 24), Qt.AlignmentFlag.AlignVCenter, tr(WAIT_TEXT)
+        )
         if self._step:
             small = QFont()
             small.setPixelSize(12)

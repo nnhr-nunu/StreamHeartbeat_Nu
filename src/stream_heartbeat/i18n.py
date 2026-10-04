@@ -42,6 +42,7 @@ SKIP_PROP = "i18n_skip"
 # 折りたたみ見出しは「▶/▼ + 題名」と組むので、題名の原文を別に持つ
 FOLD_TITLE_PROP = "fold_title"
 _ITEM_SOURCE_ROLE = int(Qt.ItemDataRole.UserRole) + 100
+_ITEM_FORMAT_ROLE = int(Qt.ItemDataRole.UserRole) + 101
 
 _lang = LANG_JA
 
@@ -141,9 +142,22 @@ def translate_tree(root: QWidget) -> None:
             _retranslate_combo(widget)
 
 
+def add_tr_item(combo: QComboBox, template: str, data: object, **fmt: object) -> None:
+    """値を埋め込む項目（例: 保存値 #123456）を足す。言語を変えたとき、同じ値で訳し直せる。"""
+    combo.addItem(tr(template, **fmt), data)
+    combo.setItemData(combo.count() - 1, [template, fmt], _ITEM_FORMAT_ROLE)
+
+
 def _retranslate_combo(combo: QComboBox) -> None:
     for i in range(combo.count()):
         current = combo.itemText(i)
+        spec = combo.itemData(i, _ITEM_FORMAT_ROLE)
+        if spec:
+            template, fmt = spec
+            new = tr(template, **fmt)
+            if new != current:
+                combo.setItemText(i, new)
+            continue
         source = _source_of(current, combo.itemData(i, _ITEM_SOURCE_ROLE))
         if source is None:
             continue

@@ -11,6 +11,7 @@ from stream_heartbeat.detect import (
     HeartSoundDetector,
     compact_calibration,
 )
+from stream_heartbeat.i18n import tr
 from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.tap import chunks_near_taps, tap_interval
@@ -72,11 +73,11 @@ class HeartSession:
         count = len(self.taps)
         interval = tap_interval(self.taps)
         if count == 0:
-            return f"拍はまだ（{TAP_GOAL}回以上が目安）"
+            return tr("拍はまだ（{goal}回以上が目安）", goal=TAP_GOAL)
         if interval <= 0:
-            return f"拍 {count} / {TAP_GOAL} 回"
+            return tr("拍 {count} / {goal} 回", count=count, goal=TAP_GOAL)
         bpm = int(round(60.0 / interval))
-        return f"拍 {count} 回  約 {bpm} BPM（保存してOK）"
+        return tr("拍 {count} 回  約 {bpm} BPM（保存してOK）", count=count, bpm=bpm)
 
     def discard_calibration(self) -> None:
         self.calibrating = None

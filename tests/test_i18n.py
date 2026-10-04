@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterator
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -14,14 +18,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from stream_heartbeat import i18n
+from stream_heartbeat import OPERATOR_WINDOW_TITLE, OUTPUT_WINDOW_TITLE, i18n
 from stream_heartbeat.i18n import (
+    FOLD_TITLE_PROP,
     LANG_EN,
     LANG_JA,
+    SKIP_PROP,
     detect_language,
     init_language,
     language,
@@ -30,8 +37,11 @@ from stream_heartbeat.i18n import (
     tr,
     translate_tree,
 )
-from stream_heartbeat.profile import STATE_FILENAME
+from stream_heartbeat.profile import STATE_FILENAME, load_app_state
+from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.fold import fold_toggle
+from stream_heartbeat.ui.operator_window import OperatorWindow, obs_hint
+from stream_heartbeat.ui.output_window import OutputWindow
 
 
 @pytest.fixture
@@ -251,3 +261,278 @@ def test_translate_tree_is_idempotent(qapp: QApplication, small_table: dict[str,
     translate_tree(root)
     assert root.button.text() == "Save"  # type: ignore[attr-defined]
     assert root.combo.itemText(0) == "Small"  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------- 操作用ウィンドウ
+
+JAPANESE = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+CAL_TITLE = "心拍の補正（数字が合わないときだけ）"
+
+
+@pytest.fixture(scope="module")
+def shared_windows(
+    qapp: QApplication, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[tuple[OperatorWindow, OutputWindow]]:
+    """窓は 1 組だけ作って使い回す。
+
+    操作用ウィンドウは作るたびにマイクと音の部品を開くので、数を増やすと全体の実行が
+    Windows で不意に落ちる（テストごとに作ると増えすぎる）。
+    """
+    del qapp
+    data = tmp_path_factory.mktemp("i18n_data")
+    patch = pytest.MonkeyPatch()
+    patch.setattr("stream_heartbeat.ui.operator_window.resolve_data_dir", lambda: data)
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    yield operator, output
+    operator.close()
+    output.close()
+    patch.undo()
+
+
+@pytest.fixture
+def windows(
+    shared_windows: tuple[OperatorWindow, OutputWindow],
+) -> Iterator[tuple[OperatorWindow, OutputWindow]]:
+    operator, output = shared_windows
+    # 別のテストが英語のまま動かしたタイマーで、状態の帯が英語になっていることがある
+    operator._set_detect_status()
+    yield operator, output
+    # 次のテストは日本語の画面から始める
+    if language() != LANG_JA:
+        operator._set_language(LANG_JA)
+
+
+def _snapshot(window: QWidget) -> list[tuple]:
+    """全部品の見える文字（ラベル・ボタン・枠・ツールチップ・コンボの項目）。"""
+    rows: list[tuple] = []
+    for widget in window.findChildren(QWidget):
+        row: list[object] = [type(widget).__name__, widget.toolTip()]
+        if isinstance(widget, (QLabel, QAbstractButton)):
+            row.append(widget.text())
+        if isinstance(widget, QGroupBox):
+            row.append(widget.title())
+        if isinstance(widget, QLineEdit):
+            row.append(widget.placeholderText())
+        if isinstance(widget, QComboBox) and not widget.property(SKIP_PROP):
+            row.append([widget.itemText(i) for i in range(widget.count())])
+        rows.append(tuple(row))
+    return rows
+
+
+def _profile_values(operator: OperatorWindow) -> dict:
+    return asdict(operator._session.profile)
+
+
+def test_language_button_text(windows: tuple[OperatorWindow, OutputWindow]) -> None:
+    operator, _output = windows
+    assert operator._lang_btn.text() == "English"
+
+
+def test_language_button_text_when_starting_in_english(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    del qapp, tmp_path
+    set_language(LANG_EN)
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    try:
+        assert operator._lang_btn.text() == "日本語"
+        titles = [g.title() for g in operator.findChildren(QGroupBox)]
+        assert "① Microphone" in titles
+    finally:
+        operator.close()
+        output.close()
+
+
+def test_language_button_is_right_of_calibration_fold(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    fold = next(
+        b
+        for b in operator.findChildren(QToolButton)
+        if b.property(FOLD_TITLE_PROP) == CAL_TITLE
+    )
+    lang = operator._lang_btn
+    assert lang.parentWidget() is fold.parentWidget()
+    column = fold.parentWidget().layout()
+    head = next(
+        item.layout() for item in map(column.itemAt, range(column.count())) if item.layout()
+    )
+    assert head.indexOf(fold) == 0
+    assert head.indexOf(lang) == 1
+
+
+def test_switch_to_english_and_back_restores_everything(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    before = _snapshot(operator)
+    values = _profile_values(operator)
+    operator._lang_btn.click()
+    assert language() == LANG_EN
+    titles = [g.title() for g in operator.findChildren(QGroupBox)]
+    assert titles[:2] == ["① Microphone", "② Style"]
+    assert operator._lang_btn.text() == "日本語"
+    assert _profile_values(operator) == values
+    operator._lang_btn.click()
+    assert language() == LANG_JA
+    assert _snapshot(operator) == before
+    assert _profile_values(operator) == values
+
+
+def test_switch_saves_language(windows: tuple[OperatorWindow, OutputWindow]) -> None:
+    operator, _output = windows
+    operator._lang_btn.click()
+    assert load_app_state(operator._data_dir)["language"] == "en"
+    operator._lang_btn.click()
+    assert load_app_state(operator._data_dir)["language"] == "ja"
+
+
+def test_titles_stay_japanese_in_english(windows: tuple[OperatorWindow, OutputWindow]) -> None:
+    operator, output = windows
+    operator._lang_btn.click()
+    assert operator.windowTitle() == OPERATOR_WINDOW_TITLE
+    assert output.windowTitle() == OUTPUT_WINDOW_TITLE
+
+
+def test_switch_during_calibration_keeps_tap_count(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    session = operator._session
+    operator._begin_cal()
+    for t in (1.0, 1.5, 2.0):
+        assert session.tap(t)
+    operator._tap_btn.setText(operator._tap_text())
+    assert operator._tap_btn.text() == "拍  3"
+    operator._lang_btn.click()
+    assert operator._tap_btn.text() == "Beat  3"
+    assert operator._cal_btn.text() == "Save calibration"
+    operator._lang_btn.click()
+    assert operator._tap_btn.text() == "拍  3"
+    assert operator._cal_btn.text() == "補正を保存"
+
+
+def test_profile_name_with_braces_is_safe(
+    windows: tuple[OperatorWindow, OutputWindow], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    operator, _output = windows
+    operator._lang_btn.click()
+    monkeypatch.setattr(
+        "stream_heartbeat.ui.operator_window.QInputDialog.getText",
+        lambda *args, **kwargs: ("{0}x}", True),
+    )
+    operator._save_as()
+    assert operator._notice.text() == 'Saved as "{0}x}"'
+
+
+def test_saved_color_not_in_list_survives_round_trip(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    profile = operator._session.profile
+    original = profile.bpm_color
+    profile.bpm_color = "#123456"
+    operator._load_into_controls(profile)
+    combo = operator._bpm_color
+    try:
+        assert combo.currentText() == "保存値 #123456"
+        operator._lang_btn.click()
+        assert combo.currentText() == "Saved value #123456"
+        assert combo.currentData() == "#123456"
+        operator._lang_btn.click()
+        assert combo.currentText() == "保存値 #123456"
+        assert combo.currentData() == "#123456"
+    finally:
+        profile.bpm_color = original
+        operator._load_into_controls(profile)
+
+
+def test_user_named_profile_is_not_translated(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    operator._profiles.addItem("背景")
+    operator._lang_btn.click()
+    names = [operator._profiles.itemText(i) for i in range(operator._profiles.count())]
+    assert "背景" in names
+
+
+def test_obs_hint_in_english_keeps_obs_title() -> None:
+    set_language(LANG_EN)
+    hint = obs_hint("green")
+    assert OUTPUT_WINDOW_TITLE in hint
+    assert "Chroma Key" in hint
+    # OBS が探す題名のほかに、日本語は残らない
+    assert not JAPANESE.search(hint.replace(OUTPUT_WINDOW_TITLE, ""))
+
+
+def _items(combo: QComboBox) -> list[str]:
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def test_style_combo_in_english(windows: tuple[OperatorWindow, OutputWindow]) -> None:
+    operator, _output = windows
+    data = [operator._style.itemData(i) for i in range(operator._style.count())]
+    operator._lang_btn.click()
+    items = _items(operator._style)
+    assert not any(JAPANESE.search(text) for text in items)
+    assert items[:3] == ["Realistic 1", "Realistic 2", "Realistic 3"]
+    assert [operator._style.itemData(i) for i in range(operator._style.count())] == data
+
+
+def test_effect_combo_is_rebuilt_in_current_language(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    original = operator._style.currentIndex()
+    echo = next(
+        i for i in range(operator._style.count()) if operator._style.itemData(i) == ("echo", "")
+    )
+    try:
+        operator._lang_btn.click()
+        operator._style.setCurrentIndex(echo)
+        assert _items(operator._effect) == ["None", "Color Doppler", "Popping hearts"]
+        operator._effect.setCurrentIndex(1)
+        assert operator._effect_hint.text().startswith("Overlays blood flow")
+        operator._lang_btn.click()
+        assert _items(operator._effect) == ["なし", "カラードプラ", "はじけるハート"]
+        assert operator._effect_hint.text().startswith("血の流れを色で重ねます")
+    finally:
+        operator._style.setCurrentIndex(original)
+        operator._effect.setCurrentIndex(0)
+
+
+def test_color_and_backdrop_combos_in_english(
+    windows: tuple[OperatorWindow, OutputWindow],
+) -> None:
+    operator, _output = windows
+    operator._lang_btn.click()
+    for combo in (operator._beat_color, operator._beat_outline, operator._bpm_color):
+        assert not any(JAPANESE.search(text) for text in _items(combo))
+    assert _items(operator._backdrop) == ["Green (chroma key)", "White", "Black", "Transparent"]
+
+
+def test_tap_label_in_english() -> None:
+    set_language(LANG_EN)
+    session = HeartSession()
+    session.begin_calibration(0.0)
+    assert session.tap_label() == "No beats yet (aim for 4 or more)"
+    session.tap(1.0)
+    assert session.tap_label() == "Beats 1 / 4"
+    for t in (2.0, 3.0, 4.0):
+        session.tap(t)
+    assert session.tap_label() == "4 beats  about 60 BPM (OK to save)"
+    set_language(LANG_JA)
+    assert session.tap_label() == "拍 4 回  約 60 BPM（保存してOK）"
+
+
+def test_splash_text_in_english() -> None:
+    from stream_heartbeat.ui.splash import WAIT_TEXT
+
+    set_language(LANG_EN)
+    assert tr(WAIT_TEXT) == "Starting up. Please wait…"

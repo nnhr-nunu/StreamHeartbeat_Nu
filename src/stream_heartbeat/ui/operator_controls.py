@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QAbstractSlider
 
 from stream_heartbeat.audio import default_mic_id
 from stream_heartbeat.config import DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_COLOR
+from stream_heartbeat.i18n import add_tr_item, tr
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.effects import EFFECT_HINTS, active_effect, effect_choices
@@ -116,7 +117,7 @@ class ProfileControlsMixin:
                 combo.setCurrentIndex(i)
                 return
         # 選択肢に無い値（手で書いた色など）は消さずに選択肢へ足して残す
-        combo.addItem(f"保存値 {value}", value)
+        add_tr_item(combo, "保存値 {value}", value, value=value)
         combo.setCurrentIndex(combo.count() - 1)
 
     def _select_mic(self, mic_id: str) -> None:
@@ -187,14 +188,14 @@ class ProfileControlsMixin:
             if [self._effect.itemData(i) for i in range(self._effect.count())] != keys:
                 self._effect.clear()
                 for key, label in choices:
-                    self._effect.addItem(label, key)
+                    self._effect.addItem(tr(label), key)
             self._effect.setCurrentIndex(keys.index(effect) if effect in keys else 0)
         finally:
             self._effect.blockSignals(False)
         has_choice = len(keys) > 1
         self._style_form.setRowVisible(self._effect, has_choice)
         hint = EFFECT_HINTS.get(active_effect(style, effect), "")
-        self._effect_hint.setText(hint)
+        self._effect_hint.setText(tr(hint))
         self._effect_hint.setVisible(has_choice and bool(hint))
 
     def _on_effect_picked(self, _index: int = 0) -> None:
