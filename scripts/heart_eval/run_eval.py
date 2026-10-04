@@ -14,8 +14,7 @@
   * decode_cache.py で 16 kHz モノラルにデコード済み（無ければここで自動デコード。Qt が要る）。
   * labels/*.json は reference.py（システム Python）が作る。
   * アプリと同じ入り方: 16 ms（256 サンプル）ごとに session.tick(t, samples, 16000) を呼ぶ。
-    プロファイルは既定（校正・クリック拍なし）。同梱サンプルの型は corr_min=0 で使われないので読み込みを省く
-    （--with-bundled で読む）。
+    プロファイルは既定（校正・クリック拍なし）。
 採点:
   F1        検出拍 vs 参照 S1、許容 ±0.12 s、1 対 1 の貪欲マッチ（時間差の小さい組から）。
   BPM10     表示 BPM (clock.bpm) が参照 BPM の ±10% に入っている時間の割合（0.25 s 刻み、最初の 3 s は除く）。
@@ -92,7 +91,6 @@ def apply_overrides(overrides: list[str]) -> None:
 
 def run_detector(
     name: str,
-    with_bundled: bool = False,
     max_seconds: float | None = None,
     overrides: list[str] | None = None,
 ) -> dict:
@@ -100,8 +98,6 @@ def run_detector(
 
     if overrides:
         apply_overrides(overrides)
-    if not with_bundled:
-        sess_mod.bundled_heart_sessions = lambda: []
     a = array.array("f")
     a.frombytes(f32_path(name).read_bytes())
     x = a.tolist()
@@ -277,8 +273,8 @@ def detail_rows(run: dict, ref: dict, width: float = 30.0) -> list[str]:
 
 # ---------------------------------------------------------------- main
 def _work(args: tuple) -> dict:
-    name, with_bundled, max_seconds, overrides = args
-    return run_detector(name, with_bundled, max_seconds, overrides)
+    name, max_seconds, overrides = args
+    return run_detector(name, max_seconds, overrides)
 
 
 def main() -> None:
@@ -302,7 +298,7 @@ def main() -> None:
 
     print(f"[detector from {Path(stream_heartbeat.__file__).parent}]")
     t0 = time.time()
-    jobs = [(n, "--with-bundled" in flags, ms, overrides) for n in names]
+    jobs = [(n, ms, overrides) for n in names]
     if "--serial" in flags or len(jobs) == 1:
         runs = [_work(j) for j in jobs]
     else:

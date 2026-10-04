@@ -333,17 +333,6 @@ class CalibrationTemplate:
         scale = max(len(picked), 1)
         return cls([x / scale for x in acc], picked)
 
-    @classmethod
-    def merge(cls, *templates: CalibrationTemplate | None) -> CalibrationTemplate | None:
-        waves: list[list[float]] = []
-        for tmpl in templates:
-            if tmpl is None:
-                continue
-            waves.extend(tmpl.waves)
-        if not waves:
-            return None
-        return cls(waves[0], waves)
-
     def score(self, window: list[float]) -> float:
         return max(_cosine_demean(window, wave) for wave in self.waves)
 

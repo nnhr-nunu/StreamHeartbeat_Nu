@@ -87,7 +87,6 @@ def run(x: list[float], overrides: list[str]) -> dict:
 
     if overrides:
         apply_overrides(overrides)
-    sess_mod.bundled_heart_sessions = lambda: []
     session = sess_mod.HeartSession()
     beats: list[float] = []
     orig = session.clock.feed_beat

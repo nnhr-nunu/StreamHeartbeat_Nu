@@ -13,8 +13,6 @@ secs = float(sys.argv[3]) if len(sys.argv) > 3 else 200.0
 sys.path.insert(0, src)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stream_heartbeat.session as sess_mod  # noqa: E402
-
-sess_mod.bundled_heart_sessions = lambda: []
 from files import SR, f32_path  # noqa: E402
 
 a = array.array("f")
