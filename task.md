@@ -4,6 +4,7 @@
 
 | ID | やること |
 | -- | -------- |
+| L-1 | 日本語 / English 切り替え（操作用ウィンドウ）。設計は [2026-10-04-language-switch-design.md](./docs/superpowers/specs/2026-10-04-language-switch-design.md)。設計の確認待ち → 実装計画 → 実装 |
 | R-2 | Live2D 差し込み口 |
 | R-3 | リアルの上に重ねる血液の飛び |
 | O-1 | OshiLog の Firestore 最新 BPM をログイン無しで読む経路 |
