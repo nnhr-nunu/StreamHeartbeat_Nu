@@ -45,3 +45,6 @@ scripts/heart_eval/recordings.local.json
 scripts/heart_eval/cache/
 scripts/heart_eval/labels/
 scripts/heart_eval/results/
+
+# Blender の心臓モデルの素材（大きいので手元だけ。アプリに入れるのは変換した assets のみ）
+material/
