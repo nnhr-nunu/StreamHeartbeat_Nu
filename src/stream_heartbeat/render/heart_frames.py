@@ -90,7 +90,7 @@ def frame_systole() -> float:
 
 def _look(profile: HeartProfile) -> Look:
     if profile.style == "realistic":
-        return realistic_look(profile.realistic_look)
+        return realistic_look(profile.realistic_look, profile.heart_material)
     return STYLE_LOOKS[profile.style]
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from stream_heartbeat.render.grip_pose import GRIP_DENT_GLSL
 from stream_heartbeat.render.heart_mesh import PATH_SCALE
@@ -706,9 +706,18 @@ class Look:
     # 画面の上での置き場所のずれ（体の絵に合わせる。右・上が正）
     shift_x: float = 0.0
     shift_y: float = 0.0
+    # Blender の心臓（program "model"）の材質。model_shaders の MATERIALS のどれか
+    material: str = ""
 
+
+# Blender で作った心臓（リアル1）。大きさと置き場所は、手や聴診器の位置（effects の BODY_*）に
+# 合うよう、作った心臓の胴とそろえてある。太い血管が上に長いので、窓の上で切れないよう少し下げる
+MODEL_LOOK = Look(
+    "model", "Blender", "model", material="real", size_factor=1.06, shift_y=-0.08
+)
 
 REALISTIC_LOOKS: list[Look] = [
+    MODEL_LOOK,
     Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0, coronary=0.22),
     Look(
         "vivid",
@@ -763,12 +772,15 @@ STYLE_LOOKS: dict[str, Look] = {
     ),
 }
 
-DEFAULT_REALISTIC_LOOK = "surgical"
+DEFAULT_REALISTIC_LOOK = MODEL_LOOK.key
 
 
-def realistic_look(key: str) -> Look:
+def realistic_look(key: str, material: str = "") -> Look:
+    """リアルの見た目。Blender の心臓には材質（material）も入れる（空なら赤）。"""
     for look in REALISTIC_LOOKS:
         if look.key == key:
+            if look.program == "model" and material:
+                return replace(look, material=material)
             return look
     return REALISTIC_LOOKS[0]
 

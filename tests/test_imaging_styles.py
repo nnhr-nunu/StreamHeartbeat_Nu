@@ -75,6 +75,7 @@ def test_operator_lists_all_styles(
         "realistic",
         "realistic",
         "realistic",
+        "realistic",
         "echo",
         "mri",
         "xray",
@@ -101,7 +102,7 @@ def test_operator_lists_all_styles(
     )
     labels = [style.itemText(i) for i in range(style.count())]
     assert "リアル1" in labels
-    assert "リアル2" in labels and "リアル3" in labels
+    assert "リアル2" in labels and "リアル3" in labels and "リアル4" in labels
     assert "心エコー" in labels
     assert "MRI" in labels
     assert "レントゲン1" in labels and "レントゲン2" in labels and "レントゲン3" in labels
@@ -123,8 +124,12 @@ def test_operator_lists_all_styles(
     assert style.currentText() == "レントゲン1"
     operator._select_style("realistic", "female")
     assert style.currentText() == "リアル1"
+    # 前のリアル1〜3 を選んで保存していた人は、同じ見た目（番号は 1 つずつ後ろ）のまま
+    operator._select_style("realistic", "surgical")
+    assert style.currentText() == "リアル2"
     looks = [style.itemData(i) for i in range(style.count())]
-    assert looks[:3] == [
+    assert looks[:4] == [
+        ("realistic", "model"),
         ("realistic", "surgical"),
         ("realistic", "vivid"),
         ("realistic", "anatomy"),

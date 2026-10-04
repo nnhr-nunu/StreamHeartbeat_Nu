@@ -31,7 +31,9 @@ from stream_heartbeat.render.heart_mesh import (
     HeartMesh,
     build_heart_mesh,
 )
-from stream_heartbeat.render.heart_shaders import VERTEX, Look, fragment_source
+from stream_heartbeat.render.heart_shaders import VERTEX, Look, fragment_source, realistic_look
+from stream_heartbeat.render.model_gl import ModelRenderer, ModelRendererError
+from stream_heartbeat.render.model_mesh import ModelMeshError
 from stream_heartbeat.render.poly_mesh import build_poly_mesh
 
 GL_TRIANGLES = 0x0004
@@ -144,8 +146,22 @@ class HeartRenderer:
         self._heart = _MeshBuffer(self._mesh)
         # ポリゴンの形は選ばれたときに作る（軽いので待たせない）
         self._poly: _MeshBuffer | None = None
+        self._model: ModelRenderer | None = None
+        self.model_error: str | None = None
         for key in ("flesh", "mech", "scan", "poly"):
             self._programs[key] = self._compile(fragment_source(key))
+
+    def _model_renderer(self) -> ModelRenderer | None:
+        """Blender の心臓。選ばれたときに読み込む（形のファイルが 2 MB あるので起動を待たせない）。
+
+        読めなければ None（model_error に理由。何度も読み直さない）。
+        """
+        if self._model is None and self.model_error is None:
+            try:
+                self._model = ModelRenderer(self._gl)
+            except (ModelRendererError, ModelMeshError, RuntimeError) as exc:
+                self.model_error = str(exc) or "Blender の心臓を描けません"
+        return self._model
 
     def _buffer(self, look: Look) -> _MeshBuffer:
         if look.program != "poly":
@@ -195,6 +211,39 @@ class HeartRenderer:
 
         hand は心臓を掴んでいる手の形（指の所が凹む）。
         """
+        if look.program == "model":
+            model_renderer = self._model_renderer()
+            if model_renderer is None:
+                # 形のファイルが読めなければ、作った心臓の赤（手術寄り）で描く
+                return self.draw(
+                    width=width,
+                    height=height,
+                    cycle=cycle,
+                    look=realistic_look("surgical"),
+                    yaw_deg=yaw_deg,
+                    pitch_deg=pitch_deg,
+                    scale=scale,
+                    opacity=opacity,
+                    time_s=time_s,
+                    squash_x=squash_x,
+                    squash_y=squash_y,
+                    lift=lift,
+                    hand=hand,
+                )
+            model_renderer.draw(
+                width=width,
+                height=height,
+                cycle=cycle,
+                look=look,
+                yaw_deg=yaw_deg,
+                pitch_deg=pitch_deg,
+                scale=scale,
+                opacity=opacity,
+                squash_x=squash_x,
+                squash_y=squash_y,
+                lift=lift,
+            )
+            return
         gl = self._gl
         program = self._programs[look.program]
         model = QMatrix4x4()

@@ -10,6 +10,8 @@ from stream_heartbeat.audio import default_mic_id
 from stream_heartbeat.config import DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_COLOR
 from stream_heartbeat.i18n import add_tr_item, tr
 from stream_heartbeat.profile import HeartProfile
+from stream_heartbeat.render.heart_shaders import DEFAULT_REALISTIC_LOOK
+from stream_heartbeat.render.model_shaders import MATERIAL_REAL
 from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.effects import EFFECT_HINTS, active_effect, effect_choices
 
@@ -53,6 +55,7 @@ class ProfileControlsMixin:
             self._public_id,
             self._bpm_url,
             self._style,
+            self._material,
             self._angle_locked,
             self._mics,
         )
@@ -81,6 +84,8 @@ class ProfileControlsMixin:
             self._public_id.setText(profile.oshilog_public_id)
             self._bpm_url.setText(profile.oshilog_bpm_url)
             self._select_style(profile.style, profile.realistic_look)
+            index = self._material.findData(profile.heart_material)
+            self._material.setCurrentIndex(max(0, index))
             self._select_mic(profile.mic_id)
         finally:
             for widget in widgets:
@@ -93,9 +98,9 @@ class ProfileControlsMixin:
         data = self._style.currentData()
         if isinstance(data, tuple) and len(data) == 2:
             style = str(data[0] or "realistic")
-            look = str(data[1] or "surgical")
+            look = str(data[1] or DEFAULT_REALISTIC_LOOK)
             return style, look
-        return "realistic", "surgical"
+        return "realistic", DEFAULT_REALISTIC_LOOK
 
     def _select_style(self, style: str, look: str) -> None:
         # 見た目の違いがあるスタイル（リアル・レントゲン）はその見た目、無ければ素の形を選ぶ
@@ -106,7 +111,7 @@ class ProfileControlsMixin:
                     return
         if style == "realistic":
             for i in range(self._style.count()):
-                if self._style.itemData(i) == ("realistic", "surgical"):
+                if self._style.itemData(i) == ("realistic", DEFAULT_REALISTIC_LOOK):
                     self._style.setCurrentIndex(i)
                     return
         self._style.setCurrentIndex(0)
@@ -141,6 +146,7 @@ class ProfileControlsMixin:
         style, look = self._style_choice()
         profile.style = style
         profile.realistic_look = look
+        profile.heart_material = str(self._material.currentData() or MATERIAL_REAL)
         self._output.canvas.angle_locked = self._angle_locked.isChecked()
         self._refresh_style_controls()
         profile.scale = self._scale.value() / 100.0

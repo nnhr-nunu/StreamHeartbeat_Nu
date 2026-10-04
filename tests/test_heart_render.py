@@ -55,14 +55,20 @@ def test_mesh_triangles_face_outward() -> None:
     assert flipped == 0, f"{flipped}/{total}"
 
 
-def test_realistic_has_three_looks_and_style_looks() -> None:
-    assert [look.key for look in REALISTIC_LOOKS] == ["surgical", "vivid", "anatomy"]
-    assert realistic_look("nope").key == "surgical"
+def test_realistic_has_four_looks_and_style_looks() -> None:
+    assert [look.key for look in REALISTIC_LOOKS] == ["model", "surgical", "vivid", "anatomy"]
+    # 最初の起動・知らない保存値は Blender の心臓（リアル1）の赤
+    assert realistic_look("nope").key == "model"
+    assert realistic_look("nope").material == "real"
+    # 材質は Blender の心臓にだけ入る
+    assert realistic_look("model", "glass").material == "glass"
+    assert realistic_look("model", "").material == "real"
+    assert realistic_look("surgical", "glass").material == ""
     assert set(STYLE_LOOKS) == {"mech", "poly", "xray", "xray_heart"}
     assert STYLE_LOOKS["xray"].additive
     # 心臓だけのレントゲンは背景に重ねるので、足し算ではなく下を隠して描く
     assert STYLE_LOOKS["xray_heart"].cutout and not STYLE_LOOKS["xray_heart"].additive
-    # 生々しい見た目（リアル2）だけ、心房の時間差・心耳・冠動脈の盛り上がりを使う
+    # 生々しい見た目（リアル3）だけ、心房の時間差・心耳・冠動脈の盛り上がりを使う
     assert [look.key for look in REALISTIC_LOOKS if look.lively > 0] == ["vivid"]
     assert "uLively" in fragment_source("flesh") and "uCutout" in fragment_source("scan")
     for program in ("flesh", "mech", "scan", "poly"):

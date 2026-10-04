@@ -78,7 +78,7 @@ from stream_heartbeat.ui.operator_language import LanguageMixin, obs_hint
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.slider import labeled_slider
-from stream_heartbeat.ui.style_catalog import STYLES
+from stream_heartbeat.ui.style_catalog import MODEL_MATERIALS, STYLES, has_material
 from stream_heartbeat.ui.styles import DARK_QSS
 from stream_heartbeat.ui.vts_panel import VtsPanel
 
@@ -173,10 +173,14 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         self._profiles.setProperty(SKIP_PROP, True)
         self._mics = MarkedComboBox()
         self._mics.setProperty(SKIP_PROP, True)
-        # スタイルと演出はよく切り替えるので、この 2 つだけホイールでも変えられる
+        # スタイル・材質・演出はよく切り替えるので、この 3 つだけホイールでも変えられる
         self._style = MarkedComboBox(wheel=True)
         for key, look, label in STYLES:
             self._style.addItem(label, (key, look))
+        # リアル1 の材質。演出（聴診器など）と一緒に使えるよう、演出とは別に選ぶ
+        self._material = MarkedComboBox(wheel=True)
+        for key, label in MODEL_MATERIALS:
+            self._material.addItem(label, key)
         # 演出（心臓わしづかみ・聴診器）。選べるものはスタイルで変わる
         self._effect = MarkedComboBox(wheel=True)
         self._effect_hint = QLabel("")
@@ -260,6 +264,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         self._profiles.currentIndexChanged.connect(self._load_selected_profile)
         self._style.currentIndexChanged.connect(self._apply_controls)
         self._effect.currentIndexChanged.connect(self._on_effect_picked)
+        self._material.currentIndexChanged.connect(self._apply_controls)
         self._angle_locked.toggled.connect(self._apply_controls)
         self._reset_angle.clicked.connect(lambda: self._output.canvas.reset_angle())
         self._scale.valueChanged.connect(self._apply_controls)
@@ -338,6 +343,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         # 背景と向き（回せるスタイルだけ）も見た目の一部なので、スタイルの欄にまとめる
         style_form = CenteredForm()
         style_form.addRow("スタイル", self._style)
+        style_form.addRow("材質", self._material)
         style_form.addRow("演出", self._effect)
         self._style_form = style_form
         style_form.addRow("大きさ", scale_row)
@@ -548,7 +554,8 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         )
 
     def _refresh_style_controls(self) -> None:
-        style, _look = self._style_choice()
+        style, look = self._style_choice()
+        self._style_form.setRowVisible(self._material, has_material(style, look))
         # 手で掴んでいる間は正面に固定するので、向きの操作は出さない
         gripped = active_effect(style, self._session.profile.effect) == EFFECT_GRIP
         self._angle_wrap.setVisible(style in ROTATABLE_STYLES and not gripped)

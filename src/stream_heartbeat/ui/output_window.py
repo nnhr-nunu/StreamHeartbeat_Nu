@@ -148,7 +148,8 @@ class OutputCanvas(QOpenGLWidget):
     def _look(self) -> Look:
         style = self._session.profile.style
         if style == "realistic":
-            return realistic_look(self._session.profile.realistic_look)
+            profile = self._session.profile
+            return realistic_look(profile.realistic_look, profile.heart_material)
         return STYLE_LOOKS[style]
 
     @property
