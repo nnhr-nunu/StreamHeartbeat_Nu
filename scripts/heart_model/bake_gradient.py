@@ -4,8 +4,9 @@
   同じ材質を貼って真上から撮る（このファイルでは Blender の「焼き付け」が通らないため）
 - glass_env.png: ガラスの映り込みに使う、ワールドの環境画像を 512×256 に縮めたもの
 
-出力先は material/build/（git 管理外）。.blend は保存しない。実行:
-"C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b material\\data\\blend\\心臓_v04.blend --python scripts\\heart_model\\bake_gradient.py
+出力先は material/build/（git 管理外）。.blend は保存しない。リポジトリの直下で実行:
+  & "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe" -b
+    material\\data\\blend\\心臓_v04.blend --python scripts\\heart_model\\bake_gradient.py
 """
 import os
 
