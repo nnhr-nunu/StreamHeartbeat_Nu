@@ -4,7 +4,7 @@
 
 | ID | やること |
 | -- | -------- |
-| R-1 | Blender の心臓モデル（`material/`・git 管理外）を新しいリアル1 に。`material/data/wip/GLB/4.glb` の形とシェイプキー 3 つ・1 秒の拍アニメを小さなバイナリに変換して `assets/` へ。見た目はグラデ（`material/data/テクスチャ/心臓_01.png` を UV で貼る）と、できればガラス風（透け・縁の光・映り込み。Cycles の中の血管は GLB に無い）。既存リアル1〜3 は表示名だけリアル2〜4 へずらす（保存キーは変えない）。最初の起動は新リアル1。断面と手のへこみは最初は外す |
+| R-1 | Blender の心臓モデル（`material/`・git 管理外）を新しいリアル1 に。`material/data/wip/GLB/4.glb` の形とシェイプキー 3 つ・1 秒の拍アニメを小さなバイナリに変換して `assets/` へ。見た目はグラデ（`material/data/wip/動画/４` の水色〜ピンク〜紫。波模様の色は `scripts/heart_model/bake_gradient.py` で `material/build/gradient_bake.png` に書き出し済み。陰 2 段・縁の暗さはシェーダーで。数値はメモリ blender-heart-model）と、できればガラス風（水色・透け・縁の光・`material/build/glass_env.png` の映り込み・ノイズのでこぼこ。表面の血管は形に入っている）。既存リアル1〜3 は表示名だけリアル2〜4 へずらす（保存キーは変えない）。最初の起動は新リアル1。断面と手のへこみは最初は外す |
 | R-2 | Live2D 差し込み口 |
 | R-3 | リアルの上に重ねる血液の飛び |
 | O-1 | OshiLog の Firestore 最新 BPM をログイン無しで読む経路 |
