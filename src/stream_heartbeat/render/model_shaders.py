@@ -42,9 +42,9 @@ AURICLE_CENTER = (0.50, 0.11, 0.08)
 AURICLE_RADIUS = (0.15, 0.12, 0.17)
 AURICLE_INNER = (0.36, 0.05, -0.12)
 AURICLE_FLAP = (0.35, -0.80, 0.50)
-AURICLE_SWING = 0.07
-AURICLE_SHRINK = 0.04
-AURICLE_POP = 0.015
+AURICLE_SWING = 0.04
+AURICLE_SHRINK = 0.025
+AURICLE_POP = 0.008
 
 
 def _vec3(v: tuple[float, float, float]) -> str:
@@ -233,8 +233,8 @@ vec3 realColor(vec3 n, vec3 v) {
     // 浮き出た冠血管は暗い紅
     float ridge = smoothstep(0.1, 0.55, -fine) * (1.0 - top);
     albedo = mix(albedo, vec3(0.13, 0.008, 0.02), ridge * 0.75);
-    // 拍で少し血の気が増す
-    albedo *= 1.0 + 0.2 * uPulse;
+    // 縮むとほんの少し血の気が増す
+    albedo *= 1.0 + 0.07 * uPulse;
 
     float wrap = 0.3;
     float diff = max(0.0, (dot(n, key) + wrap) / (1.0 + wrap));
@@ -270,7 +270,7 @@ vec3 gradientColor(vec3 n, vec3 v) {
     float f = fresnelIor(dot(n, v), 2.9);
     vec3 rimRamp = mix(vec3(1.0), vec3(0.309, 0.099, 0.489), clamp(f / 0.559, 0.0, 1.0));
     vec3 color = min(rimRamp, body);
-    color *= 1.0 + 0.12 * uPulse;
+    color *= 1.0 + 0.05 * uPulse;
     return softTone(color * 1.1);
 }
 
@@ -304,7 +304,7 @@ vec4 glassColor(vec3 n, vec3 v) {
     vec3 cool = normalize(vec3(-0.7, 0.25, 0.6));
     color += vec3(1.0, 0.62, 0.32) * pow(max(0.0, dot(n, normalize(warm + v))), 160.0) * 2.2;
     color += vec3(0.45, 0.62, 1.0) * pow(max(0.0, dot(n, normalize(cool + v))), 120.0) * 1.4;
-    color *= 1.0 + 0.15 * uPulse;
+    color *= 1.0 + 0.05 * uPulse;
     float alpha = clamp(0.42 + 0.9 * f + 0.25 * dot(refl, vec3(0.33)), 0.0, 1.0);
     return vec4(softTone(color), alpha);
 }

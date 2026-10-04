@@ -80,7 +80,11 @@ def model_squeeze(weights: tuple[float, ...]) -> float:
 
 
 def model_grip_body(weights: tuple[float, ...]) -> GripBody:
-    """キーの重み weights のときの、手を巻き付ける胴。形が動くので鼓動の縮み・寄りは足さない。"""
+    """キーの重み weights のときの、手を巻き付ける胴。
+
+    形が動くので鼓動の縮み・寄りは足さない。この心臓は拍の頭より後でゆっくり縮むので、拍の頭で
+    手が跳ねる動き（kick）も入れない（膨らみ終えた所で指がぶるっと震えて見える）。
+    """
     return GripBody(
         rim=model_rim(weights),
         depth=model_depth(weights),
@@ -90,6 +94,7 @@ def model_grip_body(weights: tuple[float, ...]) -> GripBody:
         beat_fill=0.0,
         beat_shift=(0.0, 0.0, 0.0),
         rock=0.0,
+        kick=0.0,
     )
 
 
