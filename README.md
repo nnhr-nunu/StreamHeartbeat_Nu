@@ -10,16 +10,15 @@
 
 **[最新版のダウンロードページを開く](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)**
 
-1. 上記の最新版ダウンロードページを開きます。
-2. 下の表から、使っている PC に合う zip をダウンロードします。
-3. ダウンロードした zip を展開します。
-4. 展開したフォルダの `StreamHeartbeat.exe`（Mac は `StreamHeartbeat.app`）を開きます。
+1. 上のリンクを開き、下の表から使っている PC に合う zip をダウンロードします。
+2. zip を展開します。
+3. 展開したフォルダの `StreamHeartbeat.exe`（Mac は `StreamHeartbeat.app`）を開きます。
 
-| OS | ダウンロードするファイル | 起動方法 |
-| -- | ------------------------ | -------- |
-| Windows 10 / 11 | `StreamHeartbeat-windows.zip` | 展開して `StreamHeartbeat.exe` をダブルクリック |
-| Mac（Apple チップ。M1 / M2 / M3 など） | `StreamHeartbeat-macOS.zip` | 展開して `StreamHeartbeat.app` を開く |
-| Mac（Intel。2016 年の MacBook Pro など） | `StreamHeartbeat-macOS-intel.zip` | 展開して `StreamHeartbeat.app` を開く |
+| OS | ダウンロードするファイル |
+| -- | ------------------------ |
+| Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
+| Mac（Apple チップ。M1 / M2 / M3 など） | `StreamHeartbeat-macOS.zip` |
+| Mac（Intel。2016 年の MacBook Pro など） | `StreamHeartbeat-macOS-intel.zip` |
 
 Mac は macOS 12 以降で動きます。Apple チップか Intel か分からないときは、左上のリンゴマーク → **この Mac について** の「チップ」（Apple）か「プロセッサ」（Intel）を見てください。
 
@@ -36,15 +35,19 @@ Mac で「開けません」「開発元を確認できません」などと出�
 
 ## 使い方（はじめての配信まで）
 
-起動すると、操作用ウィンドウと配信用ウィンドウの 2 つが開きます。操作用ウィンドウは、上から「プロファイル」と ①〜⑤ の欄に分かれています。
+起動すると、操作用ウィンドウと配信用ウィンドウの 2 つが開きます。操作用ウィンドウは、上から「プロファイル」、①〜⑤ の欄、いちばん下の「心拍の補正」に分かれています。
 
-設定を変えると配信用ウィンドウにすぐ反映され、**自動で保存**されます（保存ボタンを押す必要はありません）。次に起動したときも、そのまま使えます。
+設定を変えると配信用ウィンドウにすぐ反映され、**自動で保存**されます（保存ボタンはありません）。次の起動でもそのまま使えます。
 
 1. **① マイク** で心音を拾うマイクを選びます。胸に当てて、「音の大きさ」のバーが鼓動に合わせて動けば OK です。
 2. **② スタイル** で心臓の見た目と演出を選び、大きさ・透明度・背景の色を決めます。スタイルと演出は、一覧の上でマウスのホイールを回すだけでも次々に切り替えられます。
 3. 必要なら **③ 同期文字**（鼓動に合わせて跳ねる「❤」などの文字）と **④ 心拍数**（BPM の数字）にチェックを入れます。チェックを入れると、文言・大きさ・位置・色を決める欄が開きます。
-4. OBS で「ウィンドウキャプチャ」（Mac は「macOS 画面キャプチャ」の方法「ウィンドウキャプチャ」）を追加し、`StreamHeartbeat(ぬ) - 配信出力` を選びます。
-5. OBS のフィルタで背景の色を抜きます。背景が緑なら「クロマキー」、白か黒なら「カラーキー」です。背景を透明にしたときは、フィルタは要りません。代わりに、取り込んだ配信出力のプロパティで「キャプチャ方法」を「Windows 10（1903以降）」にしてください。枠まで写るときは OBS 側でクロップしてください。
+4. OBS のソースに「ウィンドウキャプチャ」を追加し（Mac は「macOS 画面キャプチャ」を追加して、方法を「ウィンドウキャプチャ」にします）、`StreamHeartbeat(ぬ) - 配信出力` を選びます。
+5. OBS で背景の色を抜きます。
+   - 背景が緑: フィルタの「クロマキー」
+   - 背景が白か黒: フィルタの「カラーキー」
+   - 背景が透明: フィルタは要りません。Windows の OBS では、取り込んだ配信出力のプロパティで「キャプチャ方法」を「Windows 10（1903以降）」にしてください（「自動」のままだと透けないことがあります）。それでも透けないときは、背景を緑にしてクロマキーで抜きます
+   - 枠まで写るときは、OBS 側でクロップしてください
 6. 操作用ウィンドウの上の帯が緑になり、「心拍同期表示中」と出ていれば、心拍に合わせて動いています。
 
 心拍数が半分や倍に出るなど、数字が合わないときだけ、いちばん下の **心拍の補正** を使ってください（下の「よくある質問」を参照）。
@@ -68,11 +71,13 @@ VTube Studio のモデルの胸に心臓を付けたいときは、**⑤ VTube S
 
 リアル1〜3・レントゲン3・オシャレ2・機械は立体の心臓で、配信用ウィンドウを左ドラッグすると好きな向きに回せます（心臓わしづかみの間は正面に固定）。
 
-背景は 緑 / 白 / 黒 / 透明 から選べます。透明にすると配信用ウィンドウを開き直すので、OBS の取り込みが外れたら選び直してください。Windows の OBS では、プロパティの「キャプチャ方法」を「Windows 10（1903以降）」にすると透けます（「自動」などのままだと透けないことがあります）。それでも透けないときは背景を緑にして、クロマキーで抜いてください。
+背景は 緑 / 白 / 黒 / 透明 から選べます。透明にすると配信用ウィンドウを開き直すので、OBS の取り込みが外れたら選び直してください。OBS 側の設定は「使い方」の手順 5 を参照してください。
 
 ## VTube Studio 連携
 
 VTube Studio のモデルの胸に心臓を付けて、心拍に合わせて動かせます。付けた心臓は、モデルが動いても一緒についていきます。
+
+出せるスタイルは、リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械 です。Mac 版の VTube Studio との連携は、まだ実機で確かめていません。
 
 ### 準備（はじめの 1 回だけ）
 
@@ -85,7 +90,7 @@ VTube Studio のモデルの胸に心臓を付けて、心拍に合わせて動�
 
 5. 「心臓を出す」を押します。VTube Studio の画面に心臓が出ます（スタイルによっては数秒かかります）。
 6. 「心臓を付ける場所を選ぶ」を押します。心臓はクリックの邪魔にならないよう、いったん VTube Studio の画面の左端へよけます。
-7. VTube Studio の画面に切り替えて、モデルの胸（心臓を付けたい所）を **左クリック** します。心臓がそこへ移り、以後はモデルが動いても一緒についていきます。肩や頭など、モデルの上ならどこにでも付けられます。モデルの無い所や右クリックでは決まりません。やめるときはボタンをもう一度押します。
+7. VTube Studio の画面に切り替えて、モデルの胸（心臓を付けたい所）を **左クリック** します。心臓がそこへ移ります。肩や頭など、モデルの上ならどこにでも付けられます。モデルの無い所や右クリックでは決まりません。やめるときはボタンをもう一度押します。
 8. 「大きさ」のつまみで、心臓の大きさを合わせます。
 
 ### 次からは
@@ -93,7 +98,6 @@ VTube Studio のモデルの胸に心臓を付けて、心拍に合わせて動�
 - 付けた場所はモデルごとに、大きさは全体で覚えています。「VTube Studio とつなぐ」にチェックを入れたままにしておけば、次からはこのアプリと VTube Studio を起動するだけで、同じ所に心臓が出ます。VTube Studio をあとから起動しても、自動でつながります。
 - スタイルや心臓の向きを変えたときは「作り直す（今の見た目で）」を押すと、VTube Studio の心臓も同じ見た目になります（押すまでは前の見た目のままです）。
 - 心臓を消すときは「しまう」を押します。次に起動しても出ません（また出すときは「心臓を出す」）。
-- VTube Studio に出せるスタイルは、リアル1〜3、レントゲン3、かわいい1・2、オシャレ1・2、機械 です。
 
 ### パラメータ（上級者向け）
 
@@ -117,8 +121,6 @@ VTube Studio のモデル設定で、パラメータの入力にこれを選ぶ�
 | VTube Studio 側で心臓を消してしまった | 「心臓を出す」をもう一度押してください |
 | 心臓の位置がずれた・別の所に付け直したい | 「心臓を付ける場所を選ぶ」を押して、モデルをクリックし直してください |
 
-Mac 版の VTube Studio との連携は、まだ実機で確かめていません。
-
 ## 画面の見方
 
 | 操作用ウィンドウの上の帯 | 意味 |
@@ -134,7 +136,7 @@ Mac 版の VTube Studio との連携は、まだ実機で確かめていませ�
 | やりたいこと | 操作 |
 | ------------ | ---- |
 | スタイル・演出をさっと切り替える | 一覧の上でマウスのホイールを回す |
-| 立体の心臓を回す（リアル1〜3・レントゲン3・オシャレ2・機械） | 配信用ウィンドウを左ドラッグ |
+| 立体の心臓を回す（立体のスタイルのみ） | 配信用ウィンドウを左ドラッグ |
 | 心臓の向きを元に戻す | 配信用ウィンドウをダブルクリック / ② の「角度をリセット」 |
 | 回らないように固定する | ② の「角度を固定」 |
 | 演出を動かす | 配信用ウィンドウをクリック（「スタイルと演出」の表を参照） |
@@ -149,8 +151,8 @@ Mac 版の VTube Studio との連携は、まだ実機で確かめていませ�
 **A.** 次を確かめてください。
 
 1. ① の「音の大きさ」のバーが鼓動に合わせて動いているか。動かないときはマイクの選択や、胸への当て方を見直してください。
-2. 話し声や物音が大きいと読み取りにくくなります。
-3. 心拍数が半分や倍に出るときは、次の「心拍の補正」を試してください。
+2. 話し声や物音が大きくないか。大きいと読み取りにくくなります。
+3. 心拍数が半分や倍に出ていないか。出ているときは、次の質問の補正を試してください。
 
 ### Q. 心拍数が半分や倍に出ます
 
@@ -192,16 +194,44 @@ X: [@nnhr_nunu](https://x.com/nnhr_nunu)
 
 ---
 
-## 開発者向けセットアップ（Windows）
+## English (summary)
 
-Python 3.10 を使います。
+**StreamHeartbeat(ぬ)** is a Windows / macOS app that picks up your own heart sound with a microphone and shows a heart beating in time with it. Put it in your OBS scene next to your avatar and share your nerves and excitement with your viewers.
 
-```powershell
-cd D:\Dev\StreamHeartbeat_Nu
-py -3.10 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -U pip
-.\.venv\Scripts\pip.exe install -e ".[dev]"
-.\.venv\Scripts\pytest.exe
-```
+The app's interface and the detailed guide above are in Japanese.
 
-起動は `起動.bat`、または `.\.venv\Scripts\python.exe -m stream_heartbeat`。
+- **Video guide (Japanese):** [X post](https://x.com/nunu_hara/status/2106318291551781076)
+- **Download:** [latest release](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)
+
+| OS | File |
+| -- | ---- |
+| Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
+| macOS 12+, Apple silicon (M1 / M2 / M3 …) | `StreamHeartbeat-macOS.zip` |
+| macOS 12+, Intel | `StreamHeartbeat-macOS-intel.zip` |
+
+Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macOS).
+
+**What you need:** a microphone that can pick up your heartbeat (a stethoscope-type mic, or a lavalier mic pressed against your chest) and OBS Studio. Headphones are optional but handy for calibration. VTube Studio is only needed if you want to attach the heart to a model.
+
+**Quick start**
+
+1. Launch the app. Two windows open: the control window and the output window. Changes apply immediately and are saved automatically.
+2. In section ① (microphone), choose your mic and hold it against your chest. The level bar should move with each beat.
+3. In section ② (style), choose a heart style and effect, then set the size, opacity and background color (green / white / black / transparent).
+4. In OBS, add a *Window Capture* source (on macOS: *macOS Screen Capture* with the *Window Capture* method) and select the window titled `StreamHeartbeat(ぬ) - 配信出力`.
+5. Remove the background in OBS: a *Chroma Key* filter for green, a *Color Key* filter for white or black. A transparent background needs no filter; on Windows, set the source's *Capture Method* to "Windows 10 (1903 and later)".
+6. When the bar at the top of the control window turns green ("心拍同期表示中"), the heart is beating with you.
+
+**Troubleshooting**
+
+- *The BPM is half or double the real value:* open the calibration panel at the bottom of the control window (心拍の補正), press the start button, tap the beat button (or the space bar) about 10 times in time with your heartbeat, then save.
+- *Windows says "Windows protected your PC":* the app is not distributed through the Microsoft Store; it is not a virus. Click "More info" → "Run anyway".
+- *macOS refuses to open the app:* close the dialog, open System Settings → Privacy & Security and click "Open Anyway". Allow microphone access when asked.
+- *"Cannot open the microphone" (マイクを開けません):* if OBS uses the same mic, turn off exclusive mode for that device in the Windows sound settings.
+
+**Notes**
+
+- This is not a medical device. The displayed BPM is only a rough guide and must not be used for diagnosis or treatment.
+- Use at your own risk; the developer accepts no liability for any problems caused by using this software.
+
+**Developer / contact:** Nunuhara — X: [@nnhr_nunu](https://x.com/nnhr_nunu). Bug reports by DM are welcome.
