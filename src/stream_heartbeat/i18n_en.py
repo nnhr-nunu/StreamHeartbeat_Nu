@@ -29,7 +29,7 @@ EN_GENERAL: dict[str, str] = {
     "縁取り": "Outline",
     "④ 心拍数": "④ Heart rate",
     "⑤ VTube Studio 連携": "⑤ VTube Studio link",
-    "心拍の補正（数字が合わないときだけ）": "Heartbeat calibration (only if the numbers are wrong)",
+    "心拍の補正（数字が合わないときだけ）": "Heartbeat calibration (only if BPM is off)",
     "推しログ(ぬ)連携（未実装）": "OshiLog(Nu) link (not implemented)",
     "心拍ID": "Heartbeat ID",
     "補助 BPM URL": "Auxiliary BPM URL",

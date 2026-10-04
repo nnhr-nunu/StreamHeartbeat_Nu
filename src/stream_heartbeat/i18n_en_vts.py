@@ -108,7 +108,7 @@ EN_VTS: dict[str, str] = {
     t.SIZE_LABEL: "Size",
     "小さく": "Smaller",
     "大きく": "Larger",
-    t.PARAMS_CHECK: "Also send the heartbeat to VTube Studio as parameters (advanced)",
+    t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
     "押したあと、VTube Studio の画面でモデルの心臓を付けたい所を左クリックします": (
         "After pressing this, left-click the spot on the model in the VTube Studio window "
         "where you want the heart."
