@@ -6,25 +6,20 @@
   今の言語に付け替える。言語を変えたときと、窓を作った直後に呼ぶ。
 
 英訳が無い文字は日本語のまま出す（落ちない）。
+`tr` だけを使うモジュール（session.py や評価スクリプト）が Qt を読み込まないよう、
+Qt は部品を扱う関数の中で読み込む。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-
-from PySide6.QtCore import QLocale, Qt
-from PySide6.QtWidgets import (
-    QAbstractButton,
-    QComboBox,
-    QGroupBox,
-    QLabel,
-    QLineEdit,
-    QToolButton,
-    QWidget,
-)
+from typing import TYPE_CHECKING
 
 from stream_heartbeat.i18n_en import EN_GENERAL
 from stream_heartbeat.i18n_en_vts import EN_VTS
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QComboBox, QToolButton, QWidget
 
 LANG_JA = "ja"
 LANG_EN = "en"
@@ -41,8 +36,9 @@ _HINT_PROP = "i18n_hint"
 SKIP_PROP = "i18n_skip"
 # 折りたたみ見出しは「▶/▼ + 題名」と組むので、題名の原文を別に持つ
 FOLD_TITLE_PROP = "fold_title"
-_ITEM_SOURCE_ROLE = int(Qt.ItemDataRole.UserRole) + 100
-_ITEM_FORMAT_ROLE = int(Qt.ItemDataRole.UserRole) + 101
+# Qt.ItemDataRole.UserRole（0x0100）より後の番号。コンボの項目に原文とひな形を覚えさせる
+_ITEM_SOURCE_ROLE = 0x0100 + 100
+_ITEM_FORMAT_ROLE = 0x0100 + 101
 
 _lang = LANG_JA
 
@@ -75,12 +71,21 @@ def detect_language(saved: object, locale_name: str) -> str:
     return LANG_JA if locale_name.lower().startswith("ja") else LANG_EN
 
 
+def _system_language_name() -> str:
+    """OS の画面の言語（例 ja-JP）。Windows の QLocale.name() は「地域の形式」なので使わない。"""
+    from PySide6.QtCore import QLocale
+
+    system = QLocale.system()
+    languages = system.uiLanguages()
+    return languages[0] if languages else system.name()
+
+
 def init_language(data_dir: Path | None = None) -> str:
     """起動時に言語を決めて使い始める。壊れた保存でも落ちない。"""
     from stream_heartbeat.profile import load_app_state
 
     saved = load_app_state(data_dir).get("language")
-    lang = detect_language(saved, QLocale.system().name())
+    lang = detect_language(saved, _system_language_name())
     set_language(lang)
     return lang
 
@@ -121,11 +126,22 @@ def _fold_text(button: QToolButton, title: str) -> str:
 
 def translate_tree(root: QWidget) -> None:
     """`root` 以下の部品の文字を、今の言語に付け替える。何度呼んでもよい。"""
+    from PySide6.QtWidgets import (
+        QAbstractButton,
+        QComboBox,
+        QGroupBox,
+        QLabel,
+        QLineEdit,
+        QToolButton,
+        QWidget,
+    )
+
     for widget in [root, *root.findChildren(QWidget)]:
-        if widget.property(SKIP_PROP):
-            continue
         if widget.toolTip():
             _retext(widget, _TIP_PROP, widget.toolTip(), widget.setToolTip)
+        # 利用者のデータを入れた部品は、ツールチップ以外の文字を付け替えない
+        if widget.property(SKIP_PROP):
+            continue
         fold_title = widget.property(FOLD_TITLE_PROP)
         if isinstance(widget, QToolButton) and isinstance(fold_title, str):
             widget.setText(_fold_text(widget, fold_title))
