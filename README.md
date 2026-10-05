@@ -1,5 +1,7 @@
 # StreamHeartbeat(ぬ)：自分の心拍で脈打つ心臓を配信に出すソフト
 
+> 🇬🇧 **English speakers:** the app can be switched to English, and an English guide is at the [bottom of this page](#english-summary).
+
 マイクで拾った自分の心音に合わせて、心臓がドクンと脈打つ映像を OBS へ出せる Windows / Mac 用ソフトです。VTuber のアバターの横や上に重ねて、緊張やドキドキを視聴者さんと共有できます。
 
 操作用ウィンドウで見た目やマイクを決め、配信用ウィンドウを OBS で取り込む流れになっています。
