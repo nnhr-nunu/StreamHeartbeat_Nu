@@ -10,7 +10,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from stream_heartbeat.i18n import init_language, tr
 from stream_heartbeat.render.gl_platform import set_default_format
@@ -58,7 +58,11 @@ def run() -> int:
     from stream_heartbeat.render.mesh_cache import has_cached_mesh, shared_heart_mesh
     from stream_heartbeat.ui.operator_window import OperatorWindow
     from stream_heartbeat.ui.output_window import OutputWindow
-    from stream_heartbeat.ui.placement import apply_window_geom, place_side_by_side
+    from stream_heartbeat.ui.placement import (
+        apply_window_geom,
+        place_side_by_side,
+        separate_windows,
+    )
 
     session = _initial_session()
     cache = cache_dir()
@@ -93,10 +97,18 @@ def run() -> int:
         elif not out_ok:
             _op_pos, out_pos = place_side_by_side(operator.size(), output.size(), area)
             output.move(out_pos)
+        # 前回の位置でも、2 つの窓が重なっていれば横に並べ直す（どちらも隠れずに前へ出る）
+        separate_windows(operator, output, screens, area)
     output.raise_()
     splash.finish(operator)
     operator.raise_()
     operator.activateWindow()
-    # 起動の仕方によっては Windows が手前に出すのを止めるので、窓が出そろってから手前へ出す
-    QTimer.singleShot(0, lambda: bring_to_front(int(operator.winId())))
+    # 起動の仕方によっては Windows が手前に出すのを止めるので、窓が出そろってから手前へ出す。
+    # 心臓の窓も一番手前へ出してから、最後に操作画面へフォーカスを渡す
+    QTimer.singleShot(0, lambda: _bring_both_to_front(output, operator))
     return app.exec()
+
+
+def _bring_both_to_front(output: QWidget, operator: QWidget) -> None:
+    bring_to_front(int(output.winId()))
+    bring_to_front(int(operator.winId()))

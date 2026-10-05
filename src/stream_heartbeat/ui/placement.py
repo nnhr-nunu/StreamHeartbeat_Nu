@@ -9,13 +9,24 @@ GAP = 28
 MARGIN = 32
 MIN_VISIBLE = 80
 TITLE_SLACK = 40
+# 横に並べるのに要る余白の最小（端 2 つと間の合計 px）
+MIN_SPARE = 24
 
 
 def place_side_by_side(operator: QSize, output: QSize, screen: QRect) -> tuple[QPoint, QPoint]:
-    left = screen.x() + MARGIN
+    """操作画面と配信用の窓の位置（操作画面, 配信用）。
+
+    横に並びきらない画面では、端と間の余白を詰めて重ならないようにする。それでも入らなければ
+    少しずらして重ねる。
+    """
+    margin, gap = MARGIN, GAP
+    spare = screen.width() - output.width() - operator.width()
+    if spare < MARGIN * 2 + GAP and spare >= MIN_SPARE:
+        margin = gap = spare // 3
+    left = screen.x() + margin
     top = screen.y() + MARGIN
     out = QPoint(left, top)
-    op = QPoint(left + output.width() + GAP, top)
+    op = QPoint(left + output.width() + gap, top)
     if op.x() + operator.width() > screen.right() - 8:
         op = QPoint(
             min(screen.right() - operator.width() - 8, left + min(360, output.width() // 2)),
@@ -32,6 +43,24 @@ def place_side_by_side(operator: QSize, output: QSize, screen: QRect) -> tuple[Q
     if abs(out.x() - op.x()) < 80 and abs(out.y() - op.y()) < 80:
         op = QPoint(min(screen.right() - operator.width() - 8, out.x() + 280), out.y() + 140)
     return op, out
+
+
+def separate_windows(
+    operator: QWidget, output: QWidget, screens: list[QRect], fallback: QRect
+) -> bool:
+    """2 つの窓が重なっていれば、操作画面のある画面に横に並べ直す。並べ直したら True。
+
+    起動したときにどちらの窓も隠れずに前へ出るようにする（前回の位置が重なっていたときも）。
+    """
+    op_rect = operator.frameGeometry()
+    out_rect = output.frameGeometry()
+    if not op_rect.intersects(out_rect):
+        return False
+    screen = screen_for(op_rect, screens, fallback)
+    op_pos, out_pos = place_side_by_side(operator.size(), output.size(), screen)
+    output.move(out_pos)
+    operator.move(op_pos)
+    return True
 
 
 def window_geom(widget: QWidget) -> dict[str, int]:
