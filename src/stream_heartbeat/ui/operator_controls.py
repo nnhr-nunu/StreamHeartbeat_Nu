@@ -101,7 +101,9 @@ class ProfileControlsMixin:
         data = self._style.currentData()
         if isinstance(data, tuple) and len(data) == 2:
             style = str(data[0] or "realistic")
-            look = str(data[1] or DEFAULT_REALISTIC_LOOK)
+            # 見た目の無いスタイル（レントゲン3 など）は空のまま。リアルの見た目で埋めると、
+            # 同じ名前の見た目を持つ別のスタイル（レントゲン4）と取り違える
+            look = str(data[1] or (DEFAULT_REALISTIC_LOOK if style == "realistic" else ""))
             return style, look
         return "realistic", DEFAULT_REALISTIC_LOOK
 

@@ -35,7 +35,6 @@ from stream_heartbeat.render.model_mesh import (
     load_model_mesh,
 )
 from stream_heartbeat.render.model_shaders import (
-    MATERIAL_XRAY,
     MATERIALS,
     MODEL_FRAGMENT,
     MODEL_VERTEX,
@@ -115,8 +114,8 @@ def test_model_shaders_work_on_windows_and_mac() -> None:
 
 
 def test_material_list_matches_shader() -> None:
-    # X 線はレントゲン4 だけの材質（tests/test_xray_model.py）
-    assert [key for key, _label in MODEL_MATERIALS] == [m for m in MATERIALS if m != MATERIAL_XRAY]
+    # X 線も選べる（肋骨の無いレントゲン4 の心臓。tests/test_xray_model.py）
+    assert sorted(key for key, _label in MODEL_MATERIALS) == sorted(MATERIALS)
     assert has_material("realistic", "model")
     assert not has_material("realistic", "surgical")
     assert not has_material("cute", "model")
