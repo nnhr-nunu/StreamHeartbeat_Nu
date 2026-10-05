@@ -39,7 +39,7 @@ from stream_heartbeat.ui.effects import EFFECT_GRIP, STETHO_EFFECTS
 from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
-from stream_heartbeat.ui.style_catalog import STYLES
+from stream_heartbeat.ui.style_catalog import STYLES, chosen_material
 from stream_heartbeat.vts import (
     CONNECTING,
     DEFAULT_PORT,
@@ -207,7 +207,7 @@ def _saved_size(raw: object) -> float:
 
 
 def look_key(profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0)) -> tuple:
-    """アイテムの絵を決める見た目（スタイル・種類・向き・演出）。変わったら作り直す。
+    """アイテムの絵を決める見た目（スタイル・種類・材質・向き・演出）。変わったら作り直す。
 
     stetho は聴診器を当てる所（render_frames と同じ）。保存できるよう、文字と数だけで作る。
     """
@@ -216,7 +216,9 @@ def look_key(profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0)) ->
     front = profile.style in FLAT_ITEM_STYLES or effect == EFFECT_GRIP
     angle = () if front else (round(profile.heart_yaw_deg), round(profile.heart_pitch_deg))
     place = (round(stetho[0], 1), round(stetho[1], 1)) if effect in STETHO_EFFECTS else ()
-    return (profile.style, profile.realistic_look, *angle, effect, *place)
+    material = chosen_material(profile)
+    materials = (material,) if material else ()
+    return (profile.style, profile.realistic_look, *materials, *angle, effect, *place)
 
 
 def _saved_look(raw: object) -> tuple | None:

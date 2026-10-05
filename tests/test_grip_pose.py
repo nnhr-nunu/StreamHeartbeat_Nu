@@ -30,12 +30,12 @@ from stream_heartbeat.render.grip_pose import (
 )
 from stream_heartbeat.render.hand_morph import CLAW_PAIRS, MORPH_LIMIT_V, claw_point
 from stream_heartbeat.render.heart_gl import ANATOMY_YAW_DEG
+from stream_heartbeat.render.heart_looks import STYLE_LOOKS
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
     FLOATS_PER_VERTEX,
     build_heart_mesh,
 )
-from stream_heartbeat.render.heart_shaders import STYLE_LOOKS
 
 LOOK = STYLE_LOOKS["xray_heart"]
 SIZE = 0.7

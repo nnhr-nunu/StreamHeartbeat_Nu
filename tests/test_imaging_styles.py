@@ -81,6 +81,7 @@ def test_operator_lists_all_styles(
         "xray",
         "xray",
         "xray_heart",
+        "xray_heart",
         "cute",
         "cute",
         "chic",

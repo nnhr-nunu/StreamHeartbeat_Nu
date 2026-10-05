@@ -1,9 +1,10 @@
-"""Blender の心臓（GLB）を、アプリが読む assets/heart_model/ の 3 つのファイルにする。
+"""Blender の心臓（GLB）を、アプリが読む assets/heart_model/ の 4 つのファイルにする。
 
 - heart_model.bin: 形・法線・UV・シェイプキー 3 つ・くぼみ具合・三角形と、拍のキーの重みの並び
   （16 bit に詰めて zlib で縮める。読み方は render/model_mesh.py）
 - gradient.png: グラデの波模様の色（bake_gradient.py が material/build/ に書いたものを縮める）
 - env.png: ガラスの映り込み（同じく material/build/ から）
+- ribcage.bin: レントゲン4 の肋骨（decimate_ribcage.py が material/build/ に書いた面を減らした形）
 
 venv の Python でリポジトリの直下から実行:
   .venv\\Scripts\\python.exe scripts\\heart_model\\convert_glb.py
@@ -26,7 +27,9 @@ OUT = ROOT / "src" / "stream_heartbeat" / "assets" / "heart_model"
 GRADIENT_WIDTH = 768
 
 sys.path.insert(0, str(ROOT / "src"))
-from stream_heartbeat.render.model_mesh import MAGIC  # noqa: E402
+from stream_heartbeat.render.model_mesh import MAGIC, RIBCAGE_MAGIC  # noqa: E402
+
+RIBCAGE_GLB = BUILD / "ribcage.glb"
 
 _COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
 _FORMATS = {5126: "f", 5125: "I", 5123: "H", 5121: "B"}
@@ -193,6 +196,48 @@ def convert(glb: Path = GLB) -> dict:
     return header
 
 
+def convert_ribcage(glb: Path = RIBCAGE_GLB) -> dict:
+    """肋骨（decimate_ribcage.py が面を減らしたもの）を ribcage.bin にする。
+
+    中身は形・法線・三角形だけ（心臓と同じ座標のまま）。
+    """
+    if not glb.exists():
+        raise SystemExit(
+            "material/build/ribcage.glb がありません。先に decimate_ribcage.py を実行してください"
+        )
+    gltf, blob = _read_glb(glb)
+    prim = gltf["meshes"][0]["primitives"][0]
+    pos = _accessor(gltf, blob, prim["attributes"]["POSITION"])
+    nrm = _accessor(gltf, blob, prim["attributes"]["NORMAL"])
+    idx = [i[0] for i in _accessor(gltf, blob, prim["indices"])]
+    if len(pos) >= 65536:
+        raise SystemExit(
+            "肋骨の頂点が 65536 以上あります。decimate_ribcage.py の RATIO を下げてください"
+        )
+    pos_scale = tuple(_max_abs(pos, a) for a in range(3))
+    blocks = [
+        ("pos", _pack4(pos, pos_scale)),
+        ("normal", _pack4(nrm, (1.0, 1.0, 1.0))),
+        ("index", array.array("H", idx).tobytes()),
+    ]
+    payload = b""
+    offsets: dict[str, int] = {}
+    for name, data in blocks:
+        offsets[name] = len(payload)
+        payload += data
+    header = {
+        "vertices": len(pos),
+        "indices": len(idx),
+        "pos_scale": pos_scale,
+        "offsets": offsets,
+    }
+    head = json.dumps(header).encode("utf-8")
+    OUT.mkdir(parents=True, exist_ok=True)
+    packed = zlib.compress(payload, 9)
+    (OUT / "ribcage.bin").write_bytes(RIBCAGE_MAGIC + struct.pack("<I", len(head)) + head + packed)
+    return header
+
+
 def copy_images() -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QImage
@@ -218,3 +263,6 @@ if __name__ == "__main__":
     print(f"heart_model.bin {size / 1e6:.2f} MB・拍のコマ {len(info['anim_times'])}")
     print("範囲", [round(s, 3) for s in info["pos_scale"]])
     print("UV", info["uv_offset"], info["uv_scale"])
+    bones = convert_ribcage()
+    size = (OUT / "ribcage.bin").stat().st_size
+    print(f"肋骨: 頂点 {bones['vertices']}・三角形 {bones['indices'] // 3}・{size / 1e6:.2f} MB")

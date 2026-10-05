@@ -1,8 +1,8 @@
-"""Blender の心臓を OpenGL で描く。HeartRenderer が「リアル1」の見た目のときに呼ぶ。
+"""Blender の心臓を OpenGL で描く。HeartRenderer が「リアル1」「レントゲン4」の見た目のときに呼ぶ。
 
 カメラ・拡大・回転・握りつぶしは heart_gl と同じ決め方。Blender の形は最初から体の向きに
 なっているので、heart_gl の解剖の傾きは足さない。断面は無い。手で掴むと指の所が凹む
-（手はこの心臓の胴の形 model_body に巻き付く）。
+（手はこの心臓の胴の形 model_body に巻き付く）。レントゲン4 では周りに肋骨（model_bones）も描く。
 """
 
 from __future__ import annotations
@@ -24,12 +24,19 @@ from PySide6.QtOpenGL import (
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.gl_platform import glsl
 from stream_heartbeat.render.grip_pose import BODY_CENTER, HandPose
-from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.render.heart_looks import Look
 from stream_heartbeat.render.model_body import model_squeeze
+from stream_heartbeat.render.model_bones import (
+    SIDE_BEHIND,
+    SIDE_FRONT,
+    BoneRenderer,
+    BoneRendererError,
+)
 from stream_heartbeat.render.model_mesh import (
     ENV_PATH,
     GRADIENT_PATH,
     ModelMesh,
+    ModelMeshError,
     beat_weights,
     load_model_mesh,
 )
@@ -37,6 +44,7 @@ from stream_heartbeat.render.model_shaders import (
     MATERIAL_GLASS,
     MATERIAL_INDEX,
     MATERIAL_REAL,
+    MATERIAL_XRAY,
     MODEL_FRAGMENT,
     MODEL_VERTEX,
 )
@@ -54,7 +62,12 @@ GL_MULTISAMPLE = 0x809D
 GL_SRC_ALPHA = 0x0302
 GL_ONE_MINUS_SRC_ALPHA = 0x0303
 GL_ONE = 0x0001
+GL_ZERO = 0x0000
 GL_DEPTH_BUFFER_BIT = 0x0100
+# X 線の 2 回描き（heart_gl のレントゲン3 と同じ）。1 回目は下の背景を濃さのぶんだけ隠し
+# （透明の窓では不透明さを積む）、2 回目は色を足す（不透明さは変えない）
+XRAY_HIDE = (GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+XRAY_ADD = (GL_ONE, GL_ONE, GL_ZERO, GL_ONE)
 
 # (名前, 詰めたブロック, 成分の数, 型, 1 頂点の長さ)。形・法線・キーは 16 bit を 4 つずつ
 _ATTRIBUTES = (
@@ -71,6 +84,8 @@ _ATTRIBUTES = (
 MODEL_BODY_CENTER = (0.0, -0.44, 0.0)
 # ガラスの映り込みで、スタジオの明かりが右上に来る向き（ラジアン）
 ENV_YAW = 2.4
+# ガラスの肋骨を心臓の奥と手前に分ける面が通る点（形の座標。心臓のおおよその真ん中）
+BONE_SPLIT_POINT = (0.0, -0.2, 0.0)
 
 
 class ModelRendererError(RuntimeError):
@@ -170,6 +185,8 @@ class ModelRenderer:
         self._vao.release()
         self._gradient = _texture(GRADIENT_PATH, "グラデの画像")
         self._env = _texture(ENV_PATH, "映り込みの画像", wrap_x=True)
+        self._bones: BoneRenderer | None = None
+        self.bone_error: str | None = None
 
     def draw(
         self,
@@ -182,30 +199,24 @@ class ModelRenderer:
         pitch_deg: float,
         scale: float,
         opacity: float,
+        time_s: float = 0.0,
         squash_x: float = 1.0,
         squash_y: float = 1.0,
         lift: float = 0.0,
         hand: HandPose | None = None,
     ) -> None:
-        """hand は心臓を掴んでいる手の形（指の所が凹む）。"""
+        """hand は心臓を掴んでいる手の形（指の所が凹む）。time_s は X 線の粒を流す時刻。"""
         # heart_gl が先に読み込まれている（循環を避けてここで読む）
-        from stream_heartbeat.render.heart_gl import BASE_SCALE, camera_matrices, set_dent_uniforms
+        from stream_heartbeat.render.heart_gl import camera_matrices, set_dent_uniforms
 
         gl = self._gl
         program = self._program
         mesh = self._mesh
-        model = QMatrix4x4()
-        model.translate(look.shift_x, look.shift_y, 0.0)
-        model.scale(squash_x, squash_y, 1.0)
-        model.scale(BASE_SCALE * max(0.05, scale) * look.size_factor)
-        # 胴の真ん中を、作った心臓の胴の真ん中（手や聴診器の置き場所の基準）へ置き、そこで回す
-        model.translate(*BODY_CENTER)
-        model.rotate(pitch_deg + look.pitch_offset_deg, 1.0, 0.0, 0.0)
-        model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)
-        model.translate(*(-c for c in MODEL_BODY_CENTER))
+        model = _placement(look, scale, yaw_deg, pitch_deg, squash_x, squash_y)
         view, proj, cam = camera_matrices(width, height, lift)
         material = look.material if look.material in MATERIAL_INDEX else MATERIAL_REAL
         weights = beat_weights(mesh, cycle.age, cycle.interval)
+        bones = self._bone_renderer() if look.bones else None
 
         gl.glViewport(0, 0, width, height)
         gl.glEnable(GL_MULTISAMPLE)
@@ -217,10 +228,7 @@ class ModelRenderer:
         gl.glDepthMask(True)
         gl.glEnable(GL_CULL_FACE)
 
-        self._vao.bind()
-        program.bind()
-        self._gradient.bind(0)
-        self._env.bind(1)
+        self._bind()
         program.setUniformValue1i("uGradient", 0)
         program.setUniformValue1i("uEnv", 1)
         program.setUniformValue("uModel", model)
@@ -238,14 +246,60 @@ class ModelRenderer:
         program.setUniformValue1f("uEnvYaw", ENV_YAW)
         program.setUniformValue1f("uAtriaL", float(cycle.atria_l))
         program.setUniformValue1f("uAurL", float(cycle.auricle_l))
+        program.setUniformValue("uTintDense", QVector3D(*look.tint_dense))
+        program.setUniformValue("uTintThin", QVector3D(*look.tint_thin))
+        program.setUniformValue1f("uGrain", float(look.grain))
+        program.setUniformValue1f("uTime", float(time_s % 3600.0))
         set_dent_uniforms(program, hand)
-        if material == MATERIAL_GLASS:
+
+        # 肋骨は握っても潰れない（潰れるのは心臓だけ）
+        bone_model = _placement(look, scale, yaw_deg, pitch_deg)
+        center = model.map(QVector3D(*BONE_SPLIT_POINT))
+        split = (center, (cam - center).normalized())
+
+        def draw_bones(**kwargs: object) -> None:
+            if bones is None:
+                return
+            bones.draw(
+                model=bone_model,
+                view=view,
+                proj=proj,
+                cam=cam,
+                look=look,
+                glass=material == MATERIAL_GLASS,
+                opacity=opacity,
+                time_s=time_s,
+                env=self._env,
+                env_yaw=ENV_YAW,
+                split=split,
+                **kwargs,  # type: ignore[arg-type]
+            )
+            self._bind()
+
+        if material == MATERIAL_XRAY:
+            # 心臓も骨も全部透ける。全部の「下を隠す」を先に、全部の「色を足す」を後に重ねる
+            gl.glDisable(GL_DEPTH_TEST)
+            gl.glDisable(GL_CULL_FACE)
+            program.setUniformValue1i("uPass", 2)
+            for cutout, blend in ((1.0, XRAY_HIDE), (2.0, XRAY_ADD)):
+                gl.glBlendFuncSeparate(*blend)
+                program.setUniformValue1f("uCutout", cutout)
+                _draw_elements(mesh.index_count)
+                draw_bones(cutout=cutout)
+        elif material == MATERIAL_GLASS:
+            # 奥の骨 → 心臓 → 手前の骨。骨どうしは奥行きを書かず、裏の面 → 表の面で重ねる
+            gl.glDepthMask(False)
+            draw_bones(side=SIDE_BEHIND, cull=(GL_FRONT, GL_BACK))
+            gl.glDepthMask(True)
             # 奥の面を先に描き、手前の面を重ねる（中の血管の凹凸が透けて見える）
             program.setUniformValue1i("uPass", 2)
             gl.glCullFace(GL_FRONT)
             _draw_elements(mesh.index_count)
             gl.glCullFace(GL_BACK)
             _draw_elements(mesh.index_count)
+            gl.glDepthMask(False)
+            draw_bones(side=SIDE_FRONT, cull=(GL_FRONT, GL_BACK))
+            gl.glDepthMask(True)
         else:
             # 不透明な所を先に描き、透けて消えていく血管の先は奥行きを書かずに重ねる
             gl.glCullFace(GL_BACK)
@@ -254,6 +308,12 @@ class ModelRenderer:
             gl.glDepthMask(False)
             program.setUniformValue1i("uPass", 1)
             _draw_elements(mesh.index_count)
+            if bones is not None:
+                # X 線の骨を重ねる。心臓の奥の骨は心臓に隠れる（奥行きで比べる）
+                gl.glDisable(GL_CULL_FACE)
+                for cutout, blend in ((1.0, XRAY_HIDE), (2.0, XRAY_ADD)):
+                    gl.glBlendFuncSeparate(*blend)
+                    draw_bones(cutout=cutout)
             gl.glDepthMask(True)
         self._env.release(1)
         self._gradient.release(0)
@@ -262,3 +322,45 @@ class ModelRenderer:
         gl.glDisable(GL_CULL_FACE)
         gl.glDisable(GL_DEPTH_TEST)
         gl.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+    def _bind(self) -> None:
+        """心臓の形・シェーダー・画像をつなぐ（肋骨を描いたあとにつなぎ直す）。"""
+        self._vao.bind()
+        self._program.bind()
+        self._gradient.bind(0)
+        self._env.bind(1)
+
+    def _bone_renderer(self) -> BoneRenderer | None:
+        """肋骨。初めて要るときに読み込む。
+
+        読めなければ None（心臓だけ描く。bone_error に理由。何度も読み直さない）。
+        """
+        if self._bones is None and self.bone_error is None:
+            try:
+                self._bones = BoneRenderer(self._gl)
+            except (BoneRendererError, ModelMeshError, RuntimeError) as exc:
+                self.bone_error = str(exc) or "肋骨を描けません"
+        return self._bones
+
+
+def _placement(
+    look: Look,
+    scale: float,
+    yaw_deg: float,
+    pitch_deg: float,
+    squash_x: float = 1.0,
+    squash_y: float = 1.0,
+) -> QMatrix4x4:
+    """形の座標 → 世界の座標。拡大・回転・握りつぶしは heart_gl と同じ決め方。"""
+    from stream_heartbeat.render.heart_gl import BASE_SCALE
+
+    model = QMatrix4x4()
+    model.translate(look.shift_x, look.shift_y, 0.0)
+    model.scale(squash_x, squash_y, 1.0)
+    model.scale(BASE_SCALE * max(0.05, scale) * look.size_factor)
+    # 胴の真ん中を、作った心臓の胴の真ん中（手や聴診器の置き場所の基準）へ置き、そこで回す
+    model.translate(*BODY_CENTER)
+    model.rotate(pitch_deg + look.pitch_offset_deg, 1.0, 0.0, 0.0)
+    model.rotate(yaw_deg + look.yaw_offset_deg, 0.0, 1.0, 0.0)
+    model.translate(*(-c for c in MODEL_BODY_CENTER))
+    return model

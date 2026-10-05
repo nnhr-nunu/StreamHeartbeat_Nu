@@ -30,7 +30,7 @@ from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.render.grip_pose import BODY_CENTER as GRIP_BODY_CENTER
 from stream_heartbeat.render.grip_pose import grip_squash as grip_squash  # 配信用の窓も使う
 from stream_heartbeat.render.heart_gl import CAMERA_DISTANCE, CAMERA_TARGET_Y, FOV_DEG, view_fit
-from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.render.heart_looks import Look
 from stream_heartbeat.render.model_body import MODEL_HALF
 from stream_heartbeat.ui.heart_paint import CUTE_REIWA, heart_lift
 

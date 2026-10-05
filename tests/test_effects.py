@@ -16,12 +16,12 @@ from PySide6.QtWidgets import QApplication
 from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.heart_gl import ANATOMY_YAW_DEG
+from stream_heartbeat.render.heart_looks import STYLE_LOOKS
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
     FLOATS_PER_VERTEX,
     build_heart_mesh,
 )
-from stream_heartbeat.render.heart_shaders import STYLE_LOOKS
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.effect_burst import BEAT_POP_LIFE_S, paint_beat_pops
 from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand

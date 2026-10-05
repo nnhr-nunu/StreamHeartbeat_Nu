@@ -19,7 +19,7 @@ from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter
 from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.grip_pose import grip_pose, grip_squash, held_grip
-from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
+from stream_heartbeat.render.heart_looks import Look, style_look
 from stream_heartbeat.render.model_body import follow_scale, grip_for_look
 from stream_heartbeat.ui.effect_burst import paint_beat_pops
 from stream_heartbeat.ui.effect_grip import paint_grip_hand
@@ -90,9 +90,9 @@ def frame_systole() -> float:
 
 
 def _look(profile: HeartProfile) -> Look:
-    if profile.style == "realistic":
-        return realistic_look(profile.realistic_look, profile.heart_material)
-    return STYLE_LOOKS[profile.style]
+    return style_look(
+        profile.style, profile.realistic_look, profile.heart_material, profile.xray_material
+    )
 
 
 def render_frames(

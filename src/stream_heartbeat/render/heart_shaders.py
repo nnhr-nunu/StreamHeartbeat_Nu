@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-
 from stream_heartbeat.render.grip_pose import GRIP_DENT_GLSL
 from stream_heartbeat.render.heart_mesh import PATH_SCALE
 from stream_heartbeat.render.heart_section import SECTION_AXES_GLSL, SECTION_GLSL
@@ -678,111 +676,6 @@ void main() {
 
 
 POLY_FRAGMENT = _HEADER + _NOISE + POLY_BODY
-
-
-@dataclass(frozen=True)
-class Look:
-    key: str
-    label: str
-    program: str
-    fat_amount: float = 1.0
-    gloss: float = 1.0
-    saturation: float = 1.0
-    coronary: float = 0.0
-    additive: bool = False
-    # 足し算の代わりに、濃い所ほど下を隠して重ねる（緑や透明の背景にそのまま載せる）
-    cutout: bool = False
-    tint_dense: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    tint_thin: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    grain: float = 0.0
-    density: float = 1.0
-    size_factor: float = 1.0
-    # 四腔断面で切って見せる。切り口がカメラへ向くよう向きを足す
-    section: bool = False
-    # 心房の時間差・心耳の別の動き・冠動脈の盛り上がり・送り出しの波（リアル2）
-    lively: float = 0.0
-    yaw_offset_deg: float = 0.0
-    pitch_offset_deg: float = 0.0
-    # 画面の上での置き場所のずれ（体の絵に合わせる。右・上が正）
-    shift_x: float = 0.0
-    shift_y: float = 0.0
-    # Blender の心臓（program "model"）の材質。model_shaders の MATERIALS のどれか
-    material: str = ""
-
-
-# Blender で作った心臓（リアル1）。大きさと置き場所は、手や聴診器の位置（effects の BODY_*）に
-# 合うよう、作った心臓の胴とそろえてある。太い血管が上に長いので、窓の上で切れないよう少し下げる
-MODEL_LOOK = Look(
-    "model", "Blender", "model", material="real", size_factor=1.06, shift_y=-0.08
-)
-
-REALISTIC_LOOKS: list[Look] = [
-    MODEL_LOOK,
-    Look("surgical", "手術寄り", "flesh", fat_amount=1.0, gloss=1.0, saturation=1.0, coronary=0.22),
-    Look(
-        "vivid",
-        "生々しい",
-        "flesh",
-        fat_amount=0.8,
-        gloss=1.12,
-        saturation=1.05,
-        coronary=0.72,
-        lively=1.0,
-    ),
-    Look(
-        "anatomy",
-        "断面",
-        "flesh",
-        fat_amount=0.48,
-        gloss=0.8,
-        saturation=1.0,
-        coronary=1.0,
-        section=True,
-        yaw_offset_deg=12.0,
-        pitch_offset_deg=-10.0,
-    ),
-]
-
-STYLE_LOOKS: dict[str, Look] = {
-    "mech": Look("mech", "機械", "mech"),
-    "poly": Look("poly", "ポリゴン", "poly"),
-    "xray": Look(
-        "xray",
-        "レントゲン",
-        "scan",
-        additive=True,
-        tint_dense=(0.80, 0.84, 0.88),
-        tint_thin=(0.34, 0.37, 0.42),
-        grain=0.35,
-        density=0.95,
-        size_factor=0.80,
-        # 胸の正面像では心臓の 3 分の 2 が体の左（画面右）にあり、横隔膜に乗る
-        shift_x=0.14,
-        shift_y=-0.06,
-    ),
-    "xray_heart": Look(
-        "xray_heart",
-        "レントゲン（心臓だけ）",
-        "scan",
-        cutout=True,
-        tint_dense=(0.86, 0.92, 1.0),
-        tint_thin=(0.42, 0.52, 0.66),
-        grain=0.3,
-        density=1.1,
-    ),
-}
-
-DEFAULT_REALISTIC_LOOK = MODEL_LOOK.key
-
-
-def realistic_look(key: str, material: str = "") -> Look:
-    """リアルの見た目。Blender の心臓には材質（material）も入れる（空なら赤）。"""
-    for look in REALISTIC_LOOKS:
-        if look.key == key:
-            if look.program == "model" and material:
-                return replace(look, material=material)
-            return look
-    return REALISTIC_LOOKS[0]
 
 
 def fragment_source(program: str) -> str:

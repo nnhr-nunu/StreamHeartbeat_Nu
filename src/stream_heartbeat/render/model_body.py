@@ -13,7 +13,7 @@ from dataclasses import replace
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.grip_pose import HEART_BODY, GripBody, rim_at
-from stream_heartbeat.render.heart_shaders import Look
+from stream_heartbeat.render.heart_looks import Look
 from stream_heartbeat.render.model_mesh import beat_weights, load_model_anim
 
 # 休んでいる形（アニメの最後のコマ）のキーの重み。下の輪郭・奥行きはこの重みのときの値

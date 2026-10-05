@@ -59,6 +59,8 @@ class HeartProfile:
     realistic_look: str = "model"
     # Blender の心臓（リアル1）の材質（"real": 赤 / "gradient": グラデ / "glass": ガラス）
     heart_material: str = "real"
+    # レントゲン4（Blender の心臓と肋骨）の心臓の材質（"xray": X 線 / ほかはリアル1 と同じ）
+    xray_material: str = "xray"
     heart_yaw_deg: float = -18.0
     heart_pitch_deg: float = 12.0
     backdrop: str = DEFAULT_BACKDROP

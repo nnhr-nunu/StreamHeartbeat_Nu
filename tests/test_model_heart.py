@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.grip_pose import HEART_BODY, grip_pose, rim_at
-from stream_heartbeat.render.heart_shaders import realistic_look
+from stream_heartbeat.render.heart_looks import realistic_look
 from stream_heartbeat.render.model_body import (
     MODEL_DEPTH,
     MODEL_HALF,
@@ -35,6 +35,7 @@ from stream_heartbeat.render.model_mesh import (
     load_model_mesh,
 )
 from stream_heartbeat.render.model_shaders import (
+    MATERIAL_XRAY,
     MATERIALS,
     MODEL_FRAGMENT,
     MODEL_VERTEX,
@@ -114,7 +115,8 @@ def test_model_shaders_work_on_windows_and_mac() -> None:
 
 
 def test_material_list_matches_shader() -> None:
-    assert [key for key, _label in MODEL_MATERIALS] == list(MATERIALS)
+    # X 線はレントゲン4 だけの材質（tests/test_xray_model.py）
+    assert [key for key, _label in MODEL_MATERIALS] == [m for m in MATERIALS if m != MATERIAL_XRAY]
     assert has_material("realistic", "model")
     assert not has_material("realistic", "surgical")
     assert not has_material("cute", "model")

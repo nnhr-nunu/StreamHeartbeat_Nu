@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.render.heart_looks import REALISTIC_LOOKS, STYLE_LOOKS, realistic_look
 from stream_heartbeat.render.heart_mesh import (
     FLOATS_PER_VERTEX,
     REGION_ARTERY,
@@ -15,12 +16,7 @@ from stream_heartbeat.render.heart_mesh import (
     REGION_VEIN,
     build_heart_mesh,
 )
-from stream_heartbeat.render.heart_shaders import (
-    REALISTIC_LOOKS,
-    STYLE_LOOKS,
-    fragment_source,
-    realistic_look,
-)
+from stream_heartbeat.render.heart_shaders import fragment_source
 from stream_heartbeat.render.orbit import Orbit, clamp_pitch, wrap_yaw
 
 

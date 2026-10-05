@@ -25,13 +25,14 @@ from PySide6.QtOpenGL import (
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.gl_platform import glsl
 from stream_heartbeat.render.grip_pose import HandPose
+from stream_heartbeat.render.heart_looks import STYLE_LOOKS, Look, realistic_look
 from stream_heartbeat.render.heart_mesh import (
     ANATOMY_ROLL_DEG,
     FLOATS_PER_VERTEX,
     HeartMesh,
     build_heart_mesh,
 )
-from stream_heartbeat.render.heart_shaders import VERTEX, Look, fragment_source, realistic_look
+from stream_heartbeat.render.heart_shaders import VERTEX, fragment_source
 from stream_heartbeat.render.model_gl import ModelRenderer, ModelRendererError
 from stream_heartbeat.render.model_mesh import ModelMeshError
 from stream_heartbeat.render.poly_mesh import build_poly_mesh
@@ -214,12 +215,14 @@ class HeartRenderer:
         if look.program == "model":
             model_renderer = self._model_renderer()
             if model_renderer is None:
-                # 形のファイルが読めなければ、作った心臓の赤（手術寄り）で描く
+                # 形のファイルが読めなければ、作った心臓の赤（手術寄り）で描く。
+                # X 線（レントゲン4）ならレントゲン3 の心臓で描く
+                fallback = STYLE_LOOKS["xray_heart"] if look.cutout else realistic_look("surgical")
                 return self.draw(
                     width=width,
                     height=height,
                     cycle=cycle,
-                    look=realistic_look("surgical"),
+                    look=fallback,
                     yaw_deg=yaw_deg,
                     pitch_deg=pitch_deg,
                     scale=scale,
@@ -239,6 +242,7 @@ class HeartRenderer:
                 pitch_deg=pitch_deg,
                 scale=scale,
                 opacity=opacity,
+                time_s=time_s,
                 squash_x=squash_x,
                 squash_y=squash_y,
                 lift=lift,
