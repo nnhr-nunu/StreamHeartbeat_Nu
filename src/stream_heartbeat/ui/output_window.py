@@ -532,8 +532,6 @@ class OutputCanvas(QOpenGLWidget):
                 opacity=profile.opacity,
                 clip=panel_path(rect) if profile.style == "xray" else None,
                 seed=self._defib.shots,
-                # 煙は半ば透けるので、クロマキーの緑の上では緑に濁る。緑のときは出さない
-                haze=profile.backdrop != "green",
             )
 
     # ---------------------------------------------------------------- 回転・演出の操作

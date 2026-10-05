@@ -214,7 +214,7 @@ class DefibRhythm:
         self._text_times: list[float] = []
         self._settle_at = 0.0
         self._target = 1.0
-        # 今の不整脈の型と、これまでのショックの回数（火花の散り方を毎回変えるのに使う）
+        # 今の不整脈の型と、これまでのショックの回数（電流の走り方を毎回変えるのに使う）
         self.pattern = ""
         self.shots = 0
 
