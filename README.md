@@ -28,6 +28,18 @@ Mac は macOS 12 以降で動きます。Apple チップか Intel か分から�
 
 Mac で「開けません」「開発元を確認できません」などと出たときも同じ理由です。いったん閉じてから **システム設定 → プライバシーとセキュリティ**（macOS 12 は **システム環境設定 → セキュリティとプライバシー → 一般**）の **このまま開く** を押し、もう一度開いてください。初回にマイクの使用を聞かれたら **許可** を押してください。
 
+## クレジット表記のお願い
+
+配信や動画などでこのソフトを使っていただいた場合は、概要欄などに次の表記をお願いします。
+
+```
+StreamHeartbeat(ぬ)
+開発者：ぬぬはら - 催眠音声制作者
+YouTube：https://www.youtube.com/@nnhr_nunu
+X(Twitter)：https://x.com/nnhr_nunu
+使い方など：https://github.com/nnhr-nunu/StreamHeartbeat_Nu
+```
+
 ## 必要なもの
 
 - 心音を拾えるマイク（聴診器型のマイクや、胸に当てたピンマイクなど）
@@ -188,18 +200,6 @@ X: [@nnhr_nunu](https://x.com/nnhr_nunu)
 バグ報告は X の DM などでお願いいたします。
 配信でご利用いただける場合、もしよければフォローしていただけたらとても嬉しいです。
 
-## クレジット表記のお願い
-
-配信や動画などでこのソフトを使っていただいた場合は、概要欄などに次の表記をお願いします。
-
-```
-StreamHeartbeat(ぬ)
-開発者：ぬぬはら - 催眠音声制作者
-YouTube：https://www.youtube.com/@nnhr_nunu
-X(Twitter)：https://x.com/nnhr_nunu
-使い方など：https://github.com/nnhr-nunu/StreamHeartbeat_Nu
-```
-
 ## 利用上の注意
 
 - これは医療機器ではありません。表示される心拍数は目安で、診断・治療には使えません。
@@ -225,6 +225,8 @@ The app's interface **automatically starts in English** unless your OS display l
 
 Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macOS).
 
+**Credit:** if you use this software in a stream or video, please put the credit block from the section "クレジット表記のお願い" above in the description.
+
 **What you need:** a microphone that can pick up your heartbeat (a stethoscope-type mic, or a lavalier mic pressed against your chest) and OBS Studio. Headphones are optional but handy for calibration. VTube Studio is only needed if you want to attach the heart to a model.
 
 **Quick start**
@@ -249,5 +251,3 @@ Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macO
 - Use at your own risk; the developer accepts no liability for any problems caused by using this software.
 
 **Developer / contact:** Nunuhara — X: [@nnhr_nunu](https://x.com/nnhr_nunu). Bug reports by DM are welcome.
-
-**Credit:** if you use this software in a stream or video, please put the credit block from the section "クレジット表記のお願い" above in the description.
