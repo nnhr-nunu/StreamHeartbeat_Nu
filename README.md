@@ -1,6 +1,6 @@
 # StreamHeartbeat(ぬ)：自分の心拍で脈打つ心臓を配信に出すソフト
 
-> 🇬🇧 **English speakers:** the app can be switched to English, and an English guide is at the [bottom of this page](#english-summary).
+> 🇬🇧 **English speakers:** the app starts in English automatically if your OS language is not Japanese, and an English guide is at the [bottom of this page](#english-summary).
 
 マイクで拾った自分の心音に合わせて、心臓がドクンと脈打つ映像を OBS へ出せる Windows / Mac 用ソフトです。VTuber のアバターの横や上に重ねて、緊張やドキドキを視聴者さんと共有できます。
 
@@ -212,7 +212,7 @@ X(Twitter)：https://x.com/nnhr_nunu
 
 **StreamHeartbeat(ぬ)** is a Windows / macOS app that picks up your own heart sound with a microphone and shows a heart beating in time with it. Put it in your OBS scene next to your avatar and share your nerves and excitement with your viewers.
 
-The app's interface can be switched between Japanese and English with the "English" / "日本語" button next to "Heartbeat calibration" at the bottom of the control window (the language is remembered). The detailed guide above is in Japanese.
+The app's interface **automatically starts in English** unless your OS display language is Japanese. You can also switch between Japanese and English at any time with the "English" / "日本語" button next to "Heartbeat calibration" at the bottom of the control window (your choice is remembered). The detailed guide above is in Japanese.
 
 - **Video guide (Japanese):** [X post](https://x.com/nunu_hara/status/2106318291551781076)
 - **Download:** [latest release](https://github.com/nnhr-nunu/StreamHeartbeat_Nu/releases/tag/latest)
