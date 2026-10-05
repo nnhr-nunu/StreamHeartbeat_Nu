@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QMainWindow
 
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
 from stream_heartbeat.clock import CardiacCycle
+from stream_heartbeat.defib import DefibRhythm
+from stream_heartbeat.overlay import OverlayState
 from stream_heartbeat.paths import cache_dir
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.gl_platform import core_profile
@@ -31,6 +33,7 @@ from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.effect_burst import paint_beat_pops, paint_heart_pops
+from stream_heartbeat.ui.effect_defib import XRAY_STYLES, paint_defibrillator
 from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_monitor import (
     monitor_screen,
@@ -40,11 +43,13 @@ from stream_heartbeat.ui.effect_monitor import (
 from stream_heartbeat.ui.effect_stetho import paint_stethoscope
 from stream_heartbeat.ui.effects import (
     EFFECT_BURST,
+    EFFECT_DEFIB,
     EFFECT_DOPPLER,
     EFFECT_GRIP,
     EFFECT_MONITOR,
     EFFECT_STETHO,
     EFFECT_TAGGING,
+    FRONT_EFFECTS,
     STETHO_EFFECTS,
     EffectMotion,
     HeartFrame,
@@ -61,7 +66,7 @@ from stream_heartbeat.ui.heart_echo import (
     paint_echo_marks,
     sector_geometry,
 )
-from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_rect
+from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_path, panel_rect
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     ROTATABLE_STYLES,
@@ -110,6 +115,10 @@ class OutputCanvas(QOpenGLWidget):
         self._motion = EffectMotion()
         self._press_at: QPointF | None = None
         self._dragged = False
+        # 除細動器: 電気ショックのあとのリズム。そのあいだの拍の文字は本物の拍の代わりにここへ出す
+        self._defib = DefibRhythm()
+        self._defib_text = OverlayState()
+        self._defib_seen = 0.0
         self.setMouseTracking(True)
 
     # ---------------------------------------------------------------- 状態
@@ -126,10 +135,33 @@ class OutputCanvas(QOpenGLWidget):
         self._now = t
         profile = self._session.profile
         self._motion.step(time.perf_counter(), (profile.stetho_x, profile.stetho_y))
+        if self.effect == EFFECT_DEFIB:
+            self._step_defib(t)
         self.update()
         host = self.window()
         if host is not None:
             redraw_hwnd(int(host.winId()))
+
+    def _step_defib(self, t: float) -> None:
+        """除細動のあとの拍で文字を出し、打ち終えたら本物の拍時計へ引き渡す。"""
+        clock = self._session.clock
+        self._defib.step(t, clock.origin_before(t))
+        # 演出を選び直したときなどに、たまった拍の文字をまとめて出さない
+        for beat_t in self._defib.beats_between(max(self._defib_seen, t - 0.25), t):
+            self._session.spawn_beat_text(beat_t, self._defib_text)
+        self._defib_seen = t
+
+    def bpm_label(self, t: float) -> int | str:
+        """配信用の窓に出す心拍数。電気ショックから戻るまではモニターのように測れない表示（--）。"""
+        if self.effect == EFFECT_DEFIB and self._defib.active(t):
+            return "--"
+        return self._session.clock.bpm
+
+    def shock(self) -> None:
+        """除細動器の電気ショックをかける（配信用の窓のクリック）。"""
+        if self._defib.shock(self._now, self._session.clock.interval()):
+            self._defib_seen = self._now
+            self.update()
 
     def sync_orbit_from_profile(self) -> None:
         profile = self._session.profile
@@ -227,6 +259,9 @@ class OutputCanvas(QOpenGLWidget):
         cycle = clock.cycle(t)
         style = profile.style
         effect = self.effect
+        defib = effect == EFFECT_DEFIB and self._defib.active(t)
+        if defib:
+            cycle = self._defib.cycle(t) or cycle
         grip = self._motion.grip if effect == EFFECT_GRIP else 0.0
         # Blender の心臓は形そのものが拍で動くので、手の胴と握り直しをその形と縮みに合わせる
         body, grip_cycle = self._grip_body(cycle) if effect == EFFECT_GRIP else (HEART_BODY, cycle)
@@ -237,6 +272,11 @@ class OutputCanvas(QOpenGLWidget):
         # 立体の心臓を掴むときは、手と心臓が同じ形を使う（指の所が凹む）
         gl_hand = effect == EFFECT_GRIP and self.uses_gl and not self._hand_failed
         pose = self._grip_pose(grip_cycle, grip, body) if gl_hand else None
+        # 電気ショックの瞬間は、心臓がびくりと潰れて上へ跳ねる
+        lift = heart_lift(style)
+        if defib:
+            squash_x, squash_y = self._defib.squash(t)
+            lift += self._defib.jump(t)
 
         gl_mri = style == "mri" and self._mri is not None
         # レントゲン1・2 の胸は、立体心臓と同じく GL で描ける時だけシェーダーで描く
@@ -307,7 +347,7 @@ class OutputCanvas(QOpenGLWidget):
                     female=profile.realistic_look == XRAY_FEMALE,
                 )
             # 回せないスタイルは体の絵と同じ正面から見る。手で掴んでいる間も正面（手の絵に合わせる）
-            rotatable = style in ROTATABLE_STYLES and effect != EFFECT_GRIP
+            rotatable = style in ROTATABLE_STYLES and effect not in FRONT_EFFECTS
             self._renderer.draw(
                 width=int(self.width() * ratio),
                 height=int(self.height() * ratio),
@@ -320,18 +360,18 @@ class OutputCanvas(QOpenGLWidget):
                 time_s=t,
                 squash_x=squash_x,
                 squash_y=squash_y,
-                lift=heart_lift(style),
+                lift=lift,
                 hand=pose,
             )
             painter.endNativePainting()
         else:
             painter.save()
-            if grip > 0.0:
+            if (squash_x, squash_y) != (1.0, 1.0):
                 middle = self._heart_frame(rect).center
                 painter.translate(middle)
                 painter.scale(squash_x, squash_y)
                 painter.translate(-middle)
-            painter.translate(0.0, -heart_lift(style) * rect.height())
+            painter.translate(0.0, -lift * rect.height())
             paint_heart(
                 painter,
                 heart_rect,
@@ -354,10 +394,15 @@ class OutputCanvas(QOpenGLWidget):
             paint_monitor_front(painter, rect, flash)
             painter.restore()
         self._paint_effect(painter, rect, effect, cycle, grip, pose)
+        bursts = self._session.overlay.bursts_at(t)
+        if effect == EFFECT_DEFIB:
+            # ショックから戻るまでは、本物の拍の文字の代わりに、止まって不整脈を打つ心臓の拍で出す
+            bursts = [b for b in bursts if not self._defib.mutes(b.start)]
+            bursts += self._defib_text.bursts_at(t)
         paint_bursts(
             painter,
             rect,
-            self._session.overlay.bursts_at(t),
+            bursts,
             scale=profile.beat_text_scale,
             opacity=profile.beat_text_opacity,
             color=profile.beat_text_color,
@@ -368,7 +413,7 @@ class OutputCanvas(QOpenGLWidget):
             paint_bpm(
                 painter,
                 rect,
-                clock.bpm,
+                self.bpm_label(t),
                 scale=profile.bpm_scale,
                 pos=(profile.bpm_x, profile.bpm_y),
                 color=profile.bpm_color,
@@ -473,6 +518,20 @@ class OutputCanvas(QOpenGLWidget):
                 opacity=profile.opacity,
                 back_view=effect == EFFECT_STETHO,
             )
+        elif effect == EFFECT_DEFIB:
+            t = self._now
+            paint_defibrillator(
+                painter,
+                rect,
+                self._heart_frame(rect),
+                cycle,
+                since=self._defib.since_shock(t),
+                kick=self._defib.shake(t),
+                xray=profile.style in XRAY_STYLES or self._look().cutout,
+                model=self._model_shown(),
+                opacity=profile.opacity,
+                clip=panel_path(rect) if profile.style == "xray" else None,
+            )
 
     # ---------------------------------------------------------------- 回転・演出の操作
 
@@ -481,7 +540,7 @@ class OutputCanvas(QOpenGLWidget):
             self.uses_gl
             and self._session.profile.style in ROTATABLE_STYLES
             and not self.angle_locked
-            and self.effect != EFFECT_GRIP
+            and self.effect not in FRONT_EFFECTS
         )
 
     def _idle_cursor(self) -> Qt.CursorShape:
@@ -491,7 +550,7 @@ class OutputCanvas(QOpenGLWidget):
             return Qt.CursorShape.BlankCursor
         if self._can_rotate():
             return Qt.CursorShape.OpenHandCursor
-        if effect in (EFFECT_GRIP, EFFECT_BURST):
+        if effect in (EFFECT_GRIP, EFFECT_BURST, EFFECT_DEFIB):
             return Qt.CursorShape.PointingHandCursor
         return Qt.CursorShape.ArrowCursor
 
@@ -500,6 +559,9 @@ class OutputCanvas(QOpenGLWidget):
             effect = self.effect
             if effect == EFFECT_GRIP:
                 self._motion.press(time.perf_counter())
+                return
+            if effect == EFFECT_DEFIB:
+                self.shock()
                 return
             self._press_at = event.position()
             self._dragged = False

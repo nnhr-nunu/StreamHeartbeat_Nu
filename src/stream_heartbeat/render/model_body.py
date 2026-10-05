@@ -103,7 +103,7 @@ def current_weights(cycle: CardiacCycle) -> tuple[float, ...] | None:
     anim = load_model_anim()
     if anim is None:
         return None
-    return beat_weights(anim, cycle.age, cycle.interval)
+    return beat_weights(anim, cycle.age, cycle.interval, cycle.strength)
 
 
 def model_grip(cycle: CardiacCycle) -> tuple[GripBody, CardiacCycle]:

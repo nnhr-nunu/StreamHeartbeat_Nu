@@ -40,6 +40,11 @@ def panel_rect(rect: QRectF) -> QRectF:
     return QRectF(rect.center().x() - side / 2, rect.center().y() - side / 2, side, side)
 
 
+def panel_path(rect: QRectF) -> QPainterPath:
+    """窓 rect の中のレントゲン・MRI のパネルの形（角の丸い四角）。"""
+    return _panel_path(panel_rect(rect))
+
+
 def _panel_path(rect: QRectF) -> QPainterPath:
     radius = min(rect.width(), rect.height()) * PANEL_RADIUS_RATIO
     path = QPainterPath()

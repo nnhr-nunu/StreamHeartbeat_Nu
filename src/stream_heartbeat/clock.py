@@ -36,6 +36,8 @@ class CardiacCycle:
     auricle_l: float = 0.0
     # 拍の間隔（秒）。Blender の心臓は、速い心拍ではアニメを速めて間隔に収める
     interval: float = 1.0
+    # 拍の強さ（1 がふつう。除細動のあとの弱い拍は小さい。Blender の心臓は形の動きの大きさに掛ける）
+    strength: float = 1.0
 
 
 # 心房は心室より先に縮む。右房は次の拍のこの秒数前から、左房はさらに少し遅れて
@@ -84,6 +86,33 @@ def atrial_motion(dt: float, interval: float) -> tuple[float, float, float, floa
         own = 0.5 * _flap(dt - kick_peak, period * 0.75, 0.12)
         flaps.append(max(-1.0, min(1.0, jolt + own)))
     return out[0], out[1], flaps[0], flaps[1]
+
+
+def cycle_at(dt: float, interval: float, strength: float = 1.0) -> CardiacCycle:
+    """拍から dt 秒たったときの心臓の動き。interval は次の拍までの秒、strength は拍の強さ。"""
+    dt = max(0.0, dt)
+    systole = min(0.34, max(0.20, interval * 0.36))
+    squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78) * strength
+    eject = _envelope(dt, 0.045, 0.11, systole) * strength
+    fill = _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
+    fill *= strength
+    sheen = _envelope(dt, 0.02, 0.07, 0.16) * strength
+    atria_r, atria_l, auricle_r, auricle_l = atrial_motion(dt, interval)
+    return CardiacCycle(
+        squeeze=squeeze,
+        eject=eject,
+        fill=fill,
+        apex=1.0 - 0.24 * squeeze,
+        waist=1.0 + 0.08 * squeeze,
+        sheen=sheen,
+        age=dt,
+        atria_r=atria_r * strength,
+        atria_l=atria_l * strength,
+        auricle_r=auricle_r * strength,
+        auricle_l=auricle_l * strength,
+        interval=interval,
+        strength=strength,
+    )
 
 
 class BeatClock:
@@ -185,31 +214,7 @@ class BeatClock:
         return self._beats[idx]
 
     def cycle(self, t: float) -> CardiacCycle:
-        origin = self._pulse_origin(t)
-        dt = max(0.0, t - origin)
-        interval = self.interval()
-        systole = min(0.34, max(0.20, interval * 0.36))
-        squeeze = _envelope(dt, 0.0, 0.05, systole * 0.78)
-        eject = _envelope(dt, 0.045, 0.11, systole)
-        fill = _envelope(dt, systole * 0.55, systole + 0.04, min(interval * 0.92, systole + 0.28))
-        apex = 1.0 - 0.24 * squeeze
-        waist = 1.0 + 0.08 * squeeze
-        sheen = _envelope(dt, 0.02, 0.07, 0.16)
-        atria_r, atria_l, auricle_r, auricle_l = atrial_motion(dt, interval)
-        return CardiacCycle(
-            squeeze=squeeze,
-            eject=eject,
-            fill=fill,
-            apex=apex,
-            waist=waist,
-            sheen=sheen,
-            age=dt,
-            atria_r=atria_r,
-            atria_l=atria_l,
-            auricle_r=auricle_r,
-            auricle_l=auricle_l,
-            interval=interval,
-        )
+        return cycle_at(t - self._pulse_origin(t), self.interval())
 
     def pulse_scale(self, t: float) -> float:
         beat = self.cycle(t)

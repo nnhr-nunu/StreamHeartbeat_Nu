@@ -208,7 +208,7 @@ def paint_ripples(painter: QPainter, rect: QRectF, ripples: list[Ripple]) -> Non
 def paint_bpm(
     painter: QPainter,
     rect: QRectF,
-    bpm: int,
+    bpm: int | str,
     *,
     scale: float = 1.0,
     pos: tuple[float, float] = (0.5, 0.88),

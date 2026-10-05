@@ -102,10 +102,11 @@ class HeartSession:
         self.discard_calibration()
         self.rebuild_detector()
 
-    def _spawn_beat_text(self, t: float) -> None:
+    def spawn_beat_text(self, t: float, overlay: OverlayState | None = None) -> None:
+        """拍の文字を出す。overlay を渡すとそこへ（除細動器の不整脈の拍は配信用の窓が持つ）。"""
         if not self.profile.show_beat_text:
             return
-        self.overlay.on_beat(
+        (overlay if overlay is not None else self.overlay).on_beat(
             t,
             self.profile.beat_text,
             origin=(self.profile.beat_text_x, self.profile.beat_text_y),
@@ -128,7 +129,7 @@ class HeartSession:
             self._cal_sr = sample_rate
         for beat_t in self.detector.feed(samples, origin, sample_rate):
             self.clock.feed_beat(beat_t)
-            self._spawn_beat_text(beat_t)
+            self.spawn_beat_text(beat_t)
         was_live = self.clock.detected
         self.clock.lost_if_silent(self._t)
         self.clock.publish_display(self._t)
@@ -138,7 +139,7 @@ class HeartSession:
             beat_origin = self.clock.origin_before(self._t)
             if self._preview_origin is None or beat_origin > self._preview_origin + 1e-4:
                 self._preview_origin = beat_origin
-                self._spawn_beat_text(beat_origin)
+                self.spawn_beat_text(beat_origin)
         else:
             self._preview_origin = None
         # 不整脈の視聴者向け表示は、判定が不安定なためいったん出さない。

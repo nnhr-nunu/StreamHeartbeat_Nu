@@ -143,11 +143,14 @@ def load_ribcage_mesh(path: Path = RIBCAGE_PATH) -> RibcageMesh:
     return mesh
 
 
-def beat_weights(mesh: ModelMesh | ModelAnim, age: float, interval: float) -> tuple[float, ...]:
+def beat_weights(
+    mesh: ModelMesh | ModelAnim, age: float, interval: float, strength: float = 1.0
+) -> tuple[float, ...]:
     """拍から age 秒たったときの、シェイプキーの重み。
 
     アニメの最後のコマが休んでいる形。拍の瞬間はそこから始め（コマの 0 秒を足す）、
     終わったら次の拍まで休んだまま。速い心拍では間隔に収まるよう速める。
+    strength は拍の強さ（弱い拍は休んだ形からの動きを小さくする）。
     """
     times = (0.0, *mesh.anim_times)
     rest = mesh.anim_weights[-1]
@@ -160,4 +163,5 @@ def beat_weights(mesh: ModelMesh | ModelAnim, age: float, interval: float) -> tu
     i = bisect.bisect_right(times, t) - 1
     t0, t1 = times[i], times[i + 1]
     f = (t - t0) / max(1e-6, t1 - t0)
-    return tuple(a + (b - a) * f for a, b in zip(rows[i], rows[i + 1]))
+    weights = (a + (b - a) * f for a, b in zip(rows[i], rows[i + 1]))
+    return tuple(r + (w - r) * strength for w, r in zip(weights, rest))
