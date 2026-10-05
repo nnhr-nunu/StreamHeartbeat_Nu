@@ -46,6 +46,7 @@ MODEL_MATERIALS = [
     (MATERIAL_REAL, "赤"),
     (MATERIAL_GRADIENT, "グラデ"),
     (MATERIAL_GLASS, "ガラス"),
+    (MATERIAL_XRAY, "X線"),
 ]
 
 

@@ -30,6 +30,7 @@ from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.operator_window import OperatorWindow
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.style_catalog import (
+    MODEL_MATERIALS,
     STYLES,
     XRAY_MATERIALS,
     chosen_material,
@@ -37,6 +38,8 @@ from stream_heartbeat.ui.style_catalog import (
     has_xray_material,
 )
 from stream_heartbeat.ui.vts_panel import look_key
+
+RIBS = XRAY_MODEL_LOOK.key
 
 
 def test_ribcage_file_is_bundled_and_whole() -> None:
@@ -77,16 +80,16 @@ def test_xray_model_is_listed_after_xray_3() -> None:
 
 
 def test_style_look_picks_the_blender_heart_with_bones() -> None:
-    look = style_look("xray_heart", "model")
+    look = style_look("xray_heart", RIBS)
     assert look.program == "model" and look.bones
     assert look.material == MATERIAL_XRAY
     # X 線だけ背景に重ねる描き方（手の裏も透ける）
     assert look.cutout
-    red = style_look("xray_heart", "model", xray_material="real")
+    red = style_look("xray_heart", RIBS, xray_material="real")
     assert red.material == "real" and red.bones and not red.cutout
     # レントゲン3 はそのまま。リアル1 の材質はレントゲン4 に混ざらない
     assert style_look("xray_heart", "") == STYLE_LOOKS["xray_heart"]
-    assert style_look("xray_heart", "model", "glass").material == MATERIAL_XRAY
+    assert style_look("xray_heart", RIBS, "glass").material == MATERIAL_XRAY
     assert style_look("realistic", "model", "glass", "real") == realistic_look("model", "glass")
     assert not realistic_look("model").bones
 
@@ -96,10 +99,10 @@ def test_xray_materials_cover_every_shader_material() -> None:
     assert keys[0] == MATERIAL_XRAY
     assert sorted(keys) == sorted(MATERIALS)
     assert xray_model_look().material == MATERIAL_XRAY
-    assert has_xray_material("xray_heart", "model")
+    assert has_xray_material("xray_heart", RIBS)
     assert not has_xray_material("xray_heart", "")
     assert not has_xray_material("realistic", "model")
-    assert not has_material("xray_heart", "model")
+    assert not has_material("xray_heart", RIBS)
 
 
 def test_new_profile_starts_xray_model_with_xray() -> None:
@@ -109,14 +112,14 @@ def test_new_profile_starts_xray_model_with_xray() -> None:
 def test_chosen_material_follows_style() -> None:
     profile = HeartProfile(heart_material="glass", xray_material="real")
     assert chosen_material(profile) == "glass"
-    profile.style, profile.realistic_look = "xray_heart", "model"
+    profile.style, profile.realistic_look = "xray_heart", RIBS
     assert chosen_material(profile) == "real"
     profile.realistic_look = ""
     assert chosen_material(profile) == ""
 
 
 def test_vts_item_is_remade_when_material_changes() -> None:
-    profile = HeartProfile(style="xray_heart", realistic_look="model")
+    profile = HeartProfile(style="xray_heart", realistic_look=RIBS)
     before = look_key(profile)
     profile.xray_material = "glass"
     assert look_key(profile) != before
@@ -138,7 +141,7 @@ def test_xray_material_row_follows_style_and_saves(
     output = OutputWindow(session)
     operator = OperatorWindow(session, output)
     form = operator._style_form
-    operator._select_style("xray_heart", "model")
+    operator._select_style("xray_heart", RIBS)
     assert form.isRowVisible(operator._xray_material)
     assert not form.isRowVisible(operator._material)
     assert output.canvas._look().material == MATERIAL_XRAY
@@ -156,3 +159,37 @@ def test_xray_material_row_follows_style_and_saves(
     assert session.profile.xray_material == "glass"
     operator.close()
     output.close()
+
+
+def test_xray_3_and_4_are_different_styles(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # レントゲン3 を選んでも、リアルの見た目で埋めてレントゲン4（肋骨つき）にならない
+    del qapp
+    monkeypatch.setattr("stream_heartbeat.ui.operator_window.resolve_data_dir", lambda: tmp_path)
+    session = HeartSession()
+    output = OutputWindow(session)
+    operator = OperatorWindow(session, output)
+    operator._select_style("xray_heart", "")
+    assert session.profile.realistic_look == ""
+    assert output.canvas._look() == STYLE_LOOKS["xray_heart"]
+    operator._select_style("xray_heart", RIBS)
+    assert output.canvas._look().bones
+    # 以前の版がレントゲン3 で保存した "model" は、レントゲン3 で開く
+    operator._select_style("xray_heart", "model")
+    assert operator._style.currentData() == ("xray_heart", "")
+    assert not output.canvas._look().bones
+    operator.close()
+    output.close()
+
+
+def test_real_1_has_xray_material_without_bones() -> None:
+    assert MATERIAL_XRAY in [key for key, _label in MODEL_MATERIALS]
+    look = realistic_look("model", MATERIAL_XRAY)
+    assert look.program == "model" and look.material == MATERIAL_XRAY
+    assert look.cutout and not look.bones
+    # 色と粒はレントゲン4 の X 線の心臓と同じ。大きさ・置き場所はリアル1 のまま
+    assert look.tint_dense == XRAY_MODEL_LOOK.tint_dense
+    assert look.grain == XRAY_MODEL_LOOK.grain
+    assert look.size_factor == realistic_look("model").size_factor
+    assert not realistic_look("model", "glass").cutout

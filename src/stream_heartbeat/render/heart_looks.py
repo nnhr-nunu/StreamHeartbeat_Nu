@@ -105,9 +105,11 @@ STYLE_LOOKS: dict[str, Look] = {
 DEFAULT_REALISTIC_LOOK = MODEL_LOOK.key
 
 # レントゲン4: Blender の心臓を X 線で写し、周りに肋骨を描く（スタイル xray_heart の見た目
-# "model"）。肋骨が見えるよう心臓はリアル1 より小さめ。X 線の色はレントゲン3 と同じ
+# "ribcage"）。肋骨が見えるよう心臓はリアル1 より小さめ。X 線の色はレントゲン3 と同じ。
+# 見た目の名前は "model" にしない（以前の版はレントゲン3 でも realistic_look に
+# "model" を保存していた）
 XRAY_MODEL_LOOK = Look(
-    "model",
+    "ribcage",
     "レントゲン（Blender）",
     "model",
     cutout=True,
@@ -122,9 +124,21 @@ XRAY_MODEL_LOOK = Look(
 
 
 def realistic_look(key: str, material: str = "") -> Look:
-    """リアルの見た目。Blender の心臓には材質（material）も入れる（空なら赤）。"""
+    """リアルの見た目。Blender の心臓には材質（material）も入れる（空なら赤）。
+
+    X 線はレントゲン4 の心臓と同じ色・粒で、背景に透かして重ねる（肋骨は描かない）。
+    """
     for look in REALISTIC_LOOKS:
         if look.key == key:
+            if look.program == "model" and material == XRAY_MODEL_LOOK.material:
+                return replace(
+                    look,
+                    material=material,
+                    cutout=True,
+                    tint_dense=XRAY_MODEL_LOOK.tint_dense,
+                    tint_thin=XRAY_MODEL_LOOK.tint_thin,
+                    grain=XRAY_MODEL_LOOK.grain,
+                )
             if look.program == "model" and material:
                 return replace(look, material=material)
             return look

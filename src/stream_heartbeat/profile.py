@@ -57,7 +57,8 @@ class HeartProfile:
     tap_interval: float = 0.0
     # スタイルの中の見た目（リアルの 1〜4、レントゲンの女性の像など）。リアル1 は Blender の心臓
     realistic_look: str = "model"
-    # Blender の心臓（リアル1）の材質（"real": 赤 / "gradient": グラデ / "glass": ガラス）
+    # Blender の心臓（リアル1）の材質
+    # （"real": 赤 / "gradient": グラデ / "glass": ガラス / "xray": X 線）
     heart_material: str = "real"
     # レントゲン4（Blender の心臓と肋骨）の心臓の材質（"xray": X 線 / ほかはリアル1 と同じ）
     xray_material: str = "xray"
