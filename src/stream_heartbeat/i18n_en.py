@@ -201,10 +201,10 @@ EN_GENERAL: dict[str, str] = {
         "where you clicked (it returns there when the mouse leaves the window)."
     ),
     "配信用の窓をクリックすると電気ショックをかけます。心臓がびくっと止まり、"
-    "不整脈を出しながら今の心拍数へ戻ります（その間の心拍数は「--」）。": (
+    "毎回ちがう不整脈を出しながら今の心拍数へ戻ります（その間の心拍数は「--」）。": (
         "Click the output window to deliver a shock. The heart jolts and stops, then beats "
-        "irregularly as it slowly returns to the current heart rate (the BPM shows \"--\" "
-        "meanwhile)."
+        "with a different arrhythmia each time as it returns to the current heart rate "
+        "(the BPM shows \"--\" meanwhile)."
     ),
     "血の流れを色で重ねます（赤: 探触子へ向かう流れ / 青: 遠ざかる流れ）。": (
         "Overlays blood flow in color (red: flow toward the probe / blue: flow away from it)."

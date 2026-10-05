@@ -7,6 +7,7 @@ from stream_heartbeat.ui.placement import (
     apply_window_geom,
     fit_geom_on_screen,
     place_side_by_side,
+    separate_windows,
     window_geom,
 )
 
@@ -24,6 +25,34 @@ def test_small_screen_still_offsets_windows() -> None:
     op, out = place_side_by_side(QSize(480, 740), QSize(720, 720), QRect(0, 0, 1280, 720))
     assert op != QPoint(out.x(), out.y())
     assert abs(out.x() - op.x()) >= 80 or abs(out.y() - op.y()) >= 80
+
+
+def test_small_screen_tightens_margins_instead_of_overlapping() -> None:
+    screen = QRect(0, 0, 1280, 720)
+    op, out = place_side_by_side(QSize(500, 760), QSize(720, 720), screen)
+    assert not QRect(op, QSize(500, 760)).intersects(QRect(out, QSize(720, 720)))
+    assert screen.contains(QRect(op, QSize(500, 300)))
+    assert out.x() >= screen.x()
+
+
+def test_overlapping_windows_are_placed_side_by_side(qapp) -> None:
+    del qapp
+    screen = QRect(0, 0, 1920, 1080)
+    operator, output = QWidget(), QWidget()
+    operator.resize(500, 760)
+    output.resize(720, 720)
+    operator.move(300, 100)
+    output.move(200, 80)
+    assert separate_windows(operator, output, [screen], screen) is True
+    assert not operator.frameGeometry().intersects(output.frameGeometry())
+    assert output.x() < operator.x()
+    # 重なっていなければ、前回の位置のまま
+    operator.move(1300, 100)
+    output.move(100, 80)
+    assert separate_windows(operator, output, [screen], screen) is False
+    assert operator.pos() == QPoint(1300, 100)
+    operator.close()
+    output.close()
 
 
 def test_fit_geom_keeps_window_on_screen() -> None:
