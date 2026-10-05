@@ -33,7 +33,7 @@ from stream_heartbeat.render.xray_gl import XRAY_FEMALE, XrayRenderer
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.effect_burst import paint_beat_pops, paint_heart_pops
-from stream_heartbeat.ui.effect_defib import XRAY_STYLES, paint_defibrillator
+from stream_heartbeat.ui.effect_defib import paint_defibrillator
 from stream_heartbeat.ui.effect_grip import grip_image, hand_image, paint_grip_hand
 from stream_heartbeat.ui.effect_monitor import (
     monitor_screen,
@@ -66,7 +66,7 @@ from stream_heartbeat.ui.heart_echo import (
     paint_echo_marks,
     sector_geometry,
 )
-from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_path, panel_rect
+from stream_heartbeat.ui.heart_imaging import PANEL_RADIUS_RATIO, panel_rect
 from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     ROTATABLE_STYLES,
@@ -527,10 +527,8 @@ class OutputCanvas(QOpenGLWidget):
                 cycle,
                 since=self._defib.since_shock(t),
                 kick=self._defib.shake(t),
-                xray=profile.style in XRAY_STYLES or self._look().cutout,
                 model=self._model_shown(),
                 opacity=profile.opacity,
-                clip=panel_path(rect) if profile.style == "xray" else None,
                 seed=self._defib.shots,
             )
 

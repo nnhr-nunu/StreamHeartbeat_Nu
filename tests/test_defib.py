@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QImage, QPainter, QPainterPath
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from stream_heartbeat.clock import BeatClock, cycle_at
@@ -373,20 +373,6 @@ def test_paddle_shafts_are_straight_rods(qapp: QApplication) -> None:
         assert grip[-1].y() > rect.bottom()
         # 板の下の縁から出る（スプーンの柄の付け根）
         assert rod[0].y() > disc.y() + 27.0 * 0.8
-
-
-def test_xray_paddles_are_white_and_stay_in_the_film(qapp: QApplication) -> None:
-    del qapp
-    film = QPainterPath()
-    film.addRect(QRectF(20, 20, 360, 360))
-    image = _paint(since=None, xray=True, clip=film)
-    disc = max(
-        (image.pixelColor(x, y) for x in range(90, 130) for y in range(150, 230)),
-        key=lambda c: c.red() + c.green() + c.blue(),
-    )
-    assert disc.red() > 200 and disc.green() > 200 and disc.blue() > 200
-    # 写真の外（窓の下の端）には描かない
-    assert _lit(image, 0, 385, 400, 400) == 0
 
 
 def _open(profile: HeartProfile) -> tuple[OperatorWindow, OutputWindow, HeartSession]:
