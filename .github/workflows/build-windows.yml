@@ -177,8 +177,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: 最新版（展開して起動）
+          name: 最新版 / Latest (unzip and run)
           body: |
+            🇬🇧 **English instructions are at the bottom of this page.** The app itself can be switched to English.
+
             ## ダウンロード手順
 
             1. このページ下部の **Assets** を開く
@@ -224,6 +226,58 @@ jobs:
             プロファイルや補正は zip の中ではなく PC 側（Windows は `%LOCALAPPDATA%\StreamHeartbeat_Nu`、Mac は `~/Library/Application Support/StreamHeartbeat_Nu`）に保存するので、新しい版の zip に入れ替えても消えません。
 
             詳しい使い方はリポジトリの README を見てください。
+
+            ---
+
+            ## English
+
+            **StreamHeartbeat(ぬ)** shows a heart that beats in time with your own heartbeat (picked up by a microphone) so you can put it in your OBS scene. The app can be switched between Japanese and English with the "English" / "日本語" button at the bottom of the control window.
+
+            ### How to download
+
+            1. Scroll down to **Assets** on this page.
+            2. Download the zip that matches your PC (see the table below).
+            3. Unzip it.
+            4. Open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macOS).
+
+            | PC | File to download |
+            | -- | ---------------- |
+            | Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
+            | Mac with Apple silicon (M1 / M2 / M3 …) | `StreamHeartbeat-macOS.zip` |
+            | Mac with an Intel chip (e.g. a 2016 MacBook Pro) | `StreamHeartbeat-macOS-intel.zip` |
+
+            macOS 12 or later is required. If you are not sure which Mac you have, click the Apple menu → **About This Mac**. If "Chip" says Apple, use `macOS.zip`; if "Processor" says Intel, use `macOS-intel.zip`.
+
+            ### Adding it to OBS
+
+            In OBS, capture the window titled `StreamHeartbeat(ぬ) - 配信出力` and remove the green background with a Chroma Key filter.
+
+            - Windows: *Window Capture* source
+            - macOS: *macOS Screen Capture* source → Method: *Window Capture*
+
+            ### Security warnings on first launch (the app is not code-signed)
+
+            It is not a virus. The app is not distributed through a store, so the OS stops it once.
+
+            **Windows:** if you see "Windows protected your PC", click **More info** → **Run anyway**.
+
+            **macOS:** if you see "cannot be opened" or "cannot verify the developer":
+
+            1. Close the dialog (**Done** or **Cancel**).
+            2. Open **System Settings → Privacy & Security** (macOS 12: **System Preferences → Security & Privacy → General**) and click **Open Anyway** next to "StreamHeartbeat".
+            3. Open `StreamHeartbeat.app` again and click **Open** when asked.
+
+            If you see "This application is not supported on this Mac", you downloaded the wrong zip. Intel Macs need `StreamHeartbeat-macOS-intel.zip`.
+
+            ### Microphone permission (macOS)
+
+            When asked for microphone access, click **Allow**. If you declined by mistake, turn StreamHeartbeat on in **System Settings → Privacy & Security → Microphone** and relaunch the app. You may be asked again after updating to a newer version.
+
+            ### Keeping your settings
+
+            Profiles and calibration are stored on your PC, not inside the zip (Windows: `%LOCALAPPDATA%\StreamHeartbeat_Nu`, macOS: `~/Library/Application Support/StreamHeartbeat_Nu`), so replacing the zip with a newer version does not erase them.
+
+            A detailed guide (in Japanese) and an English summary are in the [README](https://github.com/nnhr-nunu/StreamHeartbeat_Nu#english-summary).
           files: |
             windows-zip/StreamHeartbeat-windows.zip
             macos-zip/StreamHeartbeat-macOS.zip
