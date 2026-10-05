@@ -4,21 +4,20 @@
 板の下の縁から短い首で折れて、まっすぐな鋼の棒が窓の下の左右の角（視聴者の側）へ伸びる。
 棒の先は黒い樹脂の握り（指を止めるつば・滑り止めの溝）で、窓の外へ抜ける。
 右の握りに放電のボタン。ショックの見せ方は effect_defib_shock、金属の塗り方は effect_defib_metal。
-レントゲンのスタイルでは金属が白く写り、握りの樹脂は淡く透ける。
+レントゲンのスタイルでも同じ見た目で描く（白く写す描き方はしょぼく見えたのでやめた）。
 """
 
 from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QPainter,
     QPainterPath,
     QPen,
-    QPolygonF,
     QRadialGradient,
 )
 
@@ -34,7 +33,6 @@ from stream_heartbeat.ui.effect_defib_metal import (
     rubber_stops,
     shaded_tube,
     steel_stops,
-    tube_edges,
 )
 from stream_heartbeat.ui.effect_defib_shock import (
     SHOCK_S,
@@ -44,8 +42,6 @@ from stream_heartbeat.ui.effect_defib_shock import (
 )
 from stream_heartbeat.ui.effects import BODY_HALF, HeartFrame
 
-# パドルをレントゲンの写り方で描くスタイル
-XRAY_STYLES = frozenset({"xray", "xray_heart"})
 # 板の半径（心臓の半径に対する割合）と、板を斜めから見たときの幅の割合
 DISC_R = 0.3
 DISC_SQUASH = 0.46
@@ -75,10 +71,6 @@ LOWER_LEFT_DENT = 0.2
 
 BUTTON = QColor(236, 164, 38)
 BUTTON_RIM = QColor(120, 72, 12)
-# レントゲンでの写り方（金属は白く、樹脂は淡く透ける）
-XRAY_METAL = QColor(232, 238, 246)
-XRAY_METAL_EDGE = QColor(170, 184, 204)
-XRAY_GRIP = QColor(130, 140, 154, 70)
 
 Disc = tuple[QPointF, float, float]
 
@@ -91,24 +83,19 @@ def paint_defibrillator(
     *,
     since: float | None,
     kick: float = 0.0,
-    xray: bool = False,
     model: bool = False,
     opacity: float = 1.0,
-    clip: QPainterPath | None = None,
     seed: int = 0,
 ) -> None:
     """心臓をはさむパドルと、ショックの光・電流を描く。
 
     since はショックからの秒（演出の外なら None）、kick はびくりの揺れ（-1〜1）。
     model は Blender の心臓か（形が縮むので、板も表面と一緒に寄る）。
-    clip を渡すとその中だけに描く（レントゲン1・2 は写真の枠の中だけに写る）。
     seed はショックごとに変える数（電流の走り方が毎回変わる）。
     """
     painter.save()
     painter.setOpacity(max(0.08, min(1.0, opacity)))
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    if clip is not None:
-        painter.setClipPath(clip)
     rim, scale = _rim(frame, cycle, model)
     discs = _disc_places(frame, rim, scale, kick)
     radius = frame.radius * DISC_R
@@ -119,7 +106,7 @@ def paint_defibrillator(
         outline = _outline(frame, rim, scale, model)
         paint_shock_under(painter, outline, frame, contacts, radius, since, seed)
     for k, (center, tilt, outward) in enumerate(discs):
-        _paint_paddle(painter, rect, center, tilt, outward, radius, xray, button=k == 1)
+        _paint_paddle(painter, rect, center, tilt, outward, radius, button=k == 1)
     if since is not None:
         paint_shock_over(painter, discs, contacts, radius, DISC_SQUASH, since, seed)
     painter.restore()
@@ -199,11 +186,6 @@ def _line(a: QPointF, b: QPointF, n: int) -> list[QPointF]:
     return [a + (b - a) * (i / n) for i in range(n + 1)]
 
 
-def _band(pts: list[QPointF], w0: float, w1: float) -> QPolygonF:
-    left, right = tube_edges(pts, w0, w1)
-    return QPolygonF(left + right[::-1])
-
-
 def _paddle_path(
     rect: QRectF, disc: QPointF, tilt: float, outward: float, radius: float
 ) -> tuple[list[QPointF], list[QPointF], list[QPointF], QPointF]:
@@ -239,7 +221,6 @@ def _paint_paddle(
     tilt: float,
     outward: float,
     radius: float,
-    xray: bool,
     *,
     button: bool,
 ) -> None:
@@ -249,19 +230,6 @@ def _paint_paddle(
     nose_w = (radius * NOSE_W[0], radius * NOSE_W[1])
     grip_w = (radius * HANDLE_W[0], radius * HANDLE_W[1])
     flange_w = grip_w[0] * FLANGE_W
-    if xray:
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(XRAY_METAL_EDGE)
-        painter.drawPolygon(_band(rod, rod_w[0] * 1.5, rod_w[1] * 1.5))
-        painter.setBrush(XRAY_METAL)
-        painter.drawPolygon(_band(rod, *rod_w))
-        painter.setBrush(XRAY_GRIP)
-        painter.drawPolygon(_band(nose, *nose_w))
-        painter.drawPolygon(_band(grip, *grip_w))
-        half = axis * (grip_w[0] * FLANGE_THICK * 0.5)
-        painter.drawPolygon(_band([grip[0] - half, grip[0] + half], flange_w, flange_w))
-        _paint_xray_disc(painter, disc, tilt, radius)
-        return
     # ステンレスの棒（首から握りの先まで 1 本）
     shaded_tube(painter, rod, *rod_w, steel_stops, STEEL_EDGE)
     # 黒い樹脂: 握りの先の細い所 → 指を止めるつば → 滑り止めの溝の付いた握り
@@ -280,21 +248,3 @@ def _paint_paddle(
         painter.setBrush(QBrush(cap))
         painter.drawEllipse(spot, r, r)
     paint_steel_disc(painter, disc, tilt, outward, radius, DISC_SQUASH)
-
-
-def _paint_xray_disc(painter: QPainter, center: QPointF, tilt: float, radius: float) -> None:
-    """レントゲンに白く写る円い金属の板（縁がにじむ）。"""
-    painter.save()
-    painter.translate(center)
-    painter.rotate(tilt)
-    rx, ry = radius * DISC_SQUASH, radius
-    edge = XRAY_METAL_EDGE
-    glow = QRadialGradient(QPointF(0.0, 0.0), ry * 1.25)
-    glow.setColorAt(0.75, QColor(edge.red(), edge.green(), edge.blue(), 90))
-    glow.setColorAt(1.0, QColor(edge.red(), edge.green(), edge.blue(), 0))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QBrush(glow))
-    painter.drawEllipse(QPointF(0.0, 0.0), rx * 1.25, ry * 1.25)
-    painter.setBrush(XRAY_METAL)
-    painter.drawEllipse(QPointF(0.0, 0.0), rx, ry)
-    painter.restore()
