@@ -179,7 +179,7 @@ jobs:
           tag_name: latest
           name: 最新版 / Latest (unzip and run)
           body: |
-            🇬🇧 **English instructions are at the bottom of this page.** The app itself can be switched to English.
+            🇬🇧 **English instructions are at the bottom of this page.** The app starts in English automatically if your OS language is not Japanese.
 
             ## ダウンロード手順
 
@@ -231,7 +231,7 @@ jobs:
 
             ## English
 
-            **StreamHeartbeat(ぬ)** shows a heart that beats in time with your own heartbeat (picked up by a microphone) so you can put it in your OBS scene. The app can be switched between Japanese and English with the "English" / "日本語" button at the bottom of the control window.
+            **StreamHeartbeat(ぬ)** shows a heart that beats in time with your own heartbeat (picked up by a microphone) so you can put it in your OBS scene. The app starts in English automatically unless your OS display language is Japanese, and you can switch between Japanese and English at any time with the "English" / "日本語" button at the bottom of the control window.
 
             ### How to download
 
