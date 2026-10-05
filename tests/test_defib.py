@@ -27,7 +27,8 @@ from stream_heartbeat.defib import (
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.model_mesh import beat_weights, load_model_anim
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.effect_defib import paint_defibrillator
+from stream_heartbeat.ui.effect_defib import _paddle_path, paint_defibrillator
+from stream_heartbeat.ui.effect_defib_shock import GLOW_S, SHOCK_S, glow_level
 from stream_heartbeat.ui.effects import (
     EFFECT_DEFIB,
     EFFECT_HINTS,
@@ -319,26 +320,59 @@ def test_shock_runs_current_over_the_heart(qapp: QApplication) -> None:
     assert shock.pixelColor(2, 2).alpha() == 0
 
 
-def test_sparks_fly_and_smoke_rises_only_when_allowed(qapp: QApplication) -> None:
+def test_shock_flashes_at_the_contacts_and_lights_the_heart_from_inside(
+    qapp: QApplication,
+) -> None:
     del qapp
-    # 火花は板の外へ飛び散る
     calm = _paint(since=None)
-    sparks = _paint(since=0.12, seed=4)
-    assert _lit(sparks, 20, 80, 110, 260) > _lit(calm, 20, 80, 110, 260)
-    # 煙は haze のときだけ（クロマキーの緑の上では出さない）
-    plain = _paint(since=1.0)
-    hazy = _paint(since=1.0, haze=True)
-    assert plain != hazy
-    assert _paint(since=1.0, haze=True, xray=True) == _paint(since=1.0, xray=True)
+    shock = _paint(since=0.02)
+
+    def brightness(image: QImage, x0: int, y0: int, x1: int, y1: int) -> int:
+        return sum(
+            image.pixelColor(x, y).red()
+            + image.pixelColor(x, y).green()
+            + image.pixelColor(x, y).blue()
+            for x in range(x0, x1, 2)
+            for y in range(y0, y1, 2)
+        )
+
+    # 板が心臓に触れた所（左右の板の心臓の側の縁）がまぶしく光る
+    assert brightness(shock, 100, 170, 135, 220) > brightness(calm, 100, 170, 135, 220) * 1.3
+    assert brightness(shock, 265, 170, 300, 220) > brightness(calm, 265, 170, 300, 220) * 1.3
+    # 心臓が内側から青白く光る（真ん中が青く明るい）
+    middle = shock.pixelColor(200, 175)
+    assert middle.alpha() > 120 and middle.blue() > 150 and middle.blue() > middle.red()
+    # 終われば、パドルだけの絵に戻る（火花や煙は残らない）
+    assert _paint(since=SHOCK_S + 0.01) == calm
 
 
-def test_paddles_look_like_polished_steel(qapp: QApplication) -> None:
+def test_heart_glow_swells_once_without_flicker() -> None:
+    # 心臓は窓の中の広い面なので、明滅させない（1 回ふくらんで引くだけ）
+    levels = [glow_level(i / 1000) for i in range(int(GLOW_S * 1000) + 50)]
+    peak = levels.index(max(levels))
+    assert max(levels) > 0.9 and peak < 50
+    after = levels[peak:]
+    assert all(b <= a + 1e-9 for a, b in zip(after, after[1:]))
+    assert levels[-1] == 0.0
+
+
+def test_paddle_shafts_are_straight_rods(qapp: QApplication) -> None:
     del qapp
-    image = _paint(since=None)
-    disc = [image.pixelColor(x, y) for x in range(90, 130) for y in range(150, 230)]
-    brightness = [c.red() + c.green() + c.blue() for c in disc if c.alpha() == 255]
-    # 磨いた金属: 明るい映り込みと暗い所がくっきり分かれる
-    assert max(brightness) > 680 and min(brightness) < 210
+    rect = QRectF(0, 0, 400, 400)
+    for outward in (-1.0, 1.0):
+        disc = QPointF(200 + outward * 95, 196)
+        rod, nose, grip, axis = _paddle_path(rect, disc, -6.0 * outward, outward, 27.0)
+        # 首で一度折れたあとは、握りの端までまっすぐ（たわまない）
+        straight = rod[-7:] + nose + grip
+        origin = straight[0]
+        for p in straight:
+            d = p - origin
+            assert abs(d.x() * axis.y() - d.y() * axis.x()) < 0.01
+        # 棒は外の下へ伸び、握りは窓の外へ抜ける
+        assert axis.x() * outward > 0.3 and axis.y() > 0.6
+        assert grip[-1].y() > rect.bottom()
+        # 板の下の縁から出る（スプーンの柄の付け根）
+        assert rod[0].y() > disc.y() + 27.0 * 0.8
 
 
 def test_xray_paddles_are_white_and_stay_in_the_film(qapp: QApplication) -> None:

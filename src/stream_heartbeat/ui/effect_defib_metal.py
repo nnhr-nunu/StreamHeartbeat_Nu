@@ -1,8 +1,10 @@
-"""除細動器のパドルの塗り方: 磨いた鋼の棒と円い板、黒いゴムの握り。
+"""除細動器のパドルの塗り方: ステンレスの棒と円い板（手術器具の、つやを抑えたサテン仕上げ）、
+黒い樹脂の握り。
 
 鋼は、まわりの部屋（左手前の縦長の窓・右の細い窓・天井の明かり・暗い床）の映り込みで塗る。
-明るい所と暗い所の境がくっきりしているほど、硬く磨いた金属に見える。棒は曲がっているので、
-短い区間ごとに向きに合わせた映り込みの帯を塗る（帯は向き ANGLE_STEP° ごとに作り置く）。
+サテン仕上げなので映り込みは明るい灰色の中で淡く（SATIN_BASE・SATIN_GAIN）、縁だけ細く締める。
+棒が曲がる所（首）は、短い区間ごとに向きに合わせた映り込みの帯を塗る
+（帯は向き ANGLE_STEP° ごとに作り置く）。
 """
 
 from __future__ import annotations
@@ -45,18 +47,23 @@ _ACROSS = (
 )  # fmt: skip
 # 板の縁の厚み（横幅に対する割合）
 THICK = 0.2
-# 板の外側の面の上下の色（上は明るい天井、真ん中で地平線のようにくっきり暗くなり、下は暗い床）
+# 握りのつばを見る傾き（円い板が手前へ倒れて見える割合）
+FLANGE_VIEW = 0.38
+# サテン仕上げ: 映り込みの明るさ v を SATIN_BASE + SATIN_GAIN * v に縮める
+# （明るい灰色の中で淡く映る）
+SATIN_BASE = 0.42
+SATIN_GAIN = 0.55
+# 板の外側の面の上下の色（上は天井の明かりで明るく、下の床の側へなだらかに暗くなる）
 FACE_STOPS = (
-    (0.0, (128, 136, 149)),
-    (0.3, (184, 192, 204)),
-    (0.47, (226, 232, 241)),
-    (0.5, (64, 70, 81)),
-    (0.72, (30, 34, 41)),
-    (0.88, (88, 95, 108)),
-    (1.0, (36, 40, 48)),
+    (0.0, (150, 156, 167)),
+    (0.28, (205, 210, 219)),
+    (0.45, (214, 219, 227)),
+    (0.62, (160, 166, 176)),
+    (0.85, (104, 110, 121)),
+    (1.0, (84, 90, 100)),
 )
-# 窓の映り込み（面を斜めに走るくっきりした帯）: 帯の真ん中の高さ・太さ（縦の半径に対する割合）・濃さ
-WINDOWS = ((-0.42, 0.26, 175), (-0.02, 0.07, 130))
+# 窓の映り込み（面を斜めに走る淡い帯）: 帯の真ん中の高さ・太さ（縦の半径に対する割合）・濃さ
+WINDOWS = ((-0.42, 0.26, 70), (-0.02, 0.07, 50))
 WINDOW_SLANT = 0.9
 
 
@@ -122,9 +129,12 @@ def _across(angle_bin: int) -> list[tuple[float, float, float, float]]:
 
 
 @lru_cache(maxsize=256)
-def chrome_stops(angle_bin: int) -> tuple[tuple[float, QColor], ...]:
-    """磨いた鋼の棒の、太さの向きの色の帯。"""
-    return tuple((u, steel(_env(*_reflect(nx, ny, nz)))) for u, nx, ny, nz in _across(angle_bin))
+def steel_stops(angle_bin: int) -> tuple[tuple[float, QColor], ...]:
+    """ステンレスの棒の、太さの向きの色の帯。"""
+    return tuple(
+        (u, steel(SATIN_BASE + SATIN_GAIN * _env(*_reflect(nx, ny, nz))))
+        for u, nx, ny, nz in _across(angle_bin)
+    )
 
 
 @lru_cache(maxsize=256)
@@ -225,10 +235,52 @@ def paint_ribs(painter: QPainter, pts: list[QPointF], w0: float, w1: float, ever
         painter.drawLine(a + shift, b + shift)
 
 
+def paint_flange(
+    painter: QPainter, center: QPointF, axis: QPointF, width: float, thick: float
+) -> None:
+    """握りの先の、指を止める樹脂のつば（握りの向き axis に垂直な円い板。手前の面が見える）。"""
+    across = QPointF(-axis.y(), axis.x())
+    half = width * 0.5
+    flat = half * FLANGE_VIEW
+    turn = QTransform()
+    turn.translate(center.x(), center.y())
+    turn.rotate(math.degrees(math.atan2(axis.y(), axis.x())))
+    # 奥の縁と側面（円柱の帯）: 握りと同じゴムの帯で塗る
+    side = QPainterPath()
+    side.addEllipse(QPointF(-thick * 0.5, 0.0), flat, half)
+    side.addRect(QRectF(-thick * 0.5, -half, thick, half * 2.0))
+    side = turn.map(side.simplified())
+    angle = math.degrees(math.atan2(across.y(), across.x()))
+    grad = QLinearGradient(center + across * half, center - across * half)
+    grad.setStops(list(rubber_stops(int(round(angle / ANGLE_STEP)) % (360 // ANGLE_STEP))))
+    painter.save()
+    painter.setPen(QPen(RUBBER_EDGE, max(1.0, half * 0.05)))
+    painter.setBrush(QBrush(grad))
+    painter.drawPath(side)
+    # 手前の面: 光の側の縁が明るい面取りと、少し沈んだ平らな面
+    face = QPainterPath()
+    face.addEllipse(QPointF(thick * 0.5, 0.0), flat, half)
+    lx, ly = _L[0], _L[1]
+    norm = math.hypot(lx, ly) or 1.0
+    light = QPointF(lx / norm, ly / norm) * half
+    bevel = QLinearGradient(center + light, center - light)
+    bevel.setColorAt(0.0, QColor(*RUBBER_LIGHT))
+    bevel.setColorAt(0.55, QColor(26, 28, 33))
+    bevel.setColorAt(1.0, QColor(*RUBBER_DARK))
+    painter.setBrush(QBrush(bevel))
+    painter.drawPath(turn.map(face))
+    inner = QPainterPath()
+    inner.addEllipse(QPointF(thick * 0.5, 0.0), flat * 0.8, half * 0.84)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(22, 24, 28))
+    painter.drawPath(turn.map(inner))
+    painter.restore()
+
+
 def paint_steel_disc(
     painter: QPainter, center: QPointF, tilt: float, outward: float, radius: float, squash: float
 ) -> None:
-    """斜めから見た、磨いた鋼の円い板（外側の面と、心臓の側に見える縁の厚み）。
+    """斜めから見た、ステンレスの円い板（外側の面と、心臓の側に見える縁の厚み）。
 
     板の絵は大きさと向きが同じなら変わらないので、作り置いた絵を置く（毎コマ描くと重い）。
     """
@@ -265,7 +317,7 @@ def _draw_disc(painter: QPainter, outward: float, radius: float, squash: float) 
     rim.addRect(QRectF(min(back.x(), 0.0), -ry, abs(back.x()), ry * 2.0))
     rim = rim.simplified()
     grad = QLinearGradient(QPointF(0.0, -ry), QPointF(0.0, ry))
-    grad.setStops(list(chrome_stops(270 // ANGLE_STEP)))
+    grad.setStops(list(steel_stops(270 // ANGLE_STEP)))
     painter.setPen(QPen(STEEL_EDGE, max(1.0, rx * 0.05)))
     painter.setBrush(QBrush(grad))
     painter.drawPath(rim)
@@ -276,7 +328,7 @@ def _draw_disc(painter: QPainter, outward: float, radius: float, squash: float) 
     red.setColorAt(1.0, QColor(150, 30, 30, 0))
     painter.setBrush(QBrush(red))
     painter.drawPath(rim)
-    # 外側の面: 上下の映り込み → 斜めに走る窓の映り込み → 回しながら磨いた細かな筋
+    # 外側の面: 上下の映り込み → 斜めに走る窓の映り込み → 回しながら仕上げた細かな筋
     face = QLinearGradient(QPointF(0.0, -ry), QPointF(0.0, ry))
     for u, rgb in FACE_STOPS:
         face.setColorAt(u, QColor(*rgb))
