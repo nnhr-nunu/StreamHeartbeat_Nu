@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render import gl_platform
 from stream_heartbeat.render.gl_platform import core_profile, glsl
-from stream_heartbeat.render.heart_shaders import REALISTIC_LOOKS, STYLE_LOOKS
+from stream_heartbeat.render.heart_looks import REALISTIC_LOOKS, STYLE_LOOKS, xray_model_look
 
 CORE = QSurfaceFormat.OpenGLContextProfile.CoreProfile
 
@@ -70,7 +70,15 @@ def test_mac_shaders_compile_and_draw_in_core_profile(qapp: QApplication, monkey
     try:
         heart = OffscreenHeart()
         rest = CardiacCycle(0.0, 0.0, 0.2, 1.0, 1.0, 0.0, 0.5)
-        for look in (*REALISTIC_LOOKS, STYLE_LOOKS["mech"], STYLE_LOOKS["xray_heart"]):
+        looks = (
+            *REALISTIC_LOOKS,
+            STYLE_LOOKS["mech"],
+            STYLE_LOOKS["xray_heart"],
+            # レントゲン4（Blender の心臓と肋骨。X 線とガラスの肋骨）
+            xray_model_look("xray"),
+            xray_model_look("glass"),
+        )
+        for look in looks:
             image = heart.render(width=160, height=160, cycle=rest, look=look, scale=0.7)
             assert image.pixelColor(3, 3) == QColor(0, 255, 0), look.key
             assert image.pixelColor(80, 88) != QColor(0, 255, 0), look.key

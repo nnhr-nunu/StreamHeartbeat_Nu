@@ -1,8 +1,9 @@
 """Blender の心臓のシェーダー。頂点側でシェイプキーを混ぜ、断片側で材質を描き分ける。
 
-材質（uMaterial）: 0 赤（リアル）・1 グラデ・2 ガラス。グラデとガラスは Blender の材質の数値に
-合わせてある（グラデ: 波の色 × 2 段の陰を、縁の暗さと比べて暗い方。ガラス: 水色・屈折 1.33・
-細かいでこぼこ・スタジオの映り込み）。
+材質（uMaterial）: 0 赤（リアル）・1 グラデ・2 ガラス・3 X 線（レントゲン4）。グラデとガラスは
+Blender の材質の数値に合わせてある（グラデ: 波の色 × 2 段の陰を、縁の暗さと比べて暗い方。
+ガラス: 水色・屈折 1.33・細かいでこぼこ・スタジオの映り込み）。X 線はレントゲン3 と同じく
+厚みのぶん明るく写し、背景に重ねられるよう 2 回に分けて描く（XRAY_OUT_GLSL）。
 
 ほかの心臓と同じく、太い血管の切り口の手前は透けて消える（vesselFade）。左心耳は心房の収縮と
 一打ちで揺れる（auricleMove。Blender のアニメではほとんど動かない）。
@@ -17,7 +18,8 @@ from stream_heartbeat.render.heart_shaders import _NOISE
 MATERIAL_REAL = "real"
 MATERIAL_GRADIENT = "gradient"
 MATERIAL_GLASS = "glass"
-MATERIALS = (MATERIAL_REAL, MATERIAL_GRADIENT, MATERIAL_GLASS)
+MATERIAL_XRAY = "xray"
+MATERIALS = (MATERIAL_REAL, MATERIAL_GRADIENT, MATERIAL_GLASS, MATERIAL_XRAY)
 MATERIAL_INDEX = {key: i for i, key in enumerate(MATERIALS)}
 
 # 血管の切り口（形の座標）: 真ん中・外向き・管の太さの半分・透けていく長さ。
@@ -91,6 +93,66 @@ vec3 auricleMove(vec3 p) {{
     return m * (along * uAurL * {AURICLE_SWING:.3f}
         + outward * (max(uAurL, 0.0) * {AURICLE_POP:.3f} - uAtriaL * {AURICLE_SHRINK:.3f}));
 }}
+"""
+
+# 色の変換・映り込み・反射の割合（心臓と肋骨のガラスで使う）。uEnv と uEnvYaw が要る
+SHADING_GLSL = """
+const float PI = 3.14159265;
+
+vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
+vec3 toScreen(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
+
+// Blender の AgX に近い、明るい所をなだらかに寝かせる色の変換（直線の色 → 画面の色）
+vec3 softTone(vec3 c) {
+    c = c / (c + vec3(0.6)) * 1.6;
+    return toScreen(c);
+}
+
+vec3 envAt(vec3 dir) {
+    float c = cos(uEnvYaw);
+    float s = sin(uEnvYaw);
+    dir = vec3(c * dir.x + s * dir.z, dir.y, -s * dir.x + c * dir.z);
+    float u = atan(dir.x, -dir.z) / (2.0 * PI) + 0.5;
+    float v = acos(clamp(dir.y, -1.0, 1.0)) / PI;
+    return toLinear(texture(uEnv, vec2(u, v)).rgb);
+}
+
+// 誘電体の反射の割合（Blender の Fresnel ノードと同じ式）
+float fresnelIor(float cosi, float eta) {
+    float c = abs(cosi);
+    float g = eta * eta - 1.0 + c * c;
+    if (g <= 0.0) return 1.0;
+    g = sqrt(g);
+    float a = (g - c) / (g + c);
+    float b = (c * (g + c) - 1.0) / (c * (g - c) + 1.0);
+    return 0.5 * a * a * (1.0 + b * b);
+}
+"""
+
+# X 線の色と出し方（心臓と肋骨で同じ）。濃さは表と裏の面を足して厚みにする。
+# 背景に重ねるので 2 回に分けて描く（レントゲン3 と同じ）。1 回目（uCutout 1）は下の背景を
+# 濃さのぶんだけ隠し（色は出さない）、2 回目（uCutout 2）は厚みのぶん色を足す
+XRAY_OUT_GLSL = """
+uniform vec3 uTintDense;
+uniform vec3 uTintThin;
+uniform float uGrain;
+uniform float uTime;
+uniform float uCutout;
+
+// 透視の粒（時間で流れる細かいむら）
+float xrayGrain(vec3 p) {
+    float grain = fbm(p * 26.0 + vec3(uTime * 1.7, uTime * 0.9, 0.0));
+    float grain2 = vnoise(p * 90.0 + vec3(0.0, uTime * 13.0, uTime * 7.0));
+    return 1.0 + uGrain * (grain - 0.5) + uGrain * 0.35 * (grain2 - 0.5);
+}
+
+vec4 xrayOut(float density, float shade, float opacity) {
+    if (uCutout > 1.5) {
+        vec3 color = mix(uTintThin, uTintDense, clamp(density * 2.2, 0.0, 1.0)) * density;
+        return vec4(color * shade * 1.5 * opacity, 0.0);
+    }
+    return vec4(0.0, 0.0, 0.0, clamp(1.0 - exp(-density * 5.0), 0.0, 1.0) * opacity);
+}
 """
 
 MODEL_VERTEX = (
@@ -171,44 +233,15 @@ uniform float uPulse;
 uniform sampler2D uGradient;
 uniform sampler2D uEnv;
 uniform float uEnvYaw;
-// 0: 不透明な所だけ / 1: 透けて消えていく血管の先だけ / 2: 全部（ガラス）
+// 0: 不透明な所だけ / 1: 透けて消えていく血管の先だけ / 2: 全部（ガラス・X 線）
 uniform int uPass;
 
 out vec4 fragColor;
-
-const float PI = 3.14159265;
 """
     + _NOISE
+    + SHADING_GLSL
+    + XRAY_OUT_GLSL
     + """
-vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
-vec3 toScreen(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
-
-// Blender の AgX に近い、明るい所をなだらかに寝かせる色の変換（直線の色 → 画面の色）
-vec3 softTone(vec3 c) {
-    c = c / (c + vec3(0.6)) * 1.6;
-    return toScreen(c);
-}
-
-vec3 envAt(vec3 dir) {
-    float c = cos(uEnvYaw);
-    float s = sin(uEnvYaw);
-    dir = vec3(c * dir.x + s * dir.z, dir.y, -s * dir.x + c * dir.z);
-    float u = atan(dir.x, -dir.z) / (2.0 * PI) + 0.5;
-    float v = acos(clamp(dir.y, -1.0, 1.0)) / PI;
-    return toLinear(texture(uEnv, vec2(u, v)).rgb);
-}
-
-// 誘電体の反射の割合（Blender の Fresnel ノードと同じ式）
-float fresnelIor(float cosi, float eta) {
-    float c = abs(cosi);
-    float g = eta * eta - 1.0 + c * c;
-    if (g <= 0.0) return 1.0;
-    g = sqrt(g);
-    float a = (g - c) / (g + c);
-    float b = (c * (g + c) - 1.0) / (c * (g - c) + 1.0);
-    return 0.5 * a * a * (1.0 + b * b);
-}
-
 vec3 realColor(vec3 n, vec3 v) {
     vec3 key = normalize(vec3(-0.45, 0.62, 0.66));
     vec3 fill = normalize(vec3(0.75, -0.1, 0.55));
@@ -309,6 +342,18 @@ vec4 glassColor(vec3 n, vec3 v) {
     return vec4(softTone(color), alpha);
 }
 
+// X 線: 正面を向いた面（厚い所）ほど濃く、縁は薄い。浮き出た冠血管は造影剤が入ったように明るく、
+// 縮むと壁が厚く写る。指の間に押し出された所も厚い
+float xrayDensity(vec3 n, vec3 v) {
+    float facing = abs(dot(n, v));
+    float d = 0.045 + 0.095 * pow(facing, 0.6);
+    d += 0.08 * smoothstep(0.1, 0.55, -vCavity.x);
+    d *= 1.0 + 0.25 * uPulse;
+    d *= xrayGrain(vWorldPos);
+    d *= 1.0 + 1.6 * vGrip.y;
+    return d * vFade;
+}
+
 void main() {
     bool faded = vFade < 0.995;
     if ((uPass == 0 && faded) || (uPass == 1 && !faded)) {
@@ -320,6 +365,10 @@ void main() {
     if (!gl_FrontFacing) n = -n;
     // 指の影（手が浮いて見えないよう、指のすぐ脇を暗くする）
     float shade = 1.0 - 0.55 * clamp(vGrip.x, 0.0, 0.9);
+    if (uMaterial == 3) {
+        fragColor = xrayOut(xrayDensity(n, v), 1.0 - clamp(vGrip.x, 0.0, 0.9), uOpacity);
+        return;
+    }
     if (uMaterial == 2) {
         vec4 g = glassColor(n, v);
         fragColor = vec4(g.rgb * shade, g.a * uOpacity * vFade);

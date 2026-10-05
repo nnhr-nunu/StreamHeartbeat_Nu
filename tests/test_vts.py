@@ -544,7 +544,7 @@ def test_item_style_names_follow_the_style_list() -> None:
 
     # オシャレ1・2 も出せるのに案内から漏れていたので、一覧から作る
     assert ITEM_STYLE_NAMES == style_names(ITEM_STYLES)
-    assert ITEM_STYLE_NAMES == "リアル1〜4、レントゲン3、かわいい1・2、オシャレ1・2、機械"
+    assert ITEM_STYLE_NAMES == "リアル1〜4、レントゲン3・4、かわいい1・2、オシャレ1・2、機械"
 
 
 def test_look_key_follows_effect_and_stethoscope_place() -> None:

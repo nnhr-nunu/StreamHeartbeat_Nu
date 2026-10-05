@@ -67,7 +67,7 @@ def test_only_style_material_and_effect_combos_change_on_wheel(qapp: QApplicatio
         return combo.currentIndex() != 0
 
     combos = [c for c in operator.findChildren(QComboBox) if c.count() > 1]
-    wheeled = (operator._style, operator._material, operator._effect)
+    wheeled = (operator._style, operator._material, operator._xray_material, operator._effect)
     assert spin(operator._style)
     assert spin(operator._material)
     # どのスタイルにも演出が 2 つ以上（なし＋はじけるハートなど）あるので、ホイールで変わる

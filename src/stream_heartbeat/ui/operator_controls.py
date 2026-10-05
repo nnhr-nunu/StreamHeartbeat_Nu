@@ -10,8 +10,8 @@ from stream_heartbeat.audio import default_mic_id
 from stream_heartbeat.config import DEFAULT_BEAT_TEXT, DEFAULT_BEAT_TEXT_COLOR
 from stream_heartbeat.i18n import add_tr_item, tr
 from stream_heartbeat.profile import HeartProfile
-from stream_heartbeat.render.heart_shaders import DEFAULT_REALISTIC_LOOK
-from stream_heartbeat.render.model_shaders import MATERIAL_REAL
+from stream_heartbeat.render.heart_looks import DEFAULT_REALISTIC_LOOK
+from stream_heartbeat.render.model_shaders import MATERIAL_REAL, MATERIAL_XRAY
 from stream_heartbeat.ui.combo import MarkedComboBox
 from stream_heartbeat.ui.effects import EFFECT_HINTS, active_effect, effect_choices
 
@@ -56,6 +56,7 @@ class ProfileControlsMixin:
             self._bpm_url,
             self._style,
             self._material,
+            self._xray_material,
             self._angle_locked,
             self._mics,
         )
@@ -86,6 +87,8 @@ class ProfileControlsMixin:
             self._select_style(profile.style, profile.realistic_look)
             index = self._material.findData(profile.heart_material)
             self._material.setCurrentIndex(max(0, index))
+            index = self._xray_material.findData(profile.xray_material)
+            self._xray_material.setCurrentIndex(max(0, index))
             self._select_mic(profile.mic_id)
         finally:
             for widget in widgets:
@@ -147,6 +150,7 @@ class ProfileControlsMixin:
         profile.style = style
         profile.realistic_look = look
         profile.heart_material = str(self._material.currentData() or MATERIAL_REAL)
+        profile.xray_material = str(self._xray_material.currentData() or MATERIAL_XRAY)
         self._output.canvas.angle_locked = self._angle_locked.isChecked()
         self._refresh_style_controls()
         profile.scale = self._scale.value() / 100.0

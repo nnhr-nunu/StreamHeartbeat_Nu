@@ -22,7 +22,7 @@ from stream_heartbeat.render.gl_platform import core_profile
 from stream_heartbeat.render.grip_pose import HEART_BODY, GripBody, HandPose, grip_pose, held_grip
 from stream_heartbeat.render.hand_gl import HandRenderer, HandRendererError
 from stream_heartbeat.render.heart_gl import BASE_SCALE, HeartRenderer, HeartRendererError
-from stream_heartbeat.render.heart_shaders import STYLE_LOOKS, Look, realistic_look
+from stream_heartbeat.render.heart_looks import Look, style_look
 from stream_heartbeat.render.mesh_cache import shared_heart_mesh
 from stream_heartbeat.render.model_body import follow_scale, grip_for_look
 from stream_heartbeat.render.mri_gl import MriRenderer
@@ -147,11 +147,10 @@ class OutputCanvas(QOpenGLWidget):
         profile.heart_pitch_deg = self._orbit.pitch
 
     def _look(self) -> Look:
-        style = self._session.profile.style
-        if style == "realistic":
-            profile = self._session.profile
-            return realistic_look(profile.realistic_look, profile.heart_material)
-        return STYLE_LOOKS[style]
+        profile = self._session.profile
+        return style_look(
+            profile.style, profile.realistic_look, profile.heart_material, profile.xray_material
+        )
 
     @property
     def effect(self) -> str:
