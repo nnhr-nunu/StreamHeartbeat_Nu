@@ -1,6 +1,7 @@
 """演出（選べるスタイル・動き・描く場所・操作）。
 
-心臓わしづかみ・聴診器 1・2・カラードプラ・タギング・モニター画面・はじけるハート。
+心臓わしづかみ・聴診器 1・2・カラードプラ・タギング・モニター画面・はじけるハート
+（除細動器は tests/test_defib.py）。
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from stream_heartbeat.ui.effects import (
     BODY_CENTER,
     BODY_HALF,
     EFFECT_BURST,
+    EFFECT_DEFIB,
     EFFECT_DOPPLER,
     EFFECT_GRIP,
     EFFECT_MONITOR,
@@ -74,12 +76,17 @@ def test_heart_styles_sit_a_little_higher() -> None:
 
 
 def test_grip_and_stetho_for_every_heart_style() -> None:
-    # 心臓の形が出るスタイルなら、どれでも手で掴めて聴診器を当てられる
-    for style in ("xray", "xray_heart", "realistic", "mech", "cute", "chic", "poly"):
+    # 心臓の形が出るスタイルなら、どれでも手で掴めて聴診器を当てられる。
+    # 除細動器はリアル系の心臓（リアル・レントゲン）だけ
+    hands = [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+    for style in ("xray", "xray_heart", "realistic"):
         keys = [key for key, _label in effect_choices(style)]
-        assert keys == [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP, EFFECT_BURST]
+        assert keys == [*hands, EFFECT_DEFIB, EFFECT_BURST]
+    for style in ("mech", "cute", "chic", "poly"):
+        keys = [key for key, _label in effect_choices(style)]
+        assert keys == [*hands, EFFECT_BURST]
     labels = [label for _key, label in effect_choices("realistic")]
-    assert labels[1:] == ["心臓わしづかみ", "聴診器1", "聴診器2", "はじけるハート"]
+    assert labels[1:] == ["心臓わしづかみ", "聴診器1", "聴診器2", "除細動器", "はじけるハート"]
     # 断面・波形・窓いっぱいの絵は、そのスタイルに合った演出とはじけるハート
     assert [k for k, _ in effect_choices("echo")] == [EFFECT_NONE, EFFECT_DOPPLER, EFFECT_BURST]
     assert [k for k, _ in effect_choices("mri")] == [EFFECT_NONE, EFFECT_TAGGING, EFFECT_BURST]
@@ -248,6 +255,7 @@ def test_effect_combo_follows_style_and_keeps_choice(qapp: QApplication) -> None
         EFFECT_GRIP,
         EFFECT_STETHO,
         EFFECT_STETHO_FLIP,
+        EFFECT_DEFIB,
         EFFECT_BURST,
     ]
     assert operator._effect.currentData() == EFFECT_GRIP

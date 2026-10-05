@@ -57,7 +57,7 @@ from stream_heartbeat.profile import (
 from stream_heartbeat.session import HeartSession
 from stream_heartbeat.ui.app_icon import apply_app_icon
 from stream_heartbeat.ui.combo import MarkedComboBox
-from stream_heartbeat.ui.effects import EFFECT_GRIP, active_effect
+from stream_heartbeat.ui.effects import FRONT_EFFECTS, active_effect
 from stream_heartbeat.ui.fold import make_fold
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.heart_paint import (
@@ -572,9 +572,9 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         style, look = self._style_choice()
         self._style_form.setRowVisible(self._material, has_material(style, look))
         self._style_form.setRowVisible(self._xray_material, has_xray_material(style, look))
-        # 手で掴んでいる間は正面に固定するので、向きの操作は出さない
-        gripped = active_effect(style, self._session.profile.effect) == EFFECT_GRIP
-        self._angle_wrap.setVisible(style in ROTATABLE_STYLES and not gripped)
+        # 手で掴んでいる間・パドルではさんでいる間は正面に固定するので、向きの操作は出さない
+        front = active_effect(style, self._session.profile.effect) in FRONT_EFFECTS
+        self._angle_wrap.setVisible(style in ROTATABLE_STYLES and not front)
         failed = style in GL_STYLES and self._output.canvas.gl_error is not None
         self._gl_note.setText(tr(GL_FAIL_LABEL) if failed else "")
         self._gl_note.setVisible(failed)

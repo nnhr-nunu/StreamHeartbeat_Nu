@@ -215,7 +215,7 @@ class ModelRenderer:
         model = _placement(look, scale, yaw_deg, pitch_deg, squash_x, squash_y)
         view, proj, cam = camera_matrices(width, height, lift)
         material = look.material if look.material in MATERIAL_INDEX else MATERIAL_REAL
-        weights = beat_weights(mesh, cycle.age, cycle.interval)
+        weights = beat_weights(mesh, cycle.age, cycle.interval, cycle.strength)
         bones = self._bone_renderer() if look.bones else None
 
         gl.glViewport(0, 0, width, height)

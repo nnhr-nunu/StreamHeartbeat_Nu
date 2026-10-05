@@ -61,6 +61,8 @@ class FloatBurst:
     pos: tuple[float, float]
     alpha: float
     angle: float = 0.0
+    # 出した時刻（拍の時刻）
+    start: float = 0.0
 
 
 @dataclass
@@ -127,6 +129,7 @@ class OverlayState:
                     pos=(x, y),
                     alpha=max(0.0, min(1.0, alpha)),
                     angle=angle,
+                    start=start,
                 )
             )
         return out

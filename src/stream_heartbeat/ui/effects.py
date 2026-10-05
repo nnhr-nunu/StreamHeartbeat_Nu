@@ -7,6 +7,9 @@
 - 聴診器1・2: 心臓の形が出るスタイルで、マウスの所にチェストピースが来て鼓動で揺れる。
   1 は当てている人から見える裏側（ベルの側）、2 は膜の面をこちらへ向けた姿。
   クリックした所に置いておけ、マウスが窓の外へ出るとそこへ戻る
+- 除細動器: リアル・レントゲンの心臓を、先端の円い金属の板（開胸の手術で使う内部パドル）で
+  左右からはさむ。配信用の窓をクリックすると電気ショックをかけ、心臓がびくりと止まってから
+  不整脈を出しながら今の心拍数へ戻る（リズムは defib、絵は effect_defib）
 - カラードプラ（心エコー）: 弁を抜ける血の流れを赤・青で重ねる（echo_gl が描く）
 - タギング（MRI）: 拍の頭に格子の縞を焼き付け、縞が心筋と一緒に曲がりながら薄れる（mri_gl）
 - モニター画面（心電図）: ベッドサイドのモニターの画面に映す（effect_monitor）
@@ -38,17 +41,21 @@ EFFECT_NONE = ""
 EFFECT_GRIP = "grip"
 EFFECT_STETHO = "stethoscope"
 EFFECT_STETHO_FLIP = "stethoscope_flip"
+EFFECT_DEFIB = "defib"
 EFFECT_DOPPLER = "doppler"
 EFFECT_TAGGING = "tagging"
 EFFECT_MONITOR = "monitor"
 EFFECT_BURST = "burst"
 # 聴診器の演出（1: 裏側のベルを見せる / 2: 膜の面を見せる）
 STETHO_EFFECTS = frozenset({EFFECT_STETHO, EFFECT_STETHO_FLIP})
+# 心臓を正面に固定する演出（手やパドルの絵に合わせる。ドラッグで回せない）
+FRONT_EFFECTS = frozenset({EFFECT_GRIP, EFFECT_DEFIB})
 EFFECT_LABELS = {
     EFFECT_NONE: "なし",
     EFFECT_GRIP: "心臓わしづかみ",
     EFFECT_STETHO: "聴診器1",
     EFFECT_STETHO_FLIP: "聴診器2",
+    EFFECT_DEFIB: "除細動器",
     EFFECT_DOPPLER: "カラードプラ",
     EFFECT_TAGGING: "タギング",
     EFFECT_MONITOR: "モニター画面",
@@ -62,6 +69,10 @@ EFFECT_HINTS = {
     EFFECT_GRIP: "配信用の窓をクリックすると、ぎゅっと強く握ります（押している間は握ったまま）。",
     EFFECT_STETHO: _STETHO_HINT,
     EFFECT_STETHO_FLIP: _STETHO_HINT,
+    EFFECT_DEFIB: (
+        "配信用の窓をクリックすると電気ショックをかけます。心臓がびくっと止まり、"
+        "不整脈を出しながら今の心拍数へ戻ります（その間の心拍数は「--」）。"
+    ),
     EFFECT_DOPPLER: "血の流れを色で重ねます（赤: 探触子へ向かう流れ / 青: 遠ざかる流れ）。",
     EFFECT_TAGGING: "拍のたびに格子の縞を焼き付けます。縞は心筋と一緒に曲がりながら薄れます。",
     EFFECT_MONITOR: "心電図をベッドサイドのモニターの画面に映します。拍で右上のハートが光ります。",
@@ -73,10 +84,13 @@ EFFECT_HINTS = {
 # 手と聴診器は心臓の形が出るスタイル（心エコー・MRI の断面、波形、窓いっぱいの粒は除く）。
 # None はどのスタイルでも選べる演出
 _HEART_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart", "cute", "chic", "poly"})
+# 除細動器はリアル系の心臓（リアル・レントゲン）だけ
+_REAL_HEART_STYLES = frozenset({"realistic", "xray", "xray_heart"})
 EFFECT_STYLES: dict[str, frozenset[str] | None] = {
     EFFECT_GRIP: _HEART_STYLES,
     EFFECT_STETHO: _HEART_STYLES,
     EFFECT_STETHO_FLIP: _HEART_STYLES,
+    EFFECT_DEFIB: _REAL_HEART_STYLES,
     EFFECT_DOPPLER: frozenset({"echo"}),
     EFFECT_TAGGING: frozenset({"mri"}),
     EFFECT_MONITOR: frozenset({"ecg"}),
