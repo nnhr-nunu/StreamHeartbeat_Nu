@@ -226,7 +226,18 @@ The app's interface **automatically starts in English** unless your OS display l
 
 Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macOS).
 
-**Credit:** if you use this software in a stream or video, please put the credit block from the section "クレジット表記のお願い" above in the description.
+**Credit:** if you use this software in a stream or video, please add the following credit to the description (the Japanese block in the section "クレジット表記のお願い" above works just as well).
+
+```
+StreamHeartbeat(ぬ)
+Developer: Nunuhara (ぬぬはら) - hypnosis audio creator
+YouTube: https://www.youtube.com/@nnhr_nunu
+X (Twitter): https://x.com/nnhr_nunu
+Usage guide: https://github.com/nnhr-nunu/StreamHeartbeat_Nu
+```
+
+It would also mean a lot to me if you could like and repost the introduction post on X. Thank you!
+https://x.com/nunu_hara/status/2106318291551781076
 
 **What you need:** a microphone that can pick up your heartbeat (a stethoscope-type mic, or a lavalier mic pressed against your chest) and OBS Studio. Headphones are optional but handy for calibration. VTube Studio is only needed if you want to attach the heart to a model.
 
