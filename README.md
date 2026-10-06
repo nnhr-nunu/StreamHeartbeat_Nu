@@ -35,7 +35,8 @@ Mac で「開けません」「開発元を確認できません」などと出�
 ```
 StreamHeartbeat(ぬ)
 開発者：ぬぬはら - 催眠音声制作者
-YouTube：https://www.youtube.com/@nnhr_nunu
+YouTube(催眠音声)：https://www.youtube.com/@nnhr_nunu
+YouTube(実写催眠)：https://www.youtube.com/channel/UCqYpbbypex0iOikcZRenxGA
 X(Twitter)：https://x.com/nnhr_nunu
 使い方など：https://github.com/nnhr-nunu/StreamHeartbeat_Nu
 ```
@@ -231,7 +232,8 @@ Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macO
 ```
 StreamHeartbeat(ぬ)
 Developer: Nunuhara (ぬぬはら) - hypnosis audio creator
-YouTube: https://www.youtube.com/@nnhr_nunu
+YouTube (hypnosis audio): https://www.youtube.com/@nnhr_nunu
+YouTube (live-action hypnosis): https://www.youtube.com/channel/UCqYpbbypex0iOikcZRenxGA
 X (Twitter): https://x.com/nnhr_nunu
 Usage guide: https://github.com/nnhr-nunu/StreamHeartbeat_Nu
 ```
