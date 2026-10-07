@@ -284,3 +284,39 @@ jobs:
             macos-intel-zip/StreamHeartbeat-macOS-intel.zip
           fail_on_unmatched_files: true
           make_latest: true
+
+  # CI が失敗したら Issue を 1 件だけ立てて知らせる（開いている間は増やさない）。直ったら自動で閉じる。
+  # 失敗が続いてもリリースが古いまま気づかれない、を防ぐ
+  notify:
+    needs: [windows, macos, release]
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE_TITLE: "CI が失敗していて、リリースが最新になっていません"
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open an issue when CI fails
+        if: contains(needs.*.result, 'failure')
+        run: |
+          num=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == env.ISSUE_TITLE)][0].number // empty")
+          if [ -n "$num" ]; then
+            echo "Issue #$num は開いているので、増やさない"
+            exit 0
+          fi
+          gh issue create --title "$ISSUE_TITLE" --body "main への push で CI が失敗しました。直るまで、リリース（latest）は古いままです。
+
+          - 失敗した実行: ${RUN_URL}
+          - 直って CI が全部通ると、この Issue は自動で閉じます。"
+      - name: Close the issue when CI passes
+        if: needs.windows.result == 'success' && needs.macos.result == 'success' && needs.release.result == 'success'
+        run: |
+          for num in $(gh issue list --state open --limit 100 --json number,title \
+            --jq '.[] | select(.title == env.ISSUE_TITLE) | .number'); do
+            gh issue close "$num" --comment "CI が通り、リリースを更新しました: ${RUN_URL}"
+          done
