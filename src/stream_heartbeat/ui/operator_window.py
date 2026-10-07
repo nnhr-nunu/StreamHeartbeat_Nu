@@ -98,6 +98,8 @@ AUTOSAVE_MS = 2000
 SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か、空き容量が足りません）"
 CLOCK_WARN = "時計と数字がズレています（推しログは遅延します）"
 CAL_FOLD_TITLE = "心拍の補正（数字が合わないときだけ）"
+# 拍の文字・心拍数は配信用の窓でつまんで動かせる（label_drag）
+DRAG_HINT = "配信用の窓で、文字をドラッグして動かすこともできます"
 
 
 def _right(widget: QWidget) -> QHBoxLayout:
@@ -108,12 +110,17 @@ def _right(widget: QWidget) -> QHBoxLayout:
 
 
 def _toggle_box(
-    title: str, check: QCheckBox, form: QFormLayout, reset: QPushButton
+    title: str, check: QCheckBox, form: QFormLayout, reset: QPushButton, hint: str = ""
 ) -> tuple[QGroupBox, QWidget]:
-    """チェックを外している間は細かい設定を畳む。"""
+    """チェックを外している間は細かい設定を畳む。hint は設定の上に出す一言。"""
     details = QWidget()
     inner = QVBoxLayout(details)
     inner.setContentsMargins(0, 0, 0, 0)
+    if hint:
+        note = QLabel(hint)
+        note.setObjectName("meta")
+        note.setWordWrap(True)
+        inner.addWidget(note)
     inner.addLayout(form)
     inner.addLayout(_right(reset))
     col = QVBoxLayout()
@@ -391,7 +398,7 @@ class OperatorWindow(
         beat_form.addRow("文字色", self._beat_color)
         beat_form.addRow("縁取り", self._beat_outline)
         beat_box, self._beat_details = _toggle_box(
-            "③ 同期文字", self._show_beat_text, beat_form, self._reset_beat
+            "③ 同期文字", self._show_beat_text, beat_form, self._reset_beat, DRAG_HINT
         )
 
         bpm_form = CenteredForm()
@@ -401,7 +408,7 @@ class OperatorWindow(
         bpm_form.addRow("文字色", self._bpm_color)
         bpm_form.addRow("縁取り", self._bpm_outline)
         bpm_box, self._bpm_details = _toggle_box(
-            "④ 心拍数", self._show_bpm, bpm_form, self._reset_bpm
+            "④ 心拍数", self._show_bpm, bpm_form, self._reset_bpm, DRAG_HINT
         )
 
         oshi = CenteredForm()
@@ -721,6 +728,7 @@ class OperatorWindow(
             self._refresh_style_controls()
         shown = self._display_clock.at(now, self._session.now)
         self._output.canvas.set_now(shown)
+        self._sync_label_sliders()
         self._vts.tick(shown)
 
     def closeEvent(self, event: QCloseEvent) -> None:

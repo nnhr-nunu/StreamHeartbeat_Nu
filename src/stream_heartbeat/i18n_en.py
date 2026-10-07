@@ -100,6 +100,9 @@ EN_GENERAL: dict[str, str] = {
     "文字色": "Text color",
     "縁取り": "Outline",
     "④ 心拍数": "④ Heart rate",
+    "配信用の窓で、文字をドラッグして動かすこともできます": (
+        "You can also drag the text in the output window to move it."
+    ),
     "⑤ VTube Studio 連携": "⑤ VTube Studio link",
     "心拍の補正（数字が合わないときだけ）": "Heartbeat calibration (only if BPM is off)",
     "推しログ(ぬ)連携（未実装）": "OshiLog(Nu) link (not implemented)",
