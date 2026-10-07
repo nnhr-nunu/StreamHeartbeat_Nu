@@ -202,4 +202,10 @@ QLabel#guide {
   color: #c8c8c8;
   font-size: 13px;
 }
+QLabel#subhead {
+  color: #e0e0e0;
+  font-weight: bold;
+  padding-top: 6px;
+  border-top: 1px solid #333;
+}
 """.replace("__COMBO_ARROW__", _COMBO_ARROW_URL).replace("__CHECK__", _CHECK_URL)

@@ -213,11 +213,17 @@ def test_panel_bpm_check_shows_and_hides_the_number(qapp, tmp_path: Path, monkey
     # つないだとき場に無ければ出し直す
     control._on_found(False)
     assert made == [True, False]
-    # 大きさは心臓と同じ値
+    # 数字の大きさは心臓とは別のつまみで変え、覚える（心臓の「大きさ」では変わらない）
     sizes: list[float] = []
     monkeypatch.setattr(control.bpm, "set_size", sizes.append)
     panel._size.setValue(40)
-    assert sizes == [0.4]
+    assert sizes == []
+    assert control._size_wrap.isVisibleTo(control.box)
+    control.size.setValue(55)
+    assert sizes == [0.55] and load_app_state(tmp_path)["vts_bpm_size"] == control.bpm.size
+    # 出すのをやめている間は、数字の大きさのつまみを畳む
+    control.check.setChecked(False)
+    assert not control._size_wrap.isVisibleTo(control.box)
     panel._client._state = vts.OFF
     panel.shutdown()
 

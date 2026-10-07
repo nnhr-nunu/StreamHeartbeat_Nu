@@ -67,8 +67,12 @@ from stream_heartbeat.vts import (
 )
 from stream_heartbeat.vts_bpm import BPM_FOLDER
 from stream_heartbeat.vts_text import (
+    ADVANCED_HEAD,
     API_SWITCH,
     BPM_CHECK,
+    BPM_HEAD,
+    BPM_SIZE_LABEL,
+    HEART_HEAD,
     HIDE_BUTTON,
     HOW_TO_LINES,
     INTRO,
@@ -171,6 +175,7 @@ def _guide_names() -> dict[str, object]:
         "params": PARAMS_CHECK,
         "words": TEXT_CHECK,
         "bpm_check": BPM_CHECK,
+        "bpm_size": BPM_SIZE_LABEL,
         "beat": PARAM_BEAT,
         "bpm": PARAM_BPM,
     }
@@ -257,6 +262,13 @@ def _saved_look(raw: object) -> tuple | None:
     return tuple(raw) if isinstance(raw, list) else None
 
 
+def _subhead(text: str) -> QLabel:
+    """⑤ の中の小見出し（心臓 / 心拍数の数字 / 上級者向け）。"""
+    label = QLabel(text)
+    label.setObjectName("subhead")
+    return label
+
+
 def _set_kind(label: QLabel, kind: str) -> None:
     """文の色分け（meta: ふつう / warn: 目立たせる）を切り替える。"""
     if label.objectName() != kind:
@@ -298,7 +310,6 @@ class VtsPanel(QWidget):
             self._client,
             lambda: self._session.profile,
             state,
-            self._heart.size,
             self._resolved_dir,
             self._save,
             notify,
@@ -368,13 +379,16 @@ class VtsPanel(QWidget):
         self._details = QWidget()
         details = QVBoxLayout(self._details)
         details.setContentsMargins(0, 0, 0, 0)
+        # 心臓（絵に焼き込む拍の文字も）と、別のアイテムの心拍数の数字を段に分ける
+        details.addWidget(_subhead(HEART_HEAD))
         details.addWidget(self._note)
         details.addLayout(item_row)
         details.addWidget(self._pin_btn)
         details.addLayout(size_form)
         details.addWidget(self._text)
-        details.addWidget(self._bpm.check)
-        details.addWidget(self._bpm.note)
+        details.addWidget(_subhead(BPM_HEAD))
+        details.addWidget(self._bpm.box)
+        details.addWidget(_subhead(ADVANCED_HEAD))
         details.addWidget(self._params)
         self._details.hide()
 
@@ -715,7 +729,6 @@ class VtsPanel(QWidget):
 
     def _on_size(self, value: int) -> None:
         self._heart.set_size(value / 100.0)
-        self._bpm.set_size(self._heart.size)
         if not self._size.isSliderDown():
             self._save_size()
 

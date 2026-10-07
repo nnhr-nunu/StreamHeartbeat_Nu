@@ -1,8 +1,9 @@
-"""「⑤ VTube Studio 連携」の「心拍数も VTube Studio に出す」。
+"""「⑤ VTube Studio 連携」の「心拍数の数字」の段（チェック・数字の大きさ・様子の一文）。
 
 チェックを入れると心拍数の数字のコマ（bpm_frames）を書き出して VTube Studio に出し、
-心拍数が変わるたびにそのコマを出す。数字の色・縁取り・大きさ（「④ 心拍数」の設定）を
-変えたら、少し待ってから作り直す。
+心拍数が変わるたびにそのコマを出す。数字の色・縁取り・文字の大きさ（「④ 心拍数」の設定）を
+変えたら、少し待ってから作り直す。VTube Studio での大きさは、この段の「数字の大きさ」で変える
+（心臓とは別。配信用の窓と同じ比率だとモデルに対して小さく見えるため）。
 """
 
 from __future__ import annotations
@@ -12,25 +13,34 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
 
 from stream_heartbeat.i18n import tr
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.bpm_frames import render_bpm_frames
 from stream_heartbeat.render.heart_frames import write_frames
-from stream_heartbeat.vts import READY, VtsClient
+from stream_heartbeat.ui.forms import CenteredForm
+from stream_heartbeat.ui.slider import labeled_slider
+from stream_heartbeat.vts import ITEM_SIZE, ITEM_SIZE_MAX, ITEM_SIZE_MIN, READY, VtsClient
 from stream_heartbeat.vts_bpm import BPM_FOLDER, VtsBpm
 from stream_heartbeat.vts_support import clean_place
 from stream_heartbeat.vts_text import (
     BPM_CHECK,
     BPM_SHOWN_NOTE,
     BPM_SHOWN_NOTICE,
+    BPM_SIZE_LABEL,
     NOT_ITEMS_NOTICE,
     T_BPM_FAILED,
 )
 
 # 色などを変えてから作り直すまで待つ秒（続けて変えている間は待つ）
 REMAKE_WAIT_S = 0.8
+
+
+def saved_bpm_size(raw: object) -> float:
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return max(ITEM_SIZE_MIN, min(ITEM_SIZE_MAX, float(raw)))
+    return ITEM_SIZE
 
 
 def bpm_look(profile: HeartProfile) -> tuple:
@@ -44,7 +54,6 @@ class VtsBpmControl:
         client: VtsClient,
         profile: Callable[[], HeartProfile],
         state: dict,
-        size: float,
         items_dir: Callable[[], Path | None],
         save: Callable[..., None],
         notify: Callable[[str], None],
@@ -61,7 +70,11 @@ class VtsBpmControl:
         self._choose_folder = choose_folder
         self._save = save
         self._notify = notify
-        self.bpm = VtsBpm(client, size=size, place=clean_place(state.get("vts_bpm_place")))
+        self.bpm = VtsBpm(
+            client,
+            size=saved_bpm_size(state.get("vts_bpm_size")),
+            place=clean_place(state.get("vts_bpm_place")),
+        )
         self.bpm.on_found = self._on_found
         self.bpm.on_moved = self._on_moved
         saved_look = state.get("vts_bpm_look")
@@ -76,12 +89,31 @@ class VtsBpmControl:
         self.note.hide()
         self.check = QCheckBox(BPM_CHECK)
         self.check.setToolTip(
-            "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
-            "VTube Studio での大きさは、この欄の「大きさ」で心臓と一緒に変わります。"
+            "数字の色・縁取りは「④ 心拍数」の設定のとおりです。大きさは「数字の大きさ」で変えます。"
             "置き場所は VTube Studio の画面でドラッグして決めます"
         )
+        self.size, size_row = labeled_slider(
+            round(ITEM_SIZE_MIN * 100), round(ITEM_SIZE_MAX * 100), "小さく", "大きく"
+        )
+        self.size.setValue(round(self.bpm.size * 100))
+        size_form = CenteredForm()
+        size_form.setContentsMargins(0, 0, 0, 0)
+        size_form.addRow(BPM_SIZE_LABEL, size_row)
+        # 数字の大きさは、出すことにしている間だけ見せる
+        self._size_wrap = QWidget()
+        self._size_wrap.setLayout(size_form)
+        # この段の部品をまとめた入れ物（⑤ の「心拍数の数字」の小見出しの下に置く）
+        self.box = QWidget()
+        col = QVBoxLayout(self.box)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.addWidget(self.check)
+        col.addWidget(self._size_wrap)
+        col.addWidget(self.note)
         self.check.setChecked(bool(state.get("vts_bpm_shown", False)))
+        self._size_wrap.setVisible(self.check.isChecked())
         self.check.toggled.connect(self._on_toggled)
+        self.size.valueChanged.connect(self._on_size)
+        self.size.sliderReleased.connect(self._save_size)
 
     def _on_found(self, found: bool) -> None:
         """つないだ直後。出すことにしていて、場に無いか見た目が古ければ出し直す。
@@ -95,6 +127,7 @@ class VtsBpmControl:
             self.make()
 
     def _on_toggled(self, on: bool) -> None:
+        self._size_wrap.setVisible(on)
         self._save(vts_bpm_shown=on)
         if self._client.state != READY:
             return
@@ -198,5 +231,10 @@ class VtsBpmControl:
         self._pending = None
         self.make()
 
-    def set_size(self, size: float) -> None:
-        self.bpm.set_size(size)
+    def _on_size(self, value: int) -> None:
+        self.bpm.set_size(value / 100.0)
+        if not self.size.isSliderDown():
+            self._save_size()
+
+    def _save_size(self) -> None:
+        self._save(vts_bpm_size=self.bpm.size)
