@@ -340,7 +340,7 @@ def test_language_button_text_when_starting_in_english(
     try:
         assert operator._lang_btn.text() == "日本語"
         titles = [g.title() for g in operator.findChildren(QGroupBox)]
-        assert "① Microphone" in titles
+        assert "① Input" in titles
     finally:
         operator.close()
         output.close()
@@ -374,7 +374,7 @@ def test_switch_to_english_and_back_restores_everything(
     operator._lang_btn.click()
     assert language() == LANG_EN
     titles = [g.title() for g in operator.findChildren(QGroupBox)]
-    assert titles[:2] == ["① Microphone", "② Style"]
+    assert titles[:2] == ["① Input", "② Style"]
     assert operator._lang_btn.text() == "日本語"
     assert _profile_values(operator) == values
     operator._lang_btn.click()

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ctypes
+import importlib.metadata
 import shutil
 import sys
 import sysconfig
@@ -18,6 +19,20 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 LICENSES = HERE / "licenses"
 TEXTS = ("LGPL-3.0.txt", "GPL-3.0.txt", "LGPL-2.1.txt")
+# Bluetooth の心拍計（β）に使う部品（入っているものだけ載せる）。
+# (配布の名前, 表示の名前, ライセンス, 入手先)。Windows は winrt、Mac は pyobjc を中で使う。
+# ライセンスの文書が付いていない部品は licenses/<配布の名前>-LICENSE.txt を写す
+BLE_PACKAGES = (
+    ("bleak", "bleak", "MIT", "https://github.com/hbldh/bleak"),
+    ("winrt-runtime", "winrt-runtime ほか winrt-Windows.*", "MIT",
+     "https://github.com/pywinrt/pywinrt"),
+    ("pyobjc-core", "PyObjC（pyobjc-core・pyobjc-framework-*）", "MIT",
+     "https://github.com/ronaldoussoren/pyobjc"),
+    ("async-timeout", "async-timeout", "Apache License 2.0",
+     "https://github.com/aio-libs/async-timeout"),
+    ("typing_extensions", "typing_extensions", "Python Software Foundation License",
+     "https://github.com/python/typing_extensions"),
+)
 
 TERMS = """\
 StreamHeartbeat(ぬ) 利用規約
@@ -69,7 +84,7 @@ StreamHeartbeat(ぬ) が同梱しているソフトと素材
   Copyright (C) Python Software Foundation.
   ライセンス: Python Software Foundation License（Python.txt）
     Python に含まれる OpenSSL・libffi・bzip2・zlib などの表記も Python.txt にあります。
-{mesa}
+{mesa}{ble}
 ■ スタジオの映り込みの画像（Ferndale Studio 04）
   Dimitrios Savva, Jarod Guest / Poly Haven
   ライセンス: CC0  https://polyhaven.com/a/ferndale_studio_04
@@ -93,6 +108,35 @@ def _ffmpeg_version(pyside_dir: Path) -> str | None:
         except (OSError, AttributeError):
             continue
     return None
+
+
+def _ble_notices(out: Path) -> str:
+    """Bluetooth の心拍計に使う部品の表記。ライセンスの文書が付いていればライセンス フォルダへ写す。"""
+    lines: list[str] = []
+    for dist_name, shown, license_name, url in BLE_PACKAGES:
+        try:
+            dist = importlib.metadata.distribution(dist_name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        copied = []
+        for file in dist.files or []:
+            if file.name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
+                name = f"{dist_name}-{file.name}"
+                if not name.endswith(".txt"):
+                    name += ".txt"
+                shutil.copyfile(Path(file.locate()), out / name)
+                copied.append(name)
+        bundled = LICENSES / f"{dist_name}-LICENSE.txt"
+        if not copied and bundled.is_file():
+            shutil.copyfile(bundled, out / bundled.name)
+            copied.append(bundled.name)
+        files = f"（{'・'.join(copied)}）" if copied else ""
+        lines.append(
+            f"■ {shown} {dist.version}（Bluetooth の心拍計につなぐのに使います）\n"
+            f"  ライセンス: {license_name}{files}\n"
+            f"  {url}\n"
+        )
+    return "\n" + "\n".join(lines) if lines else ""
 
 
 def _python_license() -> Path:
@@ -128,6 +172,7 @@ def write(dest: Path) -> None:
         ),
         python=sys.version.split()[0],
         mesa=MESA if sys.platform == "win32" else "",
+        ble=_ble_notices(out),
     )
     # メモ帳でも崩れないよう CRLF にする
     (out / "同梱しているソフト.txt").write_text(notices, encoding="utf-8", newline="\r\n")

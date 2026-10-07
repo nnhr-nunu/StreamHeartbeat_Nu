@@ -49,5 +49,7 @@ app = BUNDLE(  # noqa: F821
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
         "NSMicrophoneUsageDescription": "マイクで拾った心音に合わせて心臓を動かすために使います。",
+        # Bluetooth の心拍計（β）。書いていないと、使ったときに macOS がアプリを止める
+        "NSBluetoothAlwaysUsageDescription": "Bluetooth の心拍計から心拍数を受け取るために使います。",
     },
 )

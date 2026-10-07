@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from stream_heartbeat import OPERATOR_WINDOW_TITLE, display_version
-from stream_heartbeat.audio import MicMonitor, MicTap, list_mics
+from stream_heartbeat.audio import MicMonitor, MicTap
 from stream_heartbeat.clock import DisplayClock
 from stream_heartbeat.config import (
     DISCLAIMER,
@@ -67,6 +67,7 @@ from stream_heartbeat.ui.heart_paint import (
     GL_STYLES,
     ROTATABLE_STYLES,
 )
+from stream_heartbeat.ui.input_panel import InputPanel
 from stream_heartbeat.ui.operator_calibration import (
     CAL_DISCARD,
     CAL_RESET,
@@ -74,6 +75,7 @@ from stream_heartbeat.ui.operator_calibration import (
     CalibrationMixin,
 )
 from stream_heartbeat.ui.operator_controls import ProfileControlsMixin
+from stream_heartbeat.ui.operator_input import InputMixin
 from stream_heartbeat.ui.operator_language import LanguageMixin, obs_hint
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
@@ -93,9 +95,6 @@ GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
 NOTICE_MS = 3500
 # 設定を変えたら、この間隔で見回ってプロファイルへ自動で書く（保存ボタンを押さなくてよい）
 AUTOSAVE_MS = 2000
-# この秒数マイクから何も届かなければ、抜けたか止まったとみなして知らせる
-NO_AUDIO_S = 2.0
-NO_AUDIO_LABEL = "マイクから音が届いていません。つながりと、選んだマイクを確かめてください"
 SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か、空き容量が足りません）"
 CLOCK_WARN = "時計と数字がズレています（推しログは遅延します）"
 CAL_FOLD_TITLE = "心拍の補正（数字が合わないときだけ）"
@@ -125,7 +124,9 @@ def _toggle_box(
     return box, details
 
 
-class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMainWindow):
+class OperatorWindow(
+    CalibrationMixin, InputMixin, LanguageMixin, ProfileControlsMixin, QMainWindow
+):
     def __init__(self, session: HeartSession, output: OutputWindow) -> None:
         super().__init__()
         self._session = session
@@ -141,6 +142,9 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         self._last_audio = 0.0
         self._no_audio = False
         self._mic_open = False
+        # マイクの代わりの入力（ファイル・心拍計）
+        self._input = InputPanel(self._data_dir, self._flash, self._now)
+        self._input.mode_changed.connect(self._on_input_mode)
         # マイクの抜き差しを受けて一覧を作り直す
         self._devices = QMediaDevices(self)
         self._devices.audioInputsChanged.connect(self._on_mics_changed)
@@ -316,10 +320,15 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         profile_form = CenteredForm()
         profile_form.addRow("プロファイル", profile_wrap)
         input_form = CenteredForm()
+        input_form.addRow("入力", self._input.mode_combo)
         input_form.addRow("マイク", self._mics)
         input_form.addRow("音の大きさ", self._meter)
-        input_box = QGroupBox("① マイク")
-        input_box.setLayout(input_form)
+        self._input_form = input_form
+        input_col = QVBoxLayout()
+        input_col.addLayout(input_form)
+        input_col.addWidget(self._input)
+        input_box = QGroupBox("① 入力")
+        input_box.setLayout(input_col)
 
         cal_row = QHBoxLayout()
         cal_row.addWidget(self._cal_btn, 1)
@@ -460,6 +469,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         self._fill_mics()
         self._fill_profiles()
         self._load_into_controls(self._session.profile)
+        self._show_input_rows()
         self._restart_mic()
         # 部品は日本語の原文で作ったので、英語で始めるときはここで付け替える
         translate_tree(self)
@@ -495,24 +505,6 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         # 保存に失敗しても知らせを出し続けないよう、試した値を覚えておく（次に変えたらまた試す）
         self._saved_snapshot = snapshot
         self._save_current(notice=None)
-
-    def _fill_mics(self) -> None:
-        self._mics.blockSignals(True)
-        self._mics.clear()
-        for mic in list_mics():
-            self._mics.addItem(mic.name, mic.id)
-        self._mics.blockSignals(False)
-
-    def _on_mics_changed(self) -> None:
-        """保存したマイクが戻ればそれに、抜けたら既定のマイクに切り替える。"""
-        # 閉じたあとに届いた知らせで、止めたマイクを開き直さない（止める人がいなくなる）
-        if self._closing:
-            return
-        self._fill_mics()
-        self._mics.blockSignals(True)
-        self._select_mic(self._session.profile.mic_id)
-        self._mics.blockSignals(False)
-        self._restart_mic()
 
     def _profile_path(self, name: str) -> Path:
         safe = name.strip() or "default"
@@ -610,7 +602,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         clock = self._session.clock
         if clock.detected:
             kind = "live"
-            text = f"{tr(LIVE_STATUS)}  {clock.bpm} BPM"
+            text = self._input_live_text(clock.bpm) or f"{tr(LIVE_STATUS)}  {clock.bpm} BPM"
         elif clock.has_beats:
             kind = "preview"
             text = tr("{status}  最後 {bpm} BPM", status=tr(PREVIEW_LOST_STATUS), bpm=clock.bpm)
@@ -619,37 +611,6 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
             text = tr(PREVIEW_IDLE_STATUS)
         self._set_banner_kind(kind)
         self._status.setText(text)
-
-    def _restart_mic(self) -> None:
-        self._apply_controls()
-        mic_id = str(self._mics.currentData() or "")
-        self._last_audio = self._now()
-        self._no_audio = False
-        try:
-            self._mic.start(mic_id)
-        except Exception:
-            self._mic_open = False
-            self._meter.setValue(0)
-            self._level.setText(
-                tr("マイクを開けません。OBS と同時に使うときは、独占モードをオフにしてください")
-            )
-            self._level.show()
-            return
-        self._mic_open = True
-        self._level.hide()
-
-    def _watch_audio(self, got_samples: bool, now: float) -> None:
-        if got_samples:
-            self._last_audio = now
-            if self._no_audio:
-                self._no_audio = False
-                self._level.hide()
-            return
-        if self._mic_open and not self._no_audio and now - self._last_audio > NO_AUDIO_S:
-            self._no_audio = True
-            self._meter.setValue(0)
-            self._level.setText(tr(NO_AUDIO_LABEL))
-            self._level.show()
 
     def _now(self) -> float:
         return time.perf_counter() - self._t0
@@ -737,8 +698,8 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
             self._aux.setText(tr("推しログ(ぬ) 補助: {bpm}（遅延のことがあります）", bpm=bpm))
 
     def _on_tick(self) -> None:
-        samples = self._mic.pull_mono()
         now = self._now()
+        samples, beats = self._pull_input(now)
         if samples:
             peak = max(abs(x) for x in samples)
             # 心音は小さいので、平方根で小さい音も見えるようにする。
@@ -747,7 +708,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         recording = self._session.recording
         if recording and samples:
             self._monitor.write_mono(samples)
-        self._session.tick(now, samples)
+        self._session.tick(now, samples, beats=beats)
         self._refresh_status()
         if not recording:
             mismatch = self._session.clock.bpm_mismatch()
@@ -782,6 +743,7 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
             pass
         self._monitor.stop()
         self._mic.stop()
+        self._input.shutdown()
         self._vts.shutdown()
         self._output.allow_close()
         self._output.close()
