@@ -622,17 +622,23 @@ class VtsPanel(QWidget):
         # 次に起動したとき、書き出してあるコマが今の見た目か・「ぎゅっ」のコマが何枚かを見分ける
         self._save(vts_item_look=list(key), vts_item_squeeze=squeeze)
         self._busy = True
-        self._heart.show_item(count, lambda ok: self._item_shown(ok, auto), squeeze)
+        hand = self._heart.hand_placed
+        self._heart.show_item(count, lambda ok: self._item_shown(ok, auto, hand), squeeze)
 
-    def _item_shown(self, ok: bool, auto: bool = False) -> None:
+    def _item_shown(self, ok: bool, auto: bool = False, hand: bool = False) -> None:
+        """hand は、手で体に置いた心臓を作り直した（置いてあった所に出し、体からは外れた）。"""
         self._busy = False
         if ok:
             self._auto_show = True
             # 手で体に置いた心臓は、出し直す前に読んだ今の場所に出した。次に起動したときもそこへ
             place = self._heart.place
-            self._save(vts_item_shown=True, vts_item_place=list(place) if place else None)
+            self._save(
+                vts_item_shown=True,
+                vts_item_place=list(place) if place else None,
+                vts_hand_placed=self._heart.hand_placed,
+            )
             pinned = self._heart.model_id in self._heart.pins
-            if self._heart.hand_placed:
+            if hand:
                 self._notify(_say(T_HAND_REMADE_NOTICE, pin=PIN_BUTTON))
             elif auto:
                 self._notify(tr(REMADE_NOTICE))

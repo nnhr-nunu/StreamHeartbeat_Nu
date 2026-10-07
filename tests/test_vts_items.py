@@ -112,7 +112,9 @@ def test_heart_put_on_the_body_by_hand_is_remade_where_it_is(
     assert fake_vts.sent("ItemPinRequest")[-1]["pin"] is False
     load = fake_vts.sent("ItemLoadRequest")[-1]
     assert (load["positionX"], load["positionY"]) == (-0.1, 0.4)
-    assert heart.place == (-0.1, 0.4) and heart.hand_placed and moved == [True]
+    # 外して出し直したので、もう体に置いた扱いではない（「付ける場所を選ぶ」へ進む案内になる）
+    assert heart.place == (-0.1, 0.4) and not heart.hand_placed and moved == [True]
+    heart.hand_placed = True
     # クリックで体に付け直したら、手で置いた扱いは消える
     picked: list[dict | None] = []
     fake_vts.echo_pins = False
@@ -284,11 +286,15 @@ def test_cancel_pick_of_a_hand_placed_heart(qtbot, fake_vts: FakeVts, monkeypatc
 def test_switching_to_a_model_with_a_saved_place_clears_hand_placed(
     qtbot, fake_vts: FakeVts
 ) -> None:
-    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN}, hand_placed=True)
-    moved: list[bool] = []
-    heart.on_moved = lambda: moved.append(True)
+    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN})
     heart.show_item(20)
     qtbot.waitUntil(lambda: len(fake_vts.sent("ItemPinRequest")) == 1, timeout=3000)
+    # 別のモデルで手で体に置いたあと、場所を覚えているモデルへ切り替えた
+    heart.hand_placed = True
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
+    fake_vts.push("ModelLoadedEvent", {"modelLoaded": True, "modelID": "m1"})
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemPinRequest")) == 2, timeout=3000)
     assert not heart.hand_placed and moved == [True]
     client.stop()
 
@@ -332,7 +338,7 @@ def test_bpm_note_tells_whether_the_number_is_shown(qapp, tmp_path: Path, monkey
     assert chosen == [True]
     assert control.note.objectName() == "warn" and "Items" in control.note.text()
     # 出せたら、出していることと次の一手（ドラッグして置く）を出す
-    control._error = ""
+    control._error = None
     control.bpm.instance_id = "bpm1"
     control.refresh()
     assert control.note.text() == BPM_SHOWN_NOTE and control.note.objectName() == "meta"

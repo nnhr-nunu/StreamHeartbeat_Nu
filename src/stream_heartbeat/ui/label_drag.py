@@ -19,7 +19,8 @@ BEAT = "beat"
 BPM = "bpm"
 # つまめる所を文字の外枠より広げる量（窓の短い辺に対する割合）
 GRAB_MARGIN = 0.015
-# この濃さより薄い（出始め・消えかけの）拍の文字はつまめない
+# 出始め・消えかけ（この濃さまで）の拍の文字はつまめない。透明度の設定は掛けない
+# （透明度を低くしていても、出ている文字はつまめる）
 GRAB_ALPHA = 0.25
 
 
@@ -38,9 +39,11 @@ def label_at(
     return None
 
 
-def beat_preview(profile: HeartProfile) -> FloatBurst:
-    """つまんでいる間に出す拍の文字（ゆらぎ無しの置き場所に、はっきり）。"""
-    pos = (profile.beat_text_x, profile.beat_text_y)
+def beat_preview(profile: HeartProfile, pos: tuple[float, float] | None = None) -> FloatBurst:
+    """つまんでいる間に出す拍の文字（はっきり）。pos はつまんでいる文字の今の所
+    （省くとゆらぎ無しの置き場所）。"""
+    if pos is None:
+        pos = (profile.beat_text_x, profile.beat_text_y)
     angle = lean_angle_deg(pos, profile.beat_text_tilt)
     return FloatBurst(text=profile.beat_text.strip(), pos=pos, alpha=1.0, angle=angle)
 
@@ -60,7 +63,7 @@ def _beat_hit(
         return None
     font_px = burst_font_px(min(rect.width(), rect.height()), profile.beat_text_scale)
     for burst in reversed(bursts):
-        if burst.alpha * profile.beat_text_opacity < GRAB_ALPHA or not burst.text:
+        if burst.alpha < GRAB_ALPHA or not burst.text:
             continue
         point = QPointF(
             rect.left() + burst.pos[0] * rect.width(), rect.top() + burst.pos[1] * rect.height()
@@ -82,6 +85,8 @@ class LabelDrag:
     def __init__(self) -> None:
         self.target: str | None = None
         self._offset = (0.0, 0.0)
+        # つまんでいる拍の文字の今の所（押しただけでは置き場所を書き換えないので、ここに出す）
+        self.held: tuple[float, float] | None = None
 
     @property
     def dragging(self) -> bool:
@@ -107,6 +112,7 @@ class LabelDrag:
         # つまんだ文字（ゆらぎでずれた所）がマウスについてくるよう、その文字からのずれを持つ
         self.target = BEAT
         self._offset = (burst.pos[0] - x, burst.pos[1] - y)
+        self.held = burst.pos
         return True
 
     def move(self, rect: QRectF, profile: HeartProfile, pos: QPointF) -> None:
@@ -120,11 +126,13 @@ class LabelDrag:
             profile.bpm_x, profile.bpm_y = nx, ny
         else:
             profile.beat_text_x, profile.beat_text_y = nx, ny
+            self.held = (nx, ny)
 
     def release(self) -> bool:
         """放した。つまんでいたら True。"""
         held = self.target is not None
         self.target = None
+        self.held = None
         return held
 
 
