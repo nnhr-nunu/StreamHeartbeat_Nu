@@ -408,7 +408,7 @@ class OutputCanvas(QOpenGLWidget):
         bursts = self._session.overlay.bursts_at(t)
         if self._labels.target == BEAT:
             # つまんでいる間は、拍の合間でも置き場所に文字を出しておく
-            bursts = [*bursts, beat_preview(profile)]
+            bursts = [*bursts, beat_preview(profile, self._labels.held)]
         if effect == EFFECT_DEFIB:
             # ショックから戻るまでは、本物の拍の文字の代わりに、止まって不整脈を打つ心臓の拍で出す
             bursts = [b for b in bursts if not self._defib.mutes(b.start)]

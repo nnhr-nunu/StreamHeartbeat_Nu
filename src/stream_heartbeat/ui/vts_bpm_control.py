@@ -69,7 +69,7 @@ class VtsBpmControl:
         self._pending: tuple[tuple, float] | None = None
         # 書き出しに失敗した設定（同じ設定では自動で試し直さない）と、出せなかった理由の一文
         self._failed: tuple | None = None
-        self._error = ""
+        self._error: Callable[[], str] | None = None
         # 数字の様子の一文（出している・出せなかった）。知らせはすぐ消えるので出し続ける
         self.note = QLabel("")
         self.note.setWordWrap(True)
@@ -101,7 +101,7 @@ class VtsBpmControl:
         if on:
             self.make(notice=True)
         else:
-            self._error = ""
+            self._error = None
             self.bpm.hide()
         self.refresh()
 
@@ -119,7 +119,7 @@ class VtsBpmControl:
             self._choose_folder()
             folder = self._items_dir()
         if folder is None:
-            self._fail(look, tr(NOT_ITEMS_NOTICE))
+            self._fail(look, lambda: tr(NOT_ITEMS_NOTICE))
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
@@ -127,38 +127,44 @@ class VtsBpmControl:
         except (OSError, RuntimeError):
             self._fail(
                 look,
-                tr("心拍数の画像を書き出せませんでした（書き出し先のフォルダを確かめてください）"),
+                lambda: tr(
+                    "心拍数の画像を書き出せませんでした（書き出し先のフォルダを確かめてください）"
+                ),
             )
             return
         finally:
             QApplication.restoreOverrideCursor()
         self._made = look
         self._failed = None
-        self._error = ""
+        self._error = None
         self._save(vts_bpm_look=list(look))
 
         def shown(ok: bool) -> None:
             if not ok:
-                self._fail(None, tr(T_BPM_FAILED, error=tr(self.bpm.last_error)))
+                error = self.bpm.last_error
+                self._fail(None, lambda: tr(T_BPM_FAILED, error=tr(error)))
             elif notice:
                 self._notify(tr(BPM_SHOWN_NOTICE))
             self.refresh()
 
         self.bpm.show(shown)
 
-    def _fail(self, look: tuple | None, message: str) -> None:
-        """出せなかった。知らせ、様子の一文にも残す（look はその設定では自動で試し直さない）。"""
+    def _fail(self, look: tuple | None, message: Callable[[], str]) -> None:
+        """出せなかった。知らせ、様子の一文にも残す（look はその設定では自動で試し直さない）。
+
+        message は今の表示言語で文を作る（言語を切り替えても、その言語で出し続ける）。
+        """
         if look is not None:
             self._failed = look
         self._error = message
-        self._notify(message)
+        self._notify(message())
         self.refresh()
 
     def refresh(self) -> None:
         """数字の様子の一文を今の状態に合わせる（変わったときだけ書き換える）。"""
         shown = self._client.state == READY and self.check.isChecked()
-        if shown and self._error:
-            text, kind = self._error, "warn"
+        if shown and self._error is not None:
+            text, kind = self._error(), "warn"
         elif shown and self.bpm.instance_id is not None:
             text, kind = tr(BPM_SHOWN_NOTE), "meta"
         else:

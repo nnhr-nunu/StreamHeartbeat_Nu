@@ -468,6 +468,8 @@ class VtsHeart:
         self.squeeze_frames = squeeze_frames
         self._squeeze_until = 0.0
         self._stop_pick()
+        # 手で体に置いた心臓は、外して置いてあった所に出し直す（体からは外れる）
+        off_body = self.hand_placed
 
         def load() -> None:
             # VTube Studio の画面で置いた所があればそこへ（覚えた場所があれば、出したあと留める）
@@ -503,6 +505,8 @@ class VtsHeart:
             # 場を調べたときに、しまう前のアイテムのコマ数で上書きされている
             self.frame_count = frame_count
             self.last_error = ""
+            if off_body:
+                self.hand_placed = False
             self._rest()
             self._pin_saved()
             if done is not None:

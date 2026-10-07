@@ -32,6 +32,9 @@ def test_only_shown_text_can_be_grabbed(qapp: QApplication) -> None:
     # ゆらぎの範囲全体ではなく、出ている文字の所だけ（心臓の上を押しても演出が効く）
     assert label_at(RECT, profile, _at(0.47, 0.30), 72, shown) is None
     assert label_at(RECT, profile, _at(0.5, 0.5), 72, shown) is None
+    # 透明度を低くしていても、出ている文字はつまめる
+    profile.beat_text_opacity = 0.1
+    assert label_at(RECT, profile, _at(0.60, 0.24), 72, shown) == BEAT
     # 出していない文字はつまめない
     profile.show_bpm = False
     profile.show_beat_text = False
@@ -56,12 +59,18 @@ def test_dragging_keeps_the_grab_offset_and_stays_inside_the_window(qapp: QAppli
     # 拍の文字は、つまんだ文字（ゆらいだ所）がマウスについてくる。心拍数の値は変えない
     profile.bpm_x, profile.bpm_y = 0.5, 0.9
     word = _word(0.58, 0.26)
+    base = (profile.beat_text_x, profile.beat_text_y)
     assert drag.press(RECT, profile, _at(0.60, 0.25), 72, [word]) and drag.target == BEAT
+    # 押しただけでは置き場所を変えず、つまんだ文字の所にはっきり出す
+    # （元の置き場所に濃い文字を出さない）
+    assert (profile.beat_text_x, profile.beat_text_y) == base and drag.held == (0.58, 0.26)
+    assert beat_preview(profile, drag.held).pos == (0.58, 0.26)
     drag.move(RECT, profile, _at(0.70, 0.45))
-    assert (profile.beat_text_x, profile.beat_text_y) == (0.68, 0.46)
+    assert (profile.beat_text_x, profile.beat_text_y) == (0.68, 0.46) == drag.held
     assert (profile.bpm_x, profile.bpm_y) == (0.5, 0.9)
     # 何も無い所では押してもつままない
     drag.release()
+    assert drag.held is None
     assert not drag.press(RECT, profile, _at(0.1, 0.5), 72, [word]) and not drag.dragging
 
 
