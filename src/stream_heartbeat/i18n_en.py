@@ -10,9 +10,81 @@ from __future__ import annotations
 EN_GENERAL: dict[str, str] = {
     # ---- 操作画面: 見出し・欄 --------------------------------------------------
     "プロファイル": "Profile",
-    "① マイク": "① Microphone",
+    "① 入力": "① Input",
+    "入力": "Input",
     "マイク": "Microphone",
     "音の大きさ": "Sound level",
+    # ---- 入力: ファイル・Bluetooth の心拍計（β） ----------------------------------
+    "音声・動画ファイル（β）": "Audio / video file (beta)",
+    "Bluetooth 心拍計（β）": "Bluetooth HR monitor (beta)",
+    "ファイル": "File",
+    "選ぶ…": "Choose…",
+    "再生": "Playback",
+    "▶ 再生": "▶ Play",
+    "■ 止める": "■ Stop",
+    "くり返し再生": "Loop",
+    "音も鳴らす（配信に乗らないよう注意）": "Play the sound (keep it off stream)",
+    "ファイルの音をこの PC のスピーカーから出します。ヘッドホンがおすすめです": (
+        "Plays the file's sound on this PC's speakers. Headphones are recommended."
+    ),
+    "（まだ選んでいません）": "(none chosen)",
+    "心音のファイルを選ぶ": "Choose a heart sound file",
+    "このファイルは読めませんでした": "This file couldn't be read",
+    "長いファイルなので、最初の {minutes} 分だけ使います": (
+        "The file is long, so only the first {minutes} minutes are used"
+    ),
+    (
+        "録音した心音のファイルを、マイクの代わりに流して心臓を動かします（β）。"
+        "動画のファイルは音だけを使います。長いファイルは最初の {minutes} 分まで読みます。"
+    ): (
+        "Plays a recorded heart sound file instead of the microphone to move the heart (beta). "
+        "Video files use only their sound. Long files are read up to the first {minutes} minutes."
+    ),
+    "心拍計": "Monitor",
+    (
+        "Bluetooth で心拍を送れる心拍計・時計から、心拍数を受け取って動かします（β）。"
+        "届くのは心拍数だけなので、拍の瞬間は本物の鼓動とずれます。"
+        "確実なのは胸ベルトや腕のセンサー（Polar H10・Verity Sense、Garmin HRM-Dual・HRM-Pro、"
+        "Wahoo TICKR、COOSPO など）。時計は心拍を送る設定にします（Pixel Watch 2 以降の"
+        "「Connected Fitness」、Fitbit Charge 6 の「機器内の心拍数」、"
+        "Garmin の心拍数のブロードキャストなど。"
+        "PC とつながらない機種もあります）。Apple Watch・Galaxy Watch はそのままでは送れません。"
+        "スマホのアプリとつながっている間は、PC からつなげない機種があります。"
+    ): (
+        "Moves the heart with the heart rate from a monitor or watch that sends it over "
+        "Bluetooth (beta). Only the heart rate arrives, so the beats don't line up with your "
+        "real heartbeat. Chest straps and arm sensors work best (Polar H10, Verity Sense, "
+        "Garmin HRM-Dual, HRM-Pro, Wahoo TICKR, COOSPO, etc.). Set watches to send heart rate "
+        "(Pixel Watch 2 or later: \"Connected Fitness\", Fitbit Charge 6: \"HR on Equipment\", "
+        "Garmin: Broadcast Heart Rate, etc.; some can't connect to a PC). Apple Watch and "
+        "Galaxy Watch can't send it on their own. Some monitors can't connect to the PC while "
+        "connected to a phone app."
+    ),
+    "探す": "Search",
+    "つなぐ": "Connect",
+    "切る": "Disconnect",
+    "この版では Bluetooth の心拍計を使えません": (
+        "Bluetooth heart rate monitors can't be used in this version"
+    ),
+    "つないでいません": "Not connected",
+    "探しています…": "Searching…",
+    "つないでいます…": "Connecting…",
+    "つながりました。心拍数を待っています": "Connected. Waiting for the heart rate",
+    (
+        "見つかりません。心拍計が心拍を送る設定か・近くにあるかを確かめてください"
+        "（つなぎ直しています）"
+    ): (
+        "Not found. Check that the monitor is set to send heart rate and is nearby "
+        "(retrying)"
+    ),
+    "Bluetooth を使えません。PC の Bluetooth がオンかを確かめてください": (
+        "Bluetooth isn't available. Check that Bluetooth is on for this PC"
+    ),
+    "心拍計が見つかりませんでした。心拍を送る設定にしてから、もう一度「探す」を押してください": (
+        "No monitor found. Set it to send heart rate, then press \"Search\" again"
+    ),
+    "受信中  {bpm} BPM": "Receiving  {bpm} BPM",
+    "心拍計から受信中  {bpm} BPM": "From the monitor  {bpm} BPM",
     "② スタイル": "② Style",
     "スタイル": "Style",
     "演出": "Effect",

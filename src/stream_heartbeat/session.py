@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from stream_heartbeat.clock import BeatClock
 from stream_heartbeat.config import CAL_MAX_S, TAP_GOAL
 from stream_heartbeat.detect import (
@@ -114,7 +116,14 @@ class HeartSession:
             tilt=self.profile.beat_text_tilt,
         )
 
-    def tick(self, t: float, samples: list[float], sample_rate: float = 16000.0) -> None:
+    def tick(
+        self,
+        t: float,
+        samples: list[float],
+        sample_rate: float = 16000.0,
+        beats: Sequence[float] = (),
+    ) -> None:
+        """samples はマイクなどの音。beats は心拍計のように拍の時刻だけが届く入力（t までの分）。"""
         if samples and sample_rate > 0:
             origin = self._t
             self._t += len(samples) / float(sample_rate)
@@ -127,7 +136,7 @@ class HeartSession:
             if room > 0:
                 self.calibrating.extend(samples[:room])
             self._cal_sr = sample_rate
-        for beat_t in self.detector.feed(samples, origin, sample_rate):
+        for beat_t in [*self.detector.feed(samples, origin, sample_rate), *beats]:
             self.clock.feed_beat(beat_t)
             self.spawn_beat_text(beat_t)
         was_live = self.clock.detected

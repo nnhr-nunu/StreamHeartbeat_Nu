@@ -48,13 +48,15 @@ X(Twitter)：https://x.com/nnhr_nunu
 - ヘッドホン（心拍の補正をするとき、自分の心音を聴くのに使います。あると便利です）
 - VTube Studio（モデルに心臓を付けたいときだけ）
 
+マイクの代わりに、録音した心音のファイルや Bluetooth の心拍計でも動かせます（β。下の「マイクの代わりの入力（β）」を参照）。
+
 ## 使い方（はじめての配信まで）
 
 起動すると、操作用ウィンドウと配信用ウィンドウの 2 つが開きます。操作用ウィンドウは、上から「プロファイル」、①〜⑤ の欄、いちばん下の「心拍の補正」に分かれています。
 
 設定を変えると配信用ウィンドウにすぐ反映され、**自動で保存**されます（保存ボタンはありません）。次の起動でもそのまま使えます。
 
-1. **① マイク** で心音を拾うマイクを選びます。胸に当てて、「音の大きさ」のバーが鼓動に合わせて動けば OK です。
+1. **① 入力** で「マイク」を選び、心音を拾うマイクを選びます。胸に当てて、「音の大きさ」のバーが鼓動に合わせて動けば OK です。
 2. **② スタイル** で心臓の見た目と演出を選び、大きさ・透明度・背景の色を決めます。スタイルと演出は、一覧の上でマウスのホイールを回すだけでも次々に切り替えられます。
 3. 必要なら **③ 同期文字**（鼓動に合わせて跳ねる「❤」などの文字）と **④ 心拍数**（BPM の数字）にチェックを入れます。チェックを入れると、文言・大きさ・位置・色を決める欄が開きます。
 4. OBS のソースに「ウィンドウキャプチャ」を追加し（Mac は「macOS 画面キャプチャ」を追加して、方法を「ウィンドウキャプチャ」にします）、`StreamHeartbeat(ぬ) - 配信出力` を選びます。
@@ -136,6 +138,49 @@ VTube Studio のモデル設定で、パラメータの入力にこれを選ぶ�
 | 心臓が出ない | ⑤ の「上手くいかない時」を開き、「書き出し先」が VTube Studio の Items フォルダ（Windows は `VTube Studio_Data\StreamingAssets\Items`）になっているか確かめてください。Steam 以外で入れたときは「フォルダを選ぶ」で選び直します |
 | VTube Studio 側で心臓を消してしまった | 「心臓を出す」をもう一度押してください |
 | 心臓の位置がずれた・別の所に付け直したい | 「心臓を付ける場所を選ぶ」を押して、モデルをクリックし直してください |
+
+## マイクの代わりの入力（β）
+
+**① 入力** の「入力」で、マイクの代わりに次の 2 つを選べます。どちらも試験中の機能（β）です。選んだものと、選んだファイル・つないだ心拍計は覚えていて、次の起動でもそのまま使えます。
+
+### 録音した心音のファイル
+
+録音しておいた心音で心臓を動かします。
+
+1. 「入力」で「音声・動画ファイル（β）」を選びます。
+2. 「選ぶ…」でファイルを選ぶと、読み込んで流し始めます。wav・mp3・m4a などの音声と、mp4・mov などの動画（音だけ使います）を読めます。長いファイルは最初の 60 分まで使います。
+3. 「■ 止める」で止まり、「▶ 再生」で頭から流します。
+
+- 「くり返し再生」にチェックを入れておくと、最後まで流したら頭に戻って流し続けます（外すと最後で止まります）。
+- 「音も鳴らす」にチェックを入れると、この PC のスピーカーからも音が出ます。OBS でデスクトップの音を取り込んでいると配信に乗るので注意してください。
+- 心拍数が半分や倍に出るときの「心拍の補正」も、ファイルの音で使えます。
+- 動画編集で使うときは、ファイルを流しながら配信用ウィンドウを録画して、動画に重ねてください（ファイルから直接書き出す機能はまだありません）。
+
+### Bluetooth の心拍計
+
+心拍を Bluetooth で送れる心拍計や腕時計から、心拍数を受け取って動かします。標準の Bluetooth の心拍（Heart Rate）を送れる機器に対応しています。
+
+1. 心拍計を着けて、心拍を送る状態にします（時計は下の表の設定）。
+2. 「入力」で「Bluetooth 心拍計（β）」を選び、「探す」を押します。
+3. 見つかった心拍計を一覧から選んで「つなぐ」を押します（1 台だけ見つかったときは、すぐつなぎます）。
+4. 上の帯に「心拍計から受信中 ◯◯ BPM」と出れば OK です。次からは、起動すると同じ心拍計に自動でつなぎます。
+
+| 機器 | 心拍を送る設定 | 使えるか |
+| ---- | -------------- | -------- |
+| 胸ベルト・腕のセンサー（Polar H10・H9・Verity Sense、Garmin HRM-Dual・HRM-Pro、Wahoo TICKR、COOSPO など） | 着けるだけ | ○ いちばん確実です |
+| Google Pixel Watch 2 以降 | 文字盤を下にスワイプ →「Connected Fitness」→「接続」（はじめは「拡張デバイス アクセス」をオン） | △ PC とつながるかは未確認 |
+| Fitbit Charge 6 | 文字盤を下にスワイプ →「機器内の心拍数」 | △ PC とつながるかは未確認。同時に 1 台だけ |
+| Fitbit Air | Google Health アプリの「心拍数を共有」 | △ PC とつながるかは未確認 |
+| Garmin の腕時計 | 「心拍数をブロードキャスト」（Broadcast Heart Rate） | △ 機種による（古い機種は ANT+ だけで使えません） |
+| Amazfit（Zepp OS 3 以降）・HUAWEI・Xiaomi の一部 | 「Heart Rate Push」「HR Data Broadcasts」など | △ 機種による・未確認 |
+| Apple Watch・Galaxy Watch | 標準では送れません | × 心拍を送る別のアプリが要ります |
+| Fitbit のほかの機種（Inspire・Versa・Sense など） | 送る機能がありません | × |
+
+- 届くのは心拍数（機種によっては拍と拍の間の長さも）だけです。心臓はその間隔で脈打つので、心拍数は合いますが、拍の瞬間は本物の鼓動とずれます。心拍数が変わってから表示が変わるまでも、マイクより少し遅れます。
+- スマホのアプリ（Zwift・Strava など）とつながっている間は、PC からつなげない機種があります（Polar H9・Fitbit Charge 6 などは同時に 1 台だけ）。先にスマホ側を切ってください。
+- Bluetooth を使える PC が要ります（ノート PC はたいてい内蔵。デスクトップは USB の Bluetooth アダプタ）。Mac は、はじめに Bluetooth の使用許可を聞かれるので「許可」を押してください。
+- 心拍計の実機では、まだ作者が確かめていません。使えた機種・使えなかった機種を教えてもらえると助かります。
+- 音が無いので、心拍計のときは「心拍の補正」は使えません。
 
 ## 画面の見方
 
@@ -246,11 +291,16 @@ https://x.com/nunu_hara/status/2106318291551781076
 **Quick start**
 
 1. Launch the app. Two windows open: the control window and the output window. Changes apply immediately and are saved automatically.
-2. In section ① (microphone), choose your mic and hold it against your chest. The level bar should move with each beat.
+2. In section ① (input), choose "Microphone" and your mic, then hold it against your chest. The level bar should move with each beat.
 3. In section ② (style), choose a heart style and effect, then set the size, opacity and background color (green / white / black / transparent).
 4. In OBS, add a *Window Capture* source (on macOS: *macOS Screen Capture* with the *Window Capture* method) and select the window titled `StreamHeartbeat(ぬ) - 配信出力`.
 5. Remove the background in OBS: a *Chroma Key* filter for green, a *Color Key* filter for white or black. A transparent background needs no filter; on Windows, set the source's *Capture Method* to "Windows 10 (1903 and later)".
 6. When the bar at the top of the control window turns green ("Synced to your heartbeat"), the heart is beating with you.
+
+**Beta: other inputs.** Instead of a microphone, section ① can also use:
+
+- *Audio / video file (beta):* plays a recorded heart sound (wav, mp3, m4a, mp4, mov …, up to the first 60 minutes) as if it came from the mic. "Loop" starts it again from the beginning; "Play the sound" also plays it on your speakers.
+- *Bluetooth HR monitor (beta):* receives the heart rate from a monitor that sends the standard Bluetooth heart rate service. Chest straps and arm sensors (Polar H10 / H9 / Verity Sense, Garmin HRM-Dual / HRM-Pro, Wahoo TICKR, COOSPO …) work best. Some watches can send it when set to (Pixel Watch 2 or later: "Connected Fitness", Fitbit Charge 6: "HR on Equipment", Garmin: "Broadcast Heart Rate"), but whether they connect to a PC is unconfirmed. Apple Watch and Galaxy Watch can't send it on their own. Only the heart rate arrives, so the heart beats at that rate but not exactly with your real heartbeat. Some monitors can't connect to the PC while a phone app is connected to them.
 
 **Troubleshooting**
 

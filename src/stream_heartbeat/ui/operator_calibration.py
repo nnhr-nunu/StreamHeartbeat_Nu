@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from stream_heartbeat.i18n import tr
 from stream_heartbeat.samples import AUDIO_FILTER, load_audio_mono
+from stream_heartbeat.ui.input_panel import MODE_BLE
 
 CAL_START = "補正開始"
 CAL_SAVE = "補正を保存"
@@ -22,6 +23,8 @@ class CalibrationMixin:
         on = self._session.recording
         saved = bool(self._session.profile.calibration)
         self._refresh_cal_texts()
+        # 心拍計は音が無いので、補正を始められない（補正中に切り替えたときは保存・中止はできる）
+        self._cal_btn.setEnabled(on or self._input.mode != MODE_BLE)
         self._discard_cal.setEnabled(on)
         self._tap_btn.setEnabled(on)
         self._tap_shortcut.setEnabled(on)

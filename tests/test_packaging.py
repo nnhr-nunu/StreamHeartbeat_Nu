@@ -35,3 +35,5 @@ def test_license_documents_are_written(tmp_path: Path) -> None:
     assert f"Qt {qVersion()}" in notices
     assert f"PySide6-{PySide6.__version__}-src" in notices
     assert "FFmpeg" in notices and "{" not in notices
+    # Bluetooth の心拍計に使う bleak も、ライセンスの文書と一緒に載せる
+    assert "■ bleak " in notices and (out / "bleak-LICENSE.txt").is_file()

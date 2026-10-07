@@ -124,6 +124,7 @@ jobs:
           file "$app/Contents/MacOS/StreamHeartbeat"
           lipo -info "$app/Contents/MacOS/StreamHeartbeat"
           plutil -extract NSMicrophoneUsageDescription raw "$app/Contents/Info.plist"
+          plutil -extract NSBluetoothAlwaysUsageDescription raw "$app/Contents/Info.plist"
           plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist"
           codesign --verify --deep --strict --verbose=2 "$app"
       - name: Confirm macOS 12 binaries
