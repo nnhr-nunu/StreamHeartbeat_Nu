@@ -97,6 +97,23 @@ class ProfileControlsMixin:
         self._apply_controls()
         self._sync_cal_ui()
 
+    def _sync_label_sliders(self) -> None:
+        """配信用の窓で拍の文字・心拍数をつまんで動かしたら、左右・上下のつまみを合わせる。"""
+        profile = self._session.profile
+        pairs = (
+            (self._beat_x, profile.beat_text_x),
+            (self._beat_y, profile.beat_text_y),
+            (self._bpm_x, profile.bpm_x),
+            (self._bpm_y, profile.bpm_y),
+        )
+        for slider, value in pairs:
+            percent = int(round(value * 100))
+            if slider.value() != percent and not slider.isSliderDown():
+                # プロファイルはもう動かした値。つまみの合図でつまみの値（丸めた値）を書き戻さない
+                slider.blockSignals(True)
+                slider.setValue(percent)
+                slider.blockSignals(False)
+
     def _style_choice(self) -> tuple[str, str]:
         data = self._style.currentData()
         if isinstance(data, tuple) and len(data) == 2:

@@ -8,7 +8,7 @@ echo_gl / mri_gl が担い、ここは 2D スタイル（かわいい1・2・オ
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QTransform
 
 from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.config import BACKDROP_COLORS, CHROMA_HEX
@@ -245,14 +245,56 @@ def paint_bpm(
     outline: str = "#000000",
 ) -> None:
     painter.setOpacity(1.0)
-    font = QFont()
-    font.setPixelSize(max(28, int(min(rect.width(), rect.height()) * 0.08 * max(0.4, scale))))
-    font.setBold(True)
+    font = bpm_font(rect, scale)
     painter.setFont(font)
     fill = QColor(color) if QColor(color).isValid() else BPM_COLOR
     ring = QColor(outline) if outline and QColor(outline).isValid() else None
     text = str(bpm)
-    metrics = painter.fontMetrics()
-    x = int(rect.left() + pos[0] * rect.width() - metrics.horizontalAdvance(text) / 2)
-    y = int(rect.top() + pos[1] * rect.height() + metrics.ascent() / 2)
+    x, y = _bpm_baseline(rect, text, font, pos)
     _draw_outlined_text(painter, x, y, text, fill, ring)
+
+
+def bpm_font(rect: QRectF, scale: float) -> QFont:
+    font = QFont()
+    font.setPixelSize(max(28, int(min(rect.width(), rect.height()) * 0.08 * max(0.4, scale))))
+    font.setBold(True)
+    return font
+
+
+def _text_size(font: QFont, text: str) -> tuple[float, float, float]:
+    """文字の幅・上の高さ・下の深さ（画素）。フォントの寸法が当てにならないとき（テストの
+    offscreen）は文字数から見積もる。"""
+    metrics = QFontMetrics(font)
+    px = float(font.pixelSize())
+    width = float(metrics.horizontalAdvance(text))
+    if not 0.0 < width < px * 4.0 * max(1, len(text)):
+        return px * 0.6 * len(text), px * 0.8, px * 0.2
+    return width, float(metrics.ascent()), float(metrics.descent())
+
+
+def _bpm_baseline(
+    rect: QRectF, text: str, font: QFont, pos: tuple[float, float]
+) -> tuple[int, int]:
+    """心拍数の文字の左下（並びの基準）。pos が文字の真ん中に来る。"""
+    width, ascent, _descent = _text_size(font, text)
+    x = int(rect.left() + pos[0] * rect.width() - width / 2)
+    y = int(rect.top() + pos[1] * rect.height() + ascent / 2)
+    return x, y
+
+
+def bpm_box(
+    rect: QRectF, bpm: int | str, *, scale: float = 1.0, pos: tuple[float, float] = (0.5, 0.88)
+) -> QRectF:
+    """paint_bpm が描く心拍数の文字の外枠。"""
+    font = bpm_font(rect, scale)
+    text = str(bpm)
+    width, ascent, descent = _text_size(font, text)
+    x, y = _bpm_baseline(rect, text, font, pos)
+    return QRectF(x, y - ascent, width, ascent + descent)
+
+
+def beat_word_box(point: QPointF, text: str, *, font_px: int, angle: float) -> QRectF:
+    """paint_beat_word が描く拍の文字の外枠（傾けた文字を囲む、傾けない四角）。"""
+    width, ascent, descent = _text_size(beat_word_font(font_px), text)
+    turn = QTransform().translate(point.x(), point.y()).rotate(angle)
+    return turn.mapRect(QRectF(0.0, -ascent, width, ascent + descent))
