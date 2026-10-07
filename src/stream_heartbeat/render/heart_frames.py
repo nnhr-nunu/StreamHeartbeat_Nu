@@ -31,7 +31,7 @@ from stream_heartbeat.clock import BeatClock, CardiacCycle
 from stream_heartbeat.config import BURST_FADE_IN_S, BURST_FADE_OUT_S, BURST_HOLD_S
 from stream_heartbeat.overlay import burst_font_px, lean_angle_deg
 from stream_heartbeat.profile import HeartProfile
-from stream_heartbeat.render.grip_pose import big_hand, grip_pose, grip_squash, held_grip
+from stream_heartbeat.render.grip_pose import grip_pose, grip_squash, held_grip
 from stream_heartbeat.render.heart_looks import Look, style_look
 from stream_heartbeat.render.model_body import follow_scale, grip_for_look
 from stream_heartbeat.ui.effect_burst import paint_beat_pops
@@ -40,9 +40,8 @@ from stream_heartbeat.ui.effect_stetho import paint_stethoscope, stetho_radius
 from stream_heartbeat.ui.effects import (
     BEAT_POP_KEEP_S,
     EFFECT_BURST,
-    EFFECT_GRIP_BIG,
+    EFFECT_GRIP,
     EFFECT_STETHO,
-    GRIP_EFFECTS,
     STETHO_EFFECTS,
     EffectMotion,
     HeartFrame,
@@ -73,7 +72,7 @@ ITEM_STYLES = frozenset({"realistic", "mech", "xray_heart", "cute", "chic", "pol
 # 2D で描くアイテム（向きが無い）
 FLAT_ITEM_STYLES = frozenset({"cute", "chic"})
 # コマに描き込む演出（ほかの演出はアイテムにできないスタイルのもの）
-ITEM_EFFECTS = frozenset({*GRIP_EFFECTS, EFFECT_BURST, *STETHO_EFFECTS})
+ITEM_EFFECTS = frozenset({EFFECT_GRIP, EFFECT_BURST, *STETHO_EFFECTS})
 # アイテムの絵は窓より少し大きく描く（余白を減らす）。かわいい1 は元の絵が小さいので大きめ。
 # まわりに飾りのある絵（かわいい2・オシャレ1）は飾りが切れない大きさ
 ITEM_SCALE = 0.82
@@ -283,7 +282,7 @@ def squeeze_grips() -> tuple[float, ...]:
 
 def squeeze_frame_count(profile: HeartProfile) -> int:
     """render_frames(squeeze=True) が休んでいる形のあとに足す「ぎゅっ」のコマの数（無ければ 0）。"""
-    return len(squeeze_grips()) if item_effect(profile) in GRIP_EFFECTS else 0
+    return len(squeeze_grips()) if item_effect(profile) == EFFECT_GRIP else 0
 
 
 def frame_systole() -> float:
@@ -335,7 +334,7 @@ def render_frames(
     # 各コマの拍からの秒（最後は休んでいる形）と握りの強さ
     ages = [k / FRAME_FPS for k in range(rest)] + [60.0 / FRAME_BPM * 0.9]
     grips = [0.0] * len(cycles)
-    if squeeze and effect in GRIP_EFFECTS:
+    if squeeze and effect == EFFECT_GRIP:
         # 「ぎゅっ」は休んでいる形の心臓を握る。秒は休んでいる形から続ける（手の震えの位相）
         extra = squeeze_grips()
         cycles += [cycles[rest]] * len(extra)
@@ -420,7 +419,7 @@ def _gl_frames(
     look = _look(profile)
     scale = ITEM_SCALE / zoom
     frames: list[QImage] = []
-    grip = effect in GRIP_EFFECTS
+    grip = effect == EFFECT_GRIP
     # 手で掴んでいる間は、配信用の窓と同じく正面から見る（手の絵に合わせる）
     yaw = 0.0 if grip else profile.heart_yaw_deg
     pitch = 0.0 if grip else profile.heart_pitch_deg
@@ -428,8 +427,6 @@ def _gl_frames(
         # 手を添えている間も、鼓動に合わせて握り直す強さで心臓が潰れる（配信用の窓と同じ。
         # Blender の心臓は手の胴と握り直しをその形と縮みに合わせる）
         body, grip_cycle = grip_for_look(look, cycle)
-        if effect == EFFECT_GRIP_BIG:
-            body = big_hand(body)
         squash_x, squash_y = grip_squash(held_grip(grips[k], grip_cycle)) if grip else (1.0, 1.0)
         pose = None
         if grip:
@@ -519,9 +516,8 @@ def _effect_layer(
     rect = QRectF(0, 0, size, size)
     painter = QPainter(layer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    if effect in GRIP_EFFECTS:
-        big = effect == EFFECT_GRIP_BIG
-        paint_grip_hand(painter, rect, frame, cycle, grip=grip, time_s=age, opacity=1.0, big=big)
+    if effect == EFFECT_GRIP:
+        paint_grip_hand(painter, rect, frame, cycle, grip=grip, time_s=age, opacity=1.0)
     elif effect in STETHO_EFFECTS:
         pos = point_from_heart(frame, stetho, STETHO_REACH)
         # チェストピースは薄くする所より上に当てる（下に置いてあっても消えかけない）

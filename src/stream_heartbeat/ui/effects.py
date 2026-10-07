@@ -39,7 +39,6 @@ from stream_heartbeat.ui.heart_paint import CUTE_REIWA, heart_lift
 
 EFFECT_NONE = ""
 EFFECT_GRIP = "grip"
-EFFECT_GRIP_BIG = "grip_big"
 EFFECT_STETHO = "stethoscope"
 EFFECT_STETHO_FLIP = "stethoscope_flip"
 EFFECT_DEFIB = "defib"
@@ -47,16 +46,13 @@ EFFECT_DOPPLER = "doppler"
 EFFECT_TAGGING = "tagging"
 EFFECT_MONITOR = "monitor"
 EFFECT_BURST = "burst"
-# 心臓わしづかみの演出（1: 心臓の正面に収まる手 / 2: 本物の手に近い大きさの手）
-GRIP_EFFECTS = frozenset({EFFECT_GRIP, EFFECT_GRIP_BIG})
 # 聴診器の演出（1: 裏側のベルを見せる / 2: 膜の面を見せる）
 STETHO_EFFECTS = frozenset({EFFECT_STETHO, EFFECT_STETHO_FLIP})
 # 心臓を正面に固定する演出（手やパドルの絵に合わせる。ドラッグで回せない）
-FRONT_EFFECTS = frozenset({*GRIP_EFFECTS, EFFECT_DEFIB})
+FRONT_EFFECTS = frozenset({EFFECT_GRIP, EFFECT_DEFIB})
 EFFECT_LABELS = {
     EFFECT_NONE: "なし",
-    EFFECT_GRIP: "心臓わしづかみ1",
-    EFFECT_GRIP_BIG: "心臓わしづかみ2",
+    EFFECT_GRIP: "心臓わしづかみ",
     EFFECT_STETHO: "聴診器1",
     EFFECT_STETHO_FLIP: "聴診器2",
     EFFECT_DEFIB: "除細動器",
@@ -69,10 +65,8 @@ _STETHO_HINT = (
     "配信用の窓の上でマウスを動かすと聴診器がついてきます。"
     "クリックした所に置いておけます（マウスが窓の外へ出るとそこへ戻ります）。"
 )
-_GRIP_HINT = "配信用の窓をクリックすると、ぎゅっと強く握ります（押している間は握ったまま）。"
 EFFECT_HINTS = {
-    EFFECT_GRIP: _GRIP_HINT,
-    EFFECT_GRIP_BIG: _GRIP_HINT,
+    EFFECT_GRIP: "配信用の窓をクリックすると、ぎゅっと強く握ります（押している間は握ったまま）。",
     EFFECT_STETHO: _STETHO_HINT,
     EFFECT_STETHO_FLIP: _STETHO_HINT,
     EFFECT_DEFIB: (
@@ -94,7 +88,6 @@ _HEART_STYLES = frozenset({"realistic", "mech", "xray", "xray_heart", "cute", "c
 _REAL_HEART_STYLES = frozenset({"realistic", "xray", "xray_heart"})
 EFFECT_STYLES: dict[str, frozenset[str] | None] = {
     EFFECT_GRIP: _HEART_STYLES,
-    EFFECT_GRIP_BIG: _HEART_STYLES,
     EFFECT_STETHO: _HEART_STYLES,
     EFFECT_STETHO_FLIP: _HEART_STYLES,
     EFFECT_DEFIB: _REAL_HEART_STYLES,

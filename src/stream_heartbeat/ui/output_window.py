@@ -25,7 +25,6 @@ from stream_heartbeat.render.grip_pose import (
     HEART_BODY,
     GripBody,
     HandPose,
-    big_hand,
     grip_pose,
     held_grip,
 )
@@ -52,12 +51,11 @@ from stream_heartbeat.ui.effects import (
     EFFECT_BURST,
     EFFECT_DEFIB,
     EFFECT_DOPPLER,
-    EFFECT_GRIP_BIG,
+    EFFECT_GRIP,
     EFFECT_MONITOR,
     EFFECT_STETHO,
     EFFECT_TAGGING,
     FRONT_EFFECTS,
-    GRIP_EFFECTS,
     STETHO_EFFECTS,
     EffectMotion,
     HeartFrame,
@@ -274,10 +272,10 @@ class OutputCanvas(QOpenGLWidget):
         defib = effect == EFFECT_DEFIB and self._defib.active(t)
         if defib:
             cycle = self._defib.cycle(t) or cycle
-        gripping = effect in GRIP_EFFECTS
+        gripping = effect == EFFECT_GRIP
         grip = self._motion.grip if gripping else 0.0
         # Blender の心臓は形そのものが拍で動くので、手の胴と握り直しをその形と縮みに合わせる
-        body, grip_cycle = self._grip_body(cycle, effect) if gripping else (HEART_BODY, cycle)
+        body, grip_cycle = self._grip_body(cycle) if gripping else (HEART_BODY, cycle)
         # 掴んでいる間は、鼓動に合わせて握り直す強さで心臓が潰れる
         squash_x, squash_y = grip_squash(held_grip(grip, grip_cycle) if gripping else 0.0)
         # 立体の心臓を掴むときは、手と心臓が同じ形を使う（指の所が凹む）
@@ -446,12 +444,10 @@ class OutputCanvas(QOpenGLWidget):
             and renderer.model_error is None
         )
 
-    def _grip_body(self, cycle: CardiacCycle, effect: str) -> tuple[GripBody, CardiacCycle]:
-        """手を巻き付ける胴と拍（心臓わしづかみ2 は同じ胴に大きい手を当てる）。"""
-        body, cycle = (
-            grip_for_look(self._look(), cycle) if self._model_shown() else (HEART_BODY, cycle)
-        )
-        return (big_hand(body) if effect == EFFECT_GRIP_BIG else body), cycle
+    def _grip_body(self, cycle: CardiacCycle) -> tuple[GripBody, CardiacCycle]:
+        if not self._model_shown():
+            return HEART_BODY, cycle
+        return grip_for_look(self._look(), cycle)
 
     def _grip_pose(self, cycle: CardiacCycle, grip: float, body: GripBody) -> HandPose:
         profile = self._session.profile
@@ -501,7 +497,7 @@ class OutputCanvas(QOpenGLWidget):
         pose: HandPose | None = None,
     ) -> None:
         profile = self._session.profile
-        if effect in GRIP_EFFECTS:
+        if effect == EFFECT_GRIP:
             if pose is not None and self._paint_gl_hand(painter, pose):
                 return
             frame = self._heart_frame(rect)
@@ -513,7 +509,6 @@ class OutputCanvas(QOpenGLWidget):
                 grip=grip,
                 time_s=self._now,
                 opacity=profile.opacity,
-                big=effect == EFFECT_GRIP_BIG,
             )
         elif effect == EFFECT_BURST:
             frame = self._heart_frame(rect)
@@ -573,7 +568,7 @@ class OutputCanvas(QOpenGLWidget):
             return Qt.CursorShape.BlankCursor
         if self._can_rotate():
             return Qt.CursorShape.OpenHandCursor
-        if effect in GRIP_EFFECTS or effect in (EFFECT_BURST, EFFECT_DEFIB):
+        if effect in (EFFECT_GRIP, EFFECT_BURST, EFFECT_DEFIB):
             return Qt.CursorShape.PointingHandCursor
         return Qt.CursorShape.ArrowCursor
 
@@ -601,7 +596,7 @@ class OutputCanvas(QOpenGLWidget):
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
                 return
             effect = self.effect
-            if effect in GRIP_EFFECTS:
+            if effect == EFFECT_GRIP:
                 self._motion.press(time.perf_counter())
                 return
             if effect == EFFECT_DEFIB:

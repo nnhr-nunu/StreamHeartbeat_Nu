@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.render.hand_morph import claw_point
@@ -149,23 +149,6 @@ class GripBody:
         for i, r in enumerate(self.rim):
             values[f"uGripRim[{i}]"] = r
         return values
-
-
-# 心臓わしづかみ2 の大きい手。手の幅の倍率と、手の甲を下げる量（増えた手の幅に対する割合）。
-# 本物の手は心臓の 1.5 倍ほど長いので、肋骨と並ぶと 1 の手は小さく見える。下げないと指先が心臓の
-# 上の縁を越えて奥へ回り込み、切れて見えるので、指先の高さがおよそ変わらない所まで下げる
-BIG_HAND_SCALE = 1.23
-BIG_HAND_DROP = 0.93
-
-
-def big_hand(body: GripBody) -> GripBody:
-    """同じ胴に、大きい手（心臓わしづかみ2）を当てる。"""
-    extra = body.hand_width * (BIG_HAND_SCALE - 1.0)
-    return replace(
-        body,
-        hand_width=body.hand_width + extra,
-        anchor=(body.anchor[0], body.anchor[1] - extra * BIG_HAND_DROP),
-    )
 
 
 HEART_BODY = GripBody()

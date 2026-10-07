@@ -47,6 +47,13 @@ def test_unknown_keys_are_ignored(tmp_path: Path) -> None:
     assert loaded.name == "a"
 
 
+def test_retired_grip_big_opens_as_grip(tmp_path: Path) -> None:
+    # 心臓わしづかみ2（大きい手）はなくしたので、選んで保存していた設定は 1 の手で開く
+    path = tmp_path / "p.json"
+    path.write_text('{"name": "a", "effect": "grip_big"}', encoding="utf-8")
+    assert load_profile(path).effect == "grip"
+
+
 def test_new_profile_uses_heart_default_text() -> None:
     assert HeartProfile().beat_text == "❤"
     assert DEFAULT_BEAT_TEXT == "❤"
