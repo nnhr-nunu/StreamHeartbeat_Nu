@@ -64,7 +64,7 @@ jobs:
         include:
           - os: macos-latest
             artifact: macos-zip
-            zip: macOS-StreamHeartbeat.zip
+            zip: macOS-AppleSilicon-StreamHeartbeat.zip
             python_from: actions
           - os: macos-15-intel
             artifact: macos-intel-zip
@@ -197,10 +197,10 @@ jobs:
             | PC | ダウンロードするファイル |
             | -- | ------------ |
             | Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
-            | Mac（M1 / M2 / M3 など Apple チップ） | `macOS-StreamHeartbeat.zip` |
+            | Mac（M1 / M2 / M3 など Apple チップ） | `macOS-AppleSilicon-StreamHeartbeat.zip` |
             | Mac（Intel。2016 年の MacBook Pro など） | `macOS-intel-StreamHeartbeat.zip` |
 
-            Mac は macOS 12 以降で動きます。どれか分からないときは、左上のリンゴマーク → **この Mac について** を見てください。「チップ」が Apple なら `macOS-StreamHeartbeat.zip`、「プロセッサ」が Intel なら `macOS-intel-StreamHeartbeat.zip` です。
+            Mac は macOS 12 以降で動きます。どれか分からないときは、左上のリンゴマーク → **この Mac について** を見てください。「チップ」が Apple なら `macOS-AppleSilicon-StreamHeartbeat.zip`、「プロセッサ」が Intel なら `macOS-intel-StreamHeartbeat.zip` です。
 
             ## OBS への取り込み
 
@@ -249,10 +249,10 @@ jobs:
             | PC | File to download |
             | -- | ---------------- |
             | Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
-            | Mac with Apple silicon (M1 / M2 / M3 …) | `macOS-StreamHeartbeat.zip` |
+            | Mac with Apple silicon (M1 / M2 / M3 …) | `macOS-AppleSilicon-StreamHeartbeat.zip` |
             | Mac with an Intel chip (e.g. a 2016 MacBook Pro) | `macOS-intel-StreamHeartbeat.zip` |
 
-            macOS 12 or later is required. If you are not sure which Mac you have, click the Apple menu → **About This Mac**. If "Chip" says Apple, use `macOS-StreamHeartbeat.zip`; if "Processor" says Intel, use `macOS-intel-StreamHeartbeat.zip`.
+            macOS 12 or later is required. If you are not sure which Mac you have, click the Apple menu → **About This Mac**. If "Chip" says Apple, use `macOS-AppleSilicon-StreamHeartbeat.zip`; if "Processor" says Intel, use `macOS-intel-StreamHeartbeat.zip`.
 
             ### Adding it to OBS
 
@@ -286,7 +286,7 @@ jobs:
             A detailed guide (in Japanese) and an English summary are in the [README](https://github.com/nnhr-nunu/StreamHeartbeat_Nu#english-summary).
           files: |
             windows-zip/windows-StreamHeartbeat.zip
-            macos-zip/macOS-StreamHeartbeat.zip
+            macos-zip/macOS-AppleSilicon-StreamHeartbeat.zip
             macos-intel-zip/macOS-intel-StreamHeartbeat.zip
           fail_on_unmatched_files: true
           make_latest: true
