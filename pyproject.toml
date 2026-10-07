@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stream-heartbeat"
-version = "0.1.0"
+# 版は src/stream_heartbeat/__init__.py の __version__ だけで決める
+dynamic = ["version"]
 description = "配信者向け心拍・心音同期の心臓描画 StreamHeartbeat(ぬ)"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -26,6 +27,9 @@ stream-heartbeat = "stream_heartbeat.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "stream_heartbeat.__version__" }
 
 [tool.setuptools.package-data]
 stream_heartbeat = ["assets/*", "assets/heart_model/*"]

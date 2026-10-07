@@ -4,10 +4,23 @@
 # 使わない Qt まで全部入り、GPL だけで配る部品や WebEngine まで同梱してしまう）。
 # 一つの exe（onefile）にはしない。Qt の DLL が見える形にして、LGPL のとおり利用者が差し替えられるようにする。
 
+import re
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent  # noqa: F821  SPECPATH は PyInstaller が渡す
 SRC = ROOT / "src" / "stream_heartbeat"
+INIT = (SRC / "__init__.py").read_text(encoding="utf-8")
+VERSION = re.search(r'^__version__ = "([^"]+)"', INIT, re.M).group(1)
+# exe の「詳細」に出る版。ひな形に __init__.py の版を埋めて、作業用のフォルダに書く
+VERSION_FILE = Path(workpath) / "windows_version.txt"  # noqa: F821  workpath は PyInstaller が渡す
+VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+VERSION_FILE.write_text(
+    (ROOT / "packaging" / "windows_version.txt")
+    .read_text(encoding="utf-8")
+    .replace("@VERSION_TUPLE@", ", ".join([*VERSION.split("."), "0", "0", "0"][:4]))
+    .replace("@VERSION@", VERSION),
+    encoding="utf-8",
+)
 
 a = Analysis(  # noqa: F821
     [str(SRC / "__main__.py")],
@@ -59,6 +72,6 @@ exe = EXE(  # noqa: F821
     console=False,
     upx=False,
     icon=str(SRC / "assets" / "app_icon.ico"),
-    version=str(ROOT / "packaging" / "windows_version.txt"),
+    version=str(VERSION_FILE),
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="StreamHeartbeat", upx=False)  # noqa: F821

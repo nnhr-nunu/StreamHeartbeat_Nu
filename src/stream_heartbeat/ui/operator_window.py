@@ -86,6 +86,7 @@ from stream_heartbeat.ui.style_catalog import (
     has_xray_material,
 )
 from stream_heartbeat.ui.styles import DARK_QSS
+from stream_heartbeat.ui.update_notice import UpdateNotice
 from stream_heartbeat.ui.vts_panel import VtsPanel
 
 GL_FAIL_LABEL = "立体表示を使えないため 2D で描いています"
@@ -450,6 +451,9 @@ class OperatorWindow(CalibrationMixin, LanguageMixin, ProfileControlsMixin, QMai
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
         shell_layout.addWidget(self._banner)
+        # 新しい版のお知らせはスクロールしなくても見える所に出す
+        self._update_notice = UpdateNotice()
+        shell_layout.addWidget(self._update_notice)
         shell_layout.addWidget(scroll, 1)
         self.setCentralWidget(shell)
 

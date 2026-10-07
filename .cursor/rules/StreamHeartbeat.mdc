@@ -14,6 +14,7 @@ alwaysApply: true
 0. **セルフレビュー** — [`composer-self-review.mdc`](./composer-self-review.mdc)
 1. `git status` — 依頼スコープ外の完了改修も含め未コミットを残さない（意図的 WIP のみ例外）
 2. `.py` 変更時は `pytest`
+2.5. **版を上げる** — `src/stream_heartbeat/` か `packaging/` を変えて main へ push するなら、`src/stream_heartbeat/__init__.py` の `__version__` を上げる（直し・小さな改善は 3 つ目、機能の追加は 2 つ目。例 0.2.0 → 0.2.1 / 0.3.0）。1 回の push につき 1 回でよい。上げないと利用者に更新のお知らせが出ない。忘れると `.githooks/pre-push` が push を止める
 3. 論理単位で commit（日本語）→ `git push origin main`
 4. 完了報告に commit hash・origin 同期・セルフレビュー実施を書く
 

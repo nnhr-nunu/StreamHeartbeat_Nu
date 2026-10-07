@@ -27,6 +27,15 @@ Cursor で開発するときの最短導線。全文読み込みを避け、触�
 
 `.py` を変えたら **`pytest`** を実行する。UI を変えたら操作画面と配信用の窓の両方を確認する。
 
+### 版を上げる（push の前）
+
+main へ push するたびに CI が配布の zip を作り直し、リリースの題名の版（`最新版 v0.2.0 / …`）をアプリが読んで「新しい版が出ています」と知らせる。`src/stream_heartbeat/` か `packaging/` を変えて push するときは、[`__init__.py`](./src/stream_heartbeat/__init__.py) の `__version__` を上げる（版はここだけに書く）。
+
+- 直し・小さな改善は 3 つ目（0.2.0 → 0.2.1）、機能の追加は 2 つ目（0.2.0 → 0.3.0）
+- 1 回の push につき 1 回でよい（commit ごとではない）
+- 上げ忘れると `.githooks/pre-push` が push を止める（有効にする: `git config core.hooksPath .githooks`）
+- 版のタグ（`v0.2.0` など）は CI が付ける。手で付けない
+
 ### Windows（PowerShell）での commit
 
 bash heredoc は使わない。手順は [`.cursor/rules/git-commit.mdc`](./.cursor/rules/git-commit.mdc)。

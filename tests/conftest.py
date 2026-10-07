@@ -23,6 +23,12 @@ def _japanese_ui() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """操作画面は起動すると新しい版を GitHub に聞きに行く。テストでは通信させない。"""
+    monkeypatch.setattr("stream_heartbeat.update_check.fetch_newer_version", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """操作画面は閉じるときや自動保存でプロファイルを書くので、本物の保存先に書かせない。"""
     monkeypatch.setattr(

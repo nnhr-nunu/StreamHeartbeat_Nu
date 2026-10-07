@@ -172,12 +172,17 @@ jobs:
     if: github.event_name != 'pull_request' && needs.windows.result == 'success' && needs.macos.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        run: echo "version=$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' src/stream_heartbeat/__init__.py)" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
+      # アプリは題名の「v0.2.0」のような版を読んで、新しい版が出たかを知る（update_check.py）。題名を変えるときも版は残す
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: 最新版 / Latest (unzip and run)
+          name: 最新版 v${{ steps.version.outputs.version }} / Latest (unzip and run)
           body: |
             🇬🇧 **English instructions are at the bottom of this page.** The app starts in English automatically if your OS language is not Japanese.
 
@@ -284,6 +289,18 @@ jobs:
             macos-intel-zip/StreamHeartbeat-macOS-intel.zip
           fail_on_unmatched_files: true
           make_latest: true
+      # 版ごとの目印のタグ（v0.2.0 など）。その版で最初に出したコミットに付け、あとは動かさない
+      # タグが付けられなくてもリリースは出ているので、CI の失敗扱いにしない
+      - name: Tag the version
+        continue-on-error: true
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "$tag already exists"
+          else
+            git tag "$tag"
+            git push origin "$tag"
+          fi
 
   # CI が失敗したら Issue を 1 件だけ立てて知らせる（開いている間は増やさない）。直ったら自動で閉じる。
   # 失敗が続いてもリリースが古いまま気づかれない、を防ぐ
