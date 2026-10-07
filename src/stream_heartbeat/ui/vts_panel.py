@@ -32,7 +32,6 @@ from stream_heartbeat.render.heart_frames import (
     frame_systole,
     item_effect,
     item_text,
-    item_zoom,
     render_frames,
     write_frames,
 )
@@ -211,12 +210,6 @@ def _saved_size(raw: object) -> float:
     return ITEM_SIZE
 
 
-def _saved_zoom(raw: object) -> float:
-    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        return max(1.0, min(4.0, float(raw)))
-    return 1.0
-
-
 def look_key(
     profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0), text: bool = False
 ) -> tuple:
@@ -279,8 +272,6 @@ class VtsPanel(QWidget):
             pins=_saved_pins(state.get("vts_pins")),
             place=clean_place(state.get("vts_item_place")),
         )
-        # 書き出してあるコマを広げて描いた倍率（出し直さずに使い続けるときも大きさを合わせる）
-        self._heart.zoom = _saved_zoom(state.get("vts_item_zoom"))
         self._heart.on_found = self._on_found
         self._heart.on_moved = self._on_moved
         saved_dir = state.get("vts_items_dir")
@@ -582,10 +573,8 @@ class VtsPanel(QWidget):
             QApplication.restoreOverrideCursor()
         self._made_key = key
         self._failed_key = None
-        # コマを広げて描いたぶん、VTube Studio へ渡す大きさを大きくする（心臓の見かけはそのまま）
-        self._heart.zoom = item_zoom(profile, text)
         # 次に起動したとき、書き出してあるコマが今の見た目かを見分ける
-        self._save(vts_item_look=list(key), vts_item_zoom=self._heart.zoom)
+        self._save(vts_item_look=list(key))
         self._busy = True
         self._heart.show_item(count, lambda ok: self._item_shown(ok, auto))
 

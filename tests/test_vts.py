@@ -64,6 +64,8 @@ class FakeVts(QObject):
         self.scene: list[dict] = []
         # ArtMeshAtPositionRequest の返事（None ならその要求を知らない版の VTube Studio）
         self.art_mesh_hits: list[dict] | None = None
+        # True なら、留める・外す要求のあとに「落とした」知らせ（ItemEvent）も送る（実物と同じ）
+        self.echo_pins = False
         self.received: list[dict] = []
         self._server = QWebSocketServer("fake-vts", QWebSocketServer.SslMode.NonSecureMode)
         assert self._server.listen(QHostAddress.SpecialAddress.LocalHost, 0)
@@ -130,6 +132,12 @@ class FakeVts(QObject):
         payload = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
                    "requestID": message["requestID"], "messageType": answer, "data": data}
         socket.sendTextMessage(json.dumps(payload))
+        if kind == "ItemPinRequest" and self.echo_pins:
+            pinned = message["data"]["pin"]
+            self.push("ItemEvent", {
+                "itemEventType": "DroppedPinned" if pinned else "DroppedUnpinned",
+                "itemInstanceID": message["data"]["itemInstanceID"],
+                "itemFileName": ITEM_FOLDER, "itemPosition": {"x": -0.1, "y": 0.4}})
 
 
 @pytest.fixture
@@ -731,7 +739,11 @@ def drop_event(kind: str, x: float, y: float, instance: str = "inst1") -> dict:
             "itemFileName": ITEM_FOLDER, "itemPosition": {"x": x, "y": y}}
 
 
-def test_item_dragged_in_vts_comes_back_to_the_same_place(qtbot, fake_vts: FakeVts) -> None:
+def test_item_dragged_in_vts_comes_back_to_the_same_place(
+    qtbot, fake_vts: FakeVts, monkeypatch
+) -> None:
+    # 出したときに留めた知らせを聞き流す間を待たずに、ドラッグの知らせを送る
+    monkeypatch.setattr(vts, "OWN_PIN_QUIET_S", 0.0)
     client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN})
     moved: list[bool] = []
     heart.on_moved = lambda: moved.append(True)
@@ -777,18 +789,19 @@ def test_item_dropped_on_model_remembers_where_it_is_pinned(qtbot, fake_vts: Fak
     client.stop()
 
 
-def test_wide_frames_are_shown_larger_in_vts(qtbot, fake_vts: FakeVts) -> None:
-    client, heart = _ready_heart(qtbot, fake_vts, size=0.3, pins={"m1": PIN})
-    heart.zoom = 1.5
+def test_own_pin_is_not_taken_for_a_drag(qtbot, fake_vts: FakeVts) -> None:
+    # 実物の VTube Studio は、プラグインが留めた・外したときにも「落とした」と知らせてくる
+    fake_vts.echo_pins = True
+    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN})
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
     heart.show_item(20)
     qtbot.waitUntil(lambda: bool(fake_vts.sent("ItemPinRequest")), timeout=3000)
-    # コマを 1.5 倍広く描いたので、心臓の見かけの大きさが変わらないよう 1.5 倍で出す
-    assert fake_vts.sent("ItemLoadRequest")[-1]["size"] == pytest.approx(0.45)
-    assert fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == pytest.approx(0.45)
-    # VTube Studio の上限（1）は超えない
-    heart.set_size(0.8)
-    qtbot.waitUntil(lambda: fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == 1.0,
-                    timeout=3000)
+    heart.set_size(0.4)
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemPinRequest")) == 2, timeout=3000)
+    qtbot.wait(200)
+    # 覚えている留め場所は消さない（次に出し直したときも同じ所に留める）
+    assert moved == [] and heart.pins == {"m1": PIN} and heart.place is None
     client.stop()
 
 
