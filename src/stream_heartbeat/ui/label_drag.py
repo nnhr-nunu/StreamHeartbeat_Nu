@@ -2,8 +2,9 @@
 
 操作画面のつまみ（左右・上下）と同じ値（窓の幅・高さに対する割合）を書き換える。
 動かせる範囲は窓の中なので、どこまで動かせるかが見て分かる。
-拍の文字は拍のときしか出ないので、出る辺り（ゆらぎの分も含む）をつまめる所にし、
-つまんでいる間は文字をはっきり出して置き場所を見せる。
+窓のクリックは演出（握る・聴診器など）が主なので、つまめるのは見えている文字だけ。
+拍の文字は拍のたびに少しずれた所へ出るので、出ている文字をつまむと、つまんだ文字が
+マウスについてくる（置き場所はゆらぎの真ん中）。つまんでいる間は文字をはっきり出しておく。
 """
 
 from __future__ import annotations
@@ -18,19 +19,23 @@ BEAT = "beat"
 BPM = "bpm"
 # つまめる所を文字の外枠より広げる量（窓の短い辺に対する割合）
 GRAB_MARGIN = 0.015
+# この濃さより薄い（出始め・消えかけの）拍の文字はつまめない
+GRAB_ALPHA = 0.25
 
 
-def label_at(rect: QRectF, profile: HeartProfile, pos: QPointF, bpm: int | str) -> str | None:
-    """pos にある文字（BPM / BEAT）。手前に描く心拍数を先に見る。"""
-    if profile.show_bpm and _grow(_bpm_rect(rect, profile, bpm), rect).contains(pos):
+def label_at(
+    rect: QRectF,
+    profile: HeartProfile,
+    pos: QPointF,
+    bpm: int | str,
+    bursts: list[FloatBurst],
+) -> str | None:
+    """pos にある文字（BPM / BEAT）。手前に描く心拍数を先に見る。bursts は今出ている拍の文字。"""
+    if _bpm_hit(rect, profile, pos, bpm):
         return BPM
-    if beat_shown(profile) and _grow(_beat_rect(rect, profile), rect).contains(pos):
+    if _beat_hit(rect, profile, pos, bursts) is not None:
         return BEAT
     return None
-
-
-def beat_shown(profile: HeartProfile) -> bool:
-    return profile.show_beat_text and bool(profile.beat_text.strip())
 
 
 def beat_preview(profile: HeartProfile) -> FloatBurst:
@@ -40,25 +45,30 @@ def beat_preview(profile: HeartProfile) -> FloatBurst:
     return FloatBurst(text=profile.beat_text.strip(), pos=pos, alpha=1.0, angle=angle)
 
 
-def _bpm_rect(rect: QRectF, profile: HeartProfile, bpm: int | str) -> QRectF:
-    return bpm_box(rect, bpm, scale=profile.bpm_scale, pos=(profile.bpm_x, profile.bpm_y))
+def _bpm_hit(rect: QRectF, profile: HeartProfile, pos: QPointF, bpm: int | str) -> bool:
+    if not profile.show_bpm:
+        return False
+    box = bpm_box(rect, bpm, scale=profile.bpm_scale, pos=(profile.bpm_x, profile.bpm_y))
+    return _grow(box, rect).contains(pos)
 
 
-def _beat_rect(rect: QRectF, profile: HeartProfile) -> QRectF:
-    """拍の文字が出る辺り。置き場所の文字の外枠を、ゆらぎの分だけ広げる。"""
-    word = beat_preview(profile)
+def _beat_hit(
+    rect: QRectF, profile: HeartProfile, pos: QPointF, bursts: list[FloatBurst]
+) -> FloatBurst | None:
+    """pos にある、今はっきり出ている拍の文字（描いたとおりの外枠で見る）。新しいものを先に見る。"""
+    if not profile.show_beat_text:
+        return None
     font_px = burst_font_px(min(rect.width(), rect.height()), profile.beat_text_scale)
-    point = QPointF(
-        rect.left() + word.pos[0] * rect.width(), rect.top() + word.pos[1] * rect.height()
-    )
-    box = beat_word_box(point, word.text, font_px=font_px, angle=word.angle)
-    spread = max(0.0, profile.beat_text_jitter)
-    return box.adjusted(
-        -spread * rect.width(),
-        -spread * rect.height(),
-        spread * rect.width(),
-        spread * rect.height(),
-    )
+    for burst in reversed(bursts):
+        if burst.alpha * profile.beat_text_opacity < GRAB_ALPHA or not burst.text:
+            continue
+        point = QPointF(
+            rect.left() + burst.pos[0] * rect.width(), rect.top() + burst.pos[1] * rect.height()
+        )
+        box = beat_word_box(point, burst.text, font_px=font_px, angle=burst.angle)
+        if _grow(box, rect).contains(pos):
+            return burst
+    return None
 
 
 def _grow(box: QRectF, rect: QRectF) -> QRectF:
@@ -77,15 +87,26 @@ class LabelDrag:
     def dragging(self) -> bool:
         return self.target is not None
 
-    def press(self, rect: QRectF, profile: HeartProfile, pos: QPointF, bpm: int | str) -> bool:
+    def press(
+        self,
+        rect: QRectF,
+        profile: HeartProfile,
+        pos: QPointF,
+        bpm: int | str,
+        bursts: list[FloatBurst],
+    ) -> bool:
         """文字の上で押したらつまむ。つまんだら True。"""
-        target = label_at(rect, profile, pos, bpm)
-        if target is None:
-            return False
-        self.target = target
         x, y = _fraction(rect, pos)
-        px, py = _place(profile, target)
-        self._offset = (px - x, py - y)
+        if _bpm_hit(rect, profile, pos, bpm):
+            self.target = BPM
+            self._offset = (profile.bpm_x - x, profile.bpm_y - y)
+            return True
+        burst = _beat_hit(rect, profile, pos, bursts)
+        if burst is None:
+            return False
+        # つまんだ文字（ゆらぎでずれた所）がマウスについてくるよう、その文字からのずれを持つ
+        self.target = BEAT
+        self._offset = (burst.pos[0] - x, burst.pos[1] - y)
         return True
 
     def move(self, rect: QRectF, profile: HeartProfile, pos: QPointF) -> None:
@@ -111,9 +132,3 @@ def _fraction(rect: QRectF, pos: QPointF) -> tuple[float, float]:
     w = max(1.0, rect.width())
     h = max(1.0, rect.height())
     return (pos.x() - rect.left()) / w, (pos.y() - rect.top()) / h
-
-
-def _place(profile: HeartProfile, target: str) -> tuple[float, float]:
-    if target == BPM:
-        return profile.bpm_x, profile.bpm_y
-    return profile.beat_text_x, profile.beat_text_y

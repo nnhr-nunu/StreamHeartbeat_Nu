@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QMainWindow
 from stream_heartbeat import OUTPUT_WINDOW_TITLE
 from stream_heartbeat.clock import CardiacCycle
 from stream_heartbeat.defib import DefibRhythm
-from stream_heartbeat.overlay import OverlayState
+from stream_heartbeat.overlay import FloatBurst, OverlayState
 from stream_heartbeat.paths import cache_dir
 from stream_heartbeat.render.echo_gl import EchoRenderer, EchoRendererError
 from stream_heartbeat.render.gl_platform import core_profile
@@ -124,8 +124,9 @@ class OutputCanvas(QOpenGLWidget):
         self._motion = EffectMotion()
         self._press_at: QPointF | None = None
         self._dragged = False
-        # 拍の文字・心拍数をつまんで動かしている間の状態
+        # 拍の文字・心拍数をつまんで動かしている間の状態と、いま描いている拍の文字（つまめる文字）
         self._labels = LabelDrag()
+        self._shown_bursts: list[FloatBurst] = []
         # 除細動器: 電気ショックのあとのリズム。そのあいだの拍の文字は本物の拍の代わりにここへ出す
         self._defib = DefibRhythm()
         self._defib_text = OverlayState()
@@ -412,6 +413,7 @@ class OutputCanvas(QOpenGLWidget):
             # ショックから戻るまでは、本物の拍の文字の代わりに、止まって不整脈を打つ心臓の拍で出す
             bursts = [b for b in bursts if not self._defib.mutes(b.start)]
             bursts += self._defib_text.bursts_at(t)
+        self._shown_bursts = bursts
         paint_bursts(
             painter,
             rect,
@@ -576,14 +578,24 @@ class OutputCanvas(QOpenGLWidget):
         return Qt.CursorShape.ArrowCursor
 
     def _label_at(self, pos: QPointF) -> str | None:
-        return label_at(QRectF(self.rect()), self._session.profile, pos, self.bpm_label(self._now))
+        return label_at(
+            QRectF(self.rect()),
+            self._session.profile,
+            pos,
+            self.bpm_label(self._now),
+            self._shown_bursts,
+        )
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             # 拍の文字・心拍数の上なら、演出より先につまんで動かす
             rect = QRectF(self.rect())
             if self._labels.press(
-                rect, self._session.profile, event.position(), self.bpm_label(self._now)
+                rect,
+                self._session.profile,
+                event.position(),
+                self.bpm_label(self._now),
+                self._shown_bursts,
             ):
                 self._motion.hover(None)
                 self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -611,8 +623,10 @@ class OutputCanvas(QOpenGLWidget):
             self.update()
             return
         if self._press_at is None and self._drag_from is None and self._label_at(event.position()):
-            # つまめる文字の上では演出（聴診器）を引っ込め、つまめると分かる手の形にする
-            self._motion.hover(None)
+            # つまめる文字の上では、つまめると分かる手の形にする（聴診器はそのまま。上を通るだけで
+            # 配信画面の聴診器が置き場所へ戻らないように）
+            if self.effect in STETHO_EFFECTS:
+                self._motion.hover(self._relative(event.position()))
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             return
         if self._press_at is not None:
@@ -669,7 +683,9 @@ class OutputCanvas(QOpenGLWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if self._label_at(event.position()) is not None:
-            # 文字をつまむつもりの 2 回目のクリックで向きを戻さない
+            # すばやく押し直すと、2 回目の押下はダブルクリックとしてだけ届く。
+            # 文字をつまむ押下として扱い、向きは戻さない
+            self.mousePressEvent(event)
             return
         if self._can_rotate():
             self.reset_angle()

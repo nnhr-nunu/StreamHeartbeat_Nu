@@ -218,3 +218,97 @@ def test_panel_bpm_check_shows_and_hides_the_number(qapp, tmp_path: Path, monkey
     assert sizes == [0.4]
     panel._client._state = vts.OFF
     panel.shutdown()
+
+
+def test_long_press_without_moving_is_a_click(qtbot, fake_vts: FakeVts, monkeypatch) -> None:
+    # 選んで付けた心臓を、動かさずに長く押しても（VTube Studio が「落とした」と知らせても）、
+    # ドラッグではなく「ぎゅっ」として扱い、付けた場所を忘れない
+    monkeypatch.setattr(vts, "OWN_PIN_QUIET_S", 0.0)
+    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN})
+    heart.show_item(30, squeeze_frames=10)
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemPinRequest")) == 1, timeout=3000)
+    fake_vts.push("ModelClickedEvent", click_event([{"artMeshOrder": 0, "hitInfo": HIT}]))
+    qtbot.waitUntil(lambda: heart._press is not None, timeout=3000)
+    heart._press = (heart._press[0] - 1.5, heart._press[1])
+    fake_vts.push("ItemEvent", drop_event("DroppedPinned", 0.1, 0.2))
+    qtbot.waitUntil(lambda: fake_vts.sent("ItemAnimationControlRequest")[-1]["frame"] == 20,
+                    timeout=3000)
+    assert heart.pins == {"m1": PIN} and not heart.hand_placed and heart.place is None
+    client.stop()
+
+
+def test_disconnect_forgets_waiting_state(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts)
+    heart._reading_place = True
+    heart._press = (1.0, (0, 0))
+    heart._squeeze_until = 1e9
+    client.stop()
+    assert not heart._reading_place and heart._press is None and heart._squeeze_until == 0.0
+
+
+def test_saved_squeeze_count_must_fit_the_frames(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts)
+    heart.show_item(30, squeeze_frames=40)
+    qtbot.waitUntil(lambda: heart.instance_id == "inst1", timeout=3000)
+    # 保存した数が場のコマ数と合わなければ、全部を拍のコマとして使う（拍で心臓が止まらない）
+    rest = fake_vts.sent("ItemAnimationControlRequest")[-1]
+    assert rest["frame"] == 29 and rest["autoStopFrames"] == [29]
+    fake_vts.push("ItemEvent", _event("Clicked"))
+    qtbot.wait(150)
+    assert len(fake_vts.sent("ItemAnimationControlRequest")) == 1
+    client.stop()
+
+
+def test_cancel_pick_of_a_hand_placed_heart(qtbot, fake_vts: FakeVts, monkeypatch) -> None:
+    monkeypatch.setattr(vts, "OWN_PIN_QUIET_S", 0.0)
+    client, heart = _ready_heart(qtbot, fake_vts)
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: heart.instance_id == "inst1", timeout=3000)
+    fake_vts.push("ItemEvent", drop_event("DroppedPinned", 0.1, 0.2))
+    qtbot.waitUntil(lambda: moved == [True], timeout=3000)
+    # 選び始めに外した知らせで今の場所を読み、やめたらそこへ戻す。
+    # 体からは外れたので、手で置いた扱いも消す
+    fake_vts.echo_pins = True
+    assert heart.start_pick(lambda _pin: None)
+    qtbot.waitUntil(lambda: heart.place == (-0.1, 0.4), timeout=3000)
+    heart.cancel_pick()
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemMoveRequest")) == 2, timeout=3000)
+    back = fake_vts.sent("ItemMoveRequest")[-1]["itemsToMove"][0]
+    assert (back["positionX"], back["positionY"]) == (-0.1, 0.4)
+    assert not heart.hand_placed and moved == [True, True]
+    client.stop()
+
+
+def test_switching_to_a_model_with_a_saved_place_clears_hand_placed(
+    qtbot, fake_vts: FakeVts
+) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN}, hand_placed=True)
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemPinRequest")) == 1, timeout=3000)
+    assert not heart.hand_placed and moved == [True]
+    client.stop()
+
+
+def test_bpm_item_unchecked_while_disconnected_is_put_away(
+    qapp, tmp_path: Path, monkeypatch
+) -> None:
+    del qapp
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui.vts_panel import VtsPanel
+
+    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+    control = panel._bpm
+    hidden: list[bool] = []
+    made: list[bool] = []
+    monkeypatch.setattr(control.bpm, "hide", lambda: hidden.append(True))
+    monkeypatch.setattr(control, "make", lambda notice=False: made.append(notice))
+    control.check.setChecked(False)
+    control._on_found(True)
+    assert hidden == [True] and made == []
+    control._on_found(False)
+    assert hidden == [True] and made == []
+    panel.shutdown()

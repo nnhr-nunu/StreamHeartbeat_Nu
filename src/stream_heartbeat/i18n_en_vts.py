@@ -124,10 +124,12 @@ EN_VTS: dict[str, str] = {
     t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
     t.TEXT_CHECK: "Also show the beat text with the heart in VTube Studio",
     t.BPM_CHECK: "Also show the heart rate in VTube Studio",
-    "数字の色・縁取り・大きさは「④ 心拍数」の設定のとおりです。"
+    "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
+    "VTube Studio での大きさは、この欄の「大きさ」で心臓と一緒に変わります。"
     "置き場所は VTube Studio の画面でドラッグして決めます": (
-        'The number\'s color, outline and size follow the "④ Heart rate" settings. '
-        "Drag it in the VTube Studio window to place it."
+        'The number\'s color, outline and text size follow the "④ Heart rate" settings. Its size '
+        'in VTube Studio changes together with the heart via "Size" in this section. Drag it in '
+        "the VTube Studio window to place it."
     ),
     "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
     "文字・大きさ・色は「拍の文字」の設定のとおりです": (
@@ -160,10 +162,8 @@ EN_VTS: dict[str, str] = {
     ),
     t.T_PINNED: 'The heart is attached to the model. You can change its size with "{size}".',
     t.T_HAND_PLACED: (
-        "A heart placed on the body in the VTube Studio window comes off the body when it is "
-        "remade with a new look (this app cannot read where VTube Studio attached it). If you "
-        'attach it with "{pin}", it stays attached after remaking. Change the size with "{size}" '
-        "rather than the mouse wheel, too."
+        "Placed on the body in the VTube Studio window. Remaking it with a new look takes it off "
+        'the body, so to keep it attached, attach it with "{pin}".'
     ),
     t.PICK_NOTICE: (
         "Switch to the VTube Studio window and left-click the model's chest "

@@ -468,7 +468,7 @@ class VtsPanel(QWidget):
             else:
                 note, warn = tr(NOTE_STALE), False
         elif self._heart.hand_placed:
-            note, warn = _say(T_HAND_PLACED, pin=PIN_BUTTON, size=SIZE_LABEL), True
+            note, warn = _say(T_HAND_PLACED, pin=PIN_BUTTON), True
         elif self._heart.model_id in self._heart.pins:
             note, warn = _say(T_PINNED, size=SIZE_LABEL), False
         else:
@@ -625,7 +625,9 @@ class VtsPanel(QWidget):
         self._busy = False
         if ok:
             self._auto_show = True
-            self._save(vts_item_shown=True)
+            # 手で体に置いた心臓は、出し直す前に読んだ今の場所に出した。次に起動したときもそこへ
+            place = self._heart.place
+            self._save(vts_item_shown=True, vts_item_place=list(place) if place else None)
             pinned = self._heart.model_id in self._heart.pins
             if self._heart.hand_placed:
                 self._notify(_say(T_HAND_REMADE_NOTICE, pin=PIN_BUTTON))
