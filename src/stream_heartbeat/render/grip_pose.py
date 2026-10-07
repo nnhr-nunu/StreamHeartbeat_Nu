@@ -50,9 +50,14 @@ WRAP_FULL_V = 420.0
 WRAP_NONE_V = 600.0
 ARM_SLOPE = 0.175  # 袖の傾き（下へ 1 進むと右へ進む量）
 TAIL_V = 1258.0  # 素材の下端。ここより下は袖をこの行で伸ばす
-# 握った手の絵へ切り替える所（変形の進み具合）。鼓動の握り直し程度では開いた手の絵のまま曲がる
+# 握った手の絵へ切り替える所（握りの強さ）。鼓動の握り直し程度では開いた手の絵のまま
 BLEND_FROM = 0.5
 BLEND_TO = 0.75
+# 網目を握った手の形へ寄せ始める・握りの強さそのままに寄せる握りの強さ。握った手の絵は指どうしが
+# 接しているので、開いた手の絵のまま寄せると指の股が引き上がり、指の付け根がふくらんで歪む。
+# 鼓動の握り直し（PULSE_SQUEEZE まで）では寄せず、クリックで握り込むときだけ寄せる
+MORPH_FROM = 0.3
+MORPH_FULL = 0.65
 # 握った手の絵は指の曲がりまで描いてあるので、絵が替わるほど心臓の丸みへの巻き付けを少し弱める。
 # 指先は縁の手前に収まるので、弱めすぎると指が心臓から浮いて輪郭の外へはみ出す
 CLAW_FLATTEN = 0.2
@@ -428,7 +433,7 @@ def grip_pose(
         sink=SINK * (0.35 + 0.65 * g),
         palm_z=palm[2] * extent[2] / size,
         grip=g,
-        morph=g,
+        morph=g * _smoothstep(MORPH_FROM, MORPH_FULL, g),
         blend=blend,
         flatten=CLAW_FLATTEN * blend,
         dent=size * (DENT_REST + DENT_GRIP * g),

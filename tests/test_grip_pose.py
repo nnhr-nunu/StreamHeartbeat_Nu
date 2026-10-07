@@ -124,9 +124,18 @@ def test_fingertips_stay_in_front_and_grip_turns_into_the_claw() -> None:
         assert 0.3 < held.finger_facing(i, 1.0) < 0.9, i
     # 握ると手が心臓に食い込みながら少し上へ滑る
     assert held.anchor[1] > rest.anchor[1]
-    # 鼓動の握り直し程度では絵は替わらない（開いた手のまま指が少し曲がる）
-    systole = _pose(BeatClock().cycle(0.05))
-    assert 0.2 < systole.morph < 0.4 and systole.blend == 0.0
+    # 鼓動の握り直し程度では絵は替わらず、網目も握った手の形へ寄せない（寄せると指の股が
+    # 引き上がって指の付け根が歪む）。拍のどの時点でも
+    clock = BeatClock()
+    for k in range(24):
+        beat = _pose(clock.cycle(k * clock.interval() / 24))
+        assert beat.morph < 0.02 and beat.blend == 0.0, k
+    assert _pose(clock.cycle(0.05)).grip > 0.2
+    # クリックで握り込む途中からは寄せ始め、握った手の絵へ替わる所ではほぼ握りの強さどおり
+    half = _pose(clock.cycle(0.05), grip=0.3)
+    assert 0.0 < half.morph < half.grip
+    deep = _pose(clock.cycle(0.05), grip=0.6)
+    assert deep.grip >= 0.65 and deep.morph == pytest.approx(deep.grip)
 
 
 def test_claw_morph_follows_the_outline_pairs() -> None:
