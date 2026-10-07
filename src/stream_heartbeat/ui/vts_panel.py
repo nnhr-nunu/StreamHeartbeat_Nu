@@ -31,11 +31,13 @@ from stream_heartbeat.render.heart_frames import (
     count_frames,
     frame_systole,
     item_effect,
+    item_text,
+    item_zoom,
     render_frames,
     write_frames,
 )
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.effects import EFFECT_GRIP, STETHO_EFFECTS
+from stream_heartbeat.ui.effects import GRIP_EFFECTS, STETHO_EFFECTS
 from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
@@ -58,6 +60,7 @@ from stream_heartbeat.vts import (
     VtsClient,
     VtsHeart,
     clean_pin,
+    clean_place,
     find_items_dir,
     item_framerate,
 )
@@ -89,6 +92,7 @@ from stream_heartbeat.vts_text import (
     T_PINNED,
     T_STALE_FAILED,
     T_UNPINNED,
+    TEXT_CHECK,
     TROUBLE_LINES,
 )
 
@@ -159,6 +163,7 @@ def _guide_names() -> dict[str, object]:
         "remake": REMAKE_BUTTON,
         "size": SIZE_LABEL,
         "params": PARAMS_CHECK,
+        "words": TEXT_CHECK,
         "beat": PARAM_BEAT,
         "bpm": PARAM_BPM,
     }
@@ -206,19 +211,36 @@ def _saved_size(raw: object) -> float:
     return ITEM_SIZE
 
 
-def look_key(profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0)) -> tuple:
-    """アイテムの絵を決める見た目（スタイル・種類・材質・向き・演出）。変わったら作り直す。
+def _saved_zoom(raw: object) -> float:
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return max(1.0, min(4.0, float(raw)))
+    return 1.0
 
-    stetho は聴診器を当てる所（render_frames と同じ）。保存できるよう、文字と数だけで作る。
+
+def look_key(
+    profile: HeartProfile, stetho: tuple[float, float] = (0.0, 0.0), text: bool = False
+) -> tuple:
+    """アイテムの絵を決める見た目（スタイル・種類・材質・向き・演出・拍の文字）。変わったら作り直す。
+
+    stetho は聴診器を当てる所、text は拍の文字も描くか（render_frames と同じ）。
+    保存できるよう、文字と数だけで作る。
     """
     effect = item_effect(profile)
     # 2D の絵と、手で掴んでいる間（正面から見る）は向きが無い
-    front = profile.style in FLAT_ITEM_STYLES or effect == EFFECT_GRIP
+    front = profile.style in FLAT_ITEM_STYLES or effect in GRIP_EFFECTS
     angle = () if front else (round(profile.heart_yaw_deg), round(profile.heart_pitch_deg))
     place = (round(stetho[0], 1), round(stetho[1], 1)) if effect in STETHO_EFFECTS else ()
     material = chosen_material(profile)
     materials = (material,) if material else ()
-    return (profile.style, profile.realistic_look, *materials, *angle, effect, *place)
+    word = item_text(profile) if text else None
+    # 文字は心臓に対する置き場所・大きさ（窓の心臓の大きさでも変わる）を数で持つ
+    words = (
+        ("text", word.text, round(word.dx), round(word.dy), word.font_px, round(word.angle),
+         round(word.opacity, 2), word.color, word.outline)
+        if word is not None
+        else ()
+    )  # fmt: skip
+    return (profile.style, profile.realistic_look, *materials, *angle, effect, *place, *words)
 
 
 def _saved_look(raw: object) -> tuple | None:
@@ -255,8 +277,12 @@ class VtsPanel(QWidget):
             self._client,
             size=_saved_size(state.get("vts_item_size")),
             pins=_saved_pins(state.get("vts_pins")),
+            place=clean_place(state.get("vts_item_place")),
         )
+        # 書き出してあるコマを広げて描いた倍率（出し直さずに使い続けるときも大きさを合わせる）
+        self._heart.zoom = _saved_zoom(state.get("vts_item_zoom"))
         self._heart.on_found = self._on_found
+        self._heart.on_moved = self._on_moved
         saved_dir = state.get("vts_items_dir")
         self._items_dir: Path | None = Path(saved_dir) if isinstance(saved_dir, str) else None
         # 前に出していたら、つないだとき場に無ければ出し直す（VTube Studio を起動し直したときなど）
@@ -294,6 +320,11 @@ class VtsPanel(QWidget):
             round(ITEM_SIZE_MIN * 100), round(ITEM_SIZE_MAX * 100), "小さく", "大きく"
         )
         self._size.setValue(round(self._heart.size * 100))
+        self._text = QCheckBox(TEXT_CHECK)
+        self._text.setToolTip(
+            "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
+            "文字・大きさ・色は「拍の文字」の設定のとおりです"
+        )
         self._params = QCheckBox(PARAMS_CHECK)
         self._folder = QLabel("")
         self._folder.setObjectName("meta")
@@ -318,6 +349,7 @@ class VtsPanel(QWidget):
         details.addLayout(item_row)
         details.addWidget(self._pin_btn)
         details.addLayout(size_form)
+        details.addWidget(self._text)
         details.addWidget(self._params)
         self._details.hide()
 
@@ -345,6 +377,7 @@ class VtsPanel(QWidget):
         self._client.token_changed.connect(self._on_token)
         self._enable.toggled.connect(self._on_enable)
         self._params.toggled.connect(self._save_flags)
+        self._text.toggled.connect(self._save_flags)
         self._item_btn.clicked.connect(self._make_item)
         self._hide_btn.clicked.connect(self._hide_item)
         self._pin_btn.clicked.connect(self._toggle_pick)
@@ -353,6 +386,9 @@ class VtsPanel(QWidget):
         self._folder_btn.clicked.connect(self._choose_folder)
 
         self._params.setChecked(bool(state.get("vts_params", False)))
+        self._text.blockSignals(True)
+        self._text.setChecked(bool(state.get("vts_beat_text", True)))
+        self._text.blockSignals(False)
         self._show_folder()
         self._refresh()
         if state.get("vts_enabled"):
@@ -453,7 +489,17 @@ class VtsPanel(QWidget):
             self._client.stop()
 
     def _save_flags(self, _on: bool = False) -> None:
-        self._save(vts_enabled=self._enable.isChecked(), vts_params=self._params.isChecked())
+        self._save(
+            vts_enabled=self._enable.isChecked(),
+            vts_params=self._params.isChecked(),
+            vts_beat_text=self._text.isChecked(),
+        )
+
+    def _on_moved(self) -> None:
+        """VTube Studio の画面で心臓を置き直した。次に出すときも同じ所に出すよう覚えておく。"""
+        place = self._heart.place
+        self._save(vts_pins=self._heart.pins, vts_item_place=list(place) if place else None)
+        self._refresh()
 
     def _save(self, **values: object) -> None:
         try:
@@ -494,7 +540,7 @@ class VtsPanel(QWidget):
         self._show_folder()
 
     def _look_key(self) -> tuple:
-        return look_key(self._session.profile, self._stetho_offset())
+        return look_key(self._session.profile, self._stetho_offset(), self._text.isChecked())
 
     def _make_item(self, auto: bool = False) -> None:
         """今の見た目でコマを書き出して出す（出ていれば出し直す）。
@@ -510,7 +556,8 @@ class VtsPanel(QWidget):
             self._notify(tr("VTube Studio につながってから押してください"))
             return
         stetho = self._stetho_offset()
-        key = look_key(profile, stetho)
+        text = self._text.isChecked()
+        key = look_key(profile, stetho, text)
         folder = self._resolved_dir()
         if folder is None:
             self._notify(tr(NOT_ITEMS_NOTICE))
@@ -523,7 +570,8 @@ class VtsPanel(QWidget):
                 return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            count = write_frames(render_frames(profile, stetho=stetho), folder / ITEM_FOLDER)
+            frames = render_frames(profile, stetho=stetho, text=text)
+            count = write_frames(frames, folder / ITEM_FOLDER)
         except (OSError, RuntimeError):
             self._failed_key = key
             self._notify(
@@ -534,8 +582,10 @@ class VtsPanel(QWidget):
             QApplication.restoreOverrideCursor()
         self._made_key = key
         self._failed_key = None
+        # コマを広げて描いたぶん、VTube Studio へ渡す大きさを大きくする（心臓の見かけはそのまま）
+        self._heart.zoom = item_zoom(profile, text)
         # 次に起動したとき、書き出してあるコマが今の見た目かを見分ける
-        self._save(vts_item_look=list(key))
+        self._save(vts_item_look=list(key), vts_item_zoom=self._heart.zoom)
         self._busy = True
         self._heart.show_item(count, lambda ok: self._item_shown(ok, auto))
 

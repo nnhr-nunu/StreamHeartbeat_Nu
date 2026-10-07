@@ -32,12 +32,17 @@ _HOW_TO_EN = (
     'If you leave "Connect to VTube Studio" ticked, just starting this app and VTube Studio '
     "shows the heart in the same place. It also connects automatically if you start "
     "VTube Studio later.",
+    "- If you drag the heart to a new place in the VTube Studio window, that place is remembered "
+    "too (it reappears there even after the heart is remade with a new look).",
     "- If you change the style, the heart's angle or the effect, the heart in VTube Studio "
     "automatically follows after a short wait.",
     "- The Heart grab, Stethoscope and Popping hearts effects also appear on the VTube Studio "
     "heart. The strong squeeze on click and the stethoscope following the mouse only work in "
     "the output window; in VTube Studio the hand stays in place and the stethoscope stays "
     "where you left it in the output window.",
+    '- If you tick "{words}", the beat text (such as ❤ or "ba-dump") also appears in the same '
+    "place as in the output window (always in the same spot, without the per-beat wobble). "
+    "The heart rate number is not shown.",
     '- To remove the heart, press "{hide}". It will not appear the next time you start the app '
     '(press "{show}" to show it again).',
     "- Styles available in VTube Studio: {names}",
@@ -109,6 +114,12 @@ EN_VTS: dict[str, str] = {
     "小さく": "Smaller",
     "大きく": "Larger",
     t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
+    t.TEXT_CHECK: "Also show the beat text with the heart in VTube Studio",
+    "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
+    "文字・大きさ・色は「拍の文字」の設定のとおりです": (
+        "Shows the output window's beat text (such as ❤) on the VTube Studio heart too, "
+        "in the same place. The text, size and color follow the beat text settings."
+    ),
     "押したあと、VTube Studio の画面でモデルの心臓を付けたい所を左クリックします": (
         "After pressing this, left-click the spot on the model in the VTube Studio window "
         "where you want the heart."

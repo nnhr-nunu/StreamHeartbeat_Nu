@@ -272,6 +272,7 @@ class ModelRenderer:
                 env=self._env,
                 env_yaw=ENV_YAW,
                 split=split,
+                viewport=(width, height),
                 **kwargs,  # type: ignore[arg-type]
             )
             self._bind()
