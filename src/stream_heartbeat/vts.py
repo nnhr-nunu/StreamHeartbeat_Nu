@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -60,6 +61,9 @@ DROPPED_PINNED = "DroppedPinned"
 DROPPED_UNPINNED = "DroppedUnpinned"
 # アイテムを置ける位置の範囲（ItemLoadRequest。画面の端は ±1）
 POSITION_LIMIT = 1000.0
+# こちらから留めた・外したときにも VTube Studio は DroppedPinned などを知らせてくる
+# （留め直しでは返事のあとにも来る）。そのあいだの知らせは、手で置いたものとして扱わない秒数
+OWN_PIN_QUIET_S = 1.5
 
 # 状態（操作画面の表示に使う）
 OFF = "off"
@@ -359,10 +363,9 @@ class VtsHeart:
         self.instance_id: str | None = None
         self.frame_count = 0
         self.last_error = ""
+        # VTube Studio は絵の画素数に size を掛けた大きさで出す。コマを広く描いても
+        # 心臓の画素の大きさは同じなので、心臓の見かけの大きさは size のまま変わらない
         self.size = size
-        # コマの絵が、心臓のまわりをふつうの何倍の広さまで描いてあるか（肋骨・拍の文字の余白）。
-        # VTube Studio へ渡す大きさに掛けて、心臓そのものの見かけの大きさは size のまま保つ
-        self.zoom = 1.0
         self.pins: dict[str, dict] = dict(pins or {})
         # VTube Studio の画面でドラッグして置いた所（留める場所が分からないとき、ここに出す）
         self.place = place
@@ -372,6 +375,8 @@ class VtsHeart:
         # VTube Studio の画面で心臓を動かし、覚えている場所（pins・place）が変わった
         self.on_moved: Callable[[], None] | None = None
         self._params_ready = False
+        # この時刻まで、アイテムを落とした知らせは自分で留めた・外したもの（OWN_PIN_QUIET_S）
+        self._quiet_until = 0.0
         self._pick_done: Callable[[dict | None], None] | None = None
         client.ready.connect(self._on_ready)
         client.state_changed.connect(self._on_state)
@@ -411,6 +416,8 @@ class VtsHeart:
         kind = data.get("itemEventType")
         if kind not in (DROPPED_PINNED, DROPPED_UNPINNED) or self.instance_id is None:
             return
+        if time.monotonic() < self._quiet_until:
+            return
         place = clean_place(data.get("itemPosition"))
         if data.get("itemInstanceID") != self.instance_id or place is None:
             return
@@ -435,10 +442,6 @@ class VtsHeart:
     def _moved(self) -> None:
         if self.on_moved is not None:
             self.on_moved()
-
-    def _vts_size(self) -> float:
-        """VTube Studio へ渡す大きさ（コマを広く描いたぶん大きくする。0〜1 に収める）。"""
-        return min(1.0, self.size * max(1.0, self.zoom))
 
     # ------------------------------------------------------------ アイテム
 
@@ -483,7 +486,7 @@ class VtsHeart:
                     "fileName": ITEM_FOLDER,
                     "positionX": x,
                     "positionY": y,
-                    "size": self._vts_size(),
+                    "size": self.size,
                     "rotation": 0,
                     "fadeTime": 0.3,
                     "order": 5,
@@ -596,18 +599,28 @@ class VtsHeart:
             self._pin(pin)
 
     def _pin(self, pin: dict, then: Reply | None = None) -> None:
-        self._client.request(
-            "ItemPinRequest",
+        self._pin_request(
             {
                 "pin": True,
                 "itemInstanceID": self.instance_id,
                 "angleRelativeTo": "RelativeToModel",
                 "sizeRelativeTo": "RelativeToWorld",
                 "vertexPinType": "Provided",
-                "pinInfo": {**pin, "angle": 0, "size": self._vts_size()},
+                "pinInfo": {**pin, "angle": 0, "size": self.size},
             },
             then,
         )
+
+    def _pin_request(self, data: dict, then: Reply | None = None) -> None:
+        """留める・外す。返ってくる「落とした」知らせを、手で置いたものと取り違えないようにする。"""
+        self._quiet_until = time.monotonic() + OWN_PIN_QUIET_S
+
+        def replied(reply: dict) -> None:
+            self._quiet_until = max(self._quiet_until, time.monotonic() + OWN_PIN_QUIET_S)
+            if then is not None:
+                then(reply)
+
+        self._client.request("ItemPinRequest", data, replied)
 
     def start_pick(self, done: Callable[[dict | None], None]) -> bool:
         """モデルをクリックした所へ心臓を留める。クリックを待ち、留めたら done(場所)。"""
@@ -615,7 +628,7 @@ class VtsHeart:
             return False
         self._pick_done = done
         # 心臓がモデルに重なっているとクリックが心臓に当たるので、外して脇へ寄せる
-        self._client.request("ItemPinRequest", {"pin": False, "itemInstanceID": self.instance_id})
+        self._pin_request({"pin": False, "itemInstanceID": self.instance_id})
         self._move(x=PICK_ASIDE_X, y=0.0, seconds=0.3)
         self._client.subscribe("ModelClickedEvent", {"onlyClicksOnModel": True}, self._on_click)
         return True
@@ -661,7 +674,7 @@ class VtsHeart:
         if self.pins.get(self.model_id) is not None and not self.picking:
             self._pin_saved()
         else:
-            self._move(size=self._vts_size())
+            self._move(size=self.size)
 
     def _move(
         self, *, x: float = -1000.0, y: float = -1000.0, size: float = -1000.0, seconds: float = 0.0
