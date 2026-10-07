@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -96,6 +97,8 @@ TEXT_SECONDS = BURST_FADE_IN_S + BURST_HOLD_S + BURST_FADE_OUT_S
 TEXT_MARGIN_PX = 6.0
 # 「ぎゅっ」のコマは、この握りの強さまで緩んだら休んでいる形のコマで終える
 SQUEEZE_END = 0.05
+# コマを PNG に書くときに並べて動かす数（書き出しの間、操作画面と配信用の窓が止まるので短くする）
+WRITE_WORKERS = 4
 
 
 @dataclass(frozen=True)
@@ -554,10 +557,12 @@ def write_frames(frames: list[QImage], folder: Path, tag: str | None = None) -> 
     # このフォルダはアイテム専用。PNG が残っていると VTube Studio がコマとして混ぜるので全部消す
     for old in folder.glob("*.png"):
         old.unlink()
-    for index, frame in enumerate(frames):
-        # VTube Studio は名前の末尾の番号の順に並べる。桁をそろえて並びを崩さない
-        if not frame.save(str(folder / f"{FRAME_PREFIX}{tag}_{index + 1:03d}.png")):
-            raise OSError(f"コマを書けません: {folder}")
+    # VTube Studio は名前の末尾の番号の順に並べる。桁をそろえて並びを崩さない
+    paths = [str(folder / f"{FRAME_PREFIX}{tag}_{i + 1:03d}.png") for i in range(len(frames))]
+    with ThreadPoolExecutor(max_workers=WRITE_WORKERS) as pool:
+        saved = list(pool.map(lambda job: job[0].save(job[1]), zip(frames, paths, strict=True)))
+    if not all(saved):
+        raise OSError(f"コマを書けません: {folder}")
     return len(frames)
 
 

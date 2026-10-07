@@ -29,7 +29,10 @@ PICKING_BUTTON = "クリック待ち…（もう一度押すとやめる）"
 SIZE_LABEL = "大きさ"
 PARAMS_CHECK = "心拍を VTube Studio のパラメータにも送る（上級者向け）"
 TEXT_CHECK = "拍の文字も VTube Studio の心臓と一緒に出す"
-BPM_CHECK = "心拍数も VTube Studio に出す"
+BPM_CHECK = "心拍数の数字も VTube Studio に出す"
+# 心拍数の数字を出している間の一文と、出せなかったとき
+BPM_SHOWN_NOTE = "心拍数の数字を出しています。VTube Studio の画面でドラッグして置き場所を決めます"
+T_BPM_FAILED = "心拍数の数字を出せませんでした（{error}）"
 BPM_SHOWN_NOTICE = (
     "VTube Studio に心拍数を出しました。"
     "VTube Studio の画面でドラッグして、置きたい所へ動かしてください"
@@ -109,7 +112,8 @@ HOW_TO_LINES = (
     "（拍ごとの位置や傾きの揺れは無く、いつも同じ所です）。",
     "・「{bpm_check}」にチェックを入れると、心拍数の数字も VTube Studio に出ます。"
     "色・縁取り・大きさは「④ 心拍数」の設定のとおりです。置き場所は VTube Studio の画面で"
-    "ドラッグして決めます（覚えておき、次も同じ所に出します）。",
+    "ドラッグして決めます（覚えておき、次も同じ所に出します。モデルの上に置くと体と一緒に動きますが、"
+    "④ の設定を変えて作り直すと体から外れます）。",
     "・心臓を消すときは「{hide}」を押します。次に起動しても出ません（また出すときは「{show}」）。",
     "・VTube Studio に出せるスタイル: {names}",
     "",
