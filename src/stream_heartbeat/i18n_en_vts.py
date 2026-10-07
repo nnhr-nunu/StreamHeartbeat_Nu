@@ -45,8 +45,9 @@ _HOW_TO_EN = (
     "VTube Studio the stethoscope stays where you left it in the output window.",
     '- If you tick "{words}", the beat text (such as ❤ or "ba-dump") also appears in the same '
     "place as in the output window (always in the same spot, without the per-beat wobble).",
-    '- If you tick "{bpm_check}", the heart rate number also appears in VTube Studio. Its color, '
-    'outline and size follow the "④ Heart rate" settings. Drag it in the VTube Studio window to '
+    '- If you tick "{bpm_check}", the heart rate number also appears in VTube Studio. Its color '
+    'and outline follow the "④ Heart rate" settings; change its size with "{bpm_size}". Drag it '
+    "in the VTube Studio window to "
     "place it (the place is remembered for next time. If you put it on the model it moves with "
     'the body, but it comes off when it is remade after you change the "④" settings).',
     '- To remove the heart, press "{hide}". It will not appear the next time you start the app '
@@ -120,6 +121,10 @@ EN_VTS: dict[str, str] = {
     t.PIN_BUTTON: "Choose where to attach the heart",
     t.PICKING_BUTTON: "Waiting for a click… (press again to cancel)",
     t.SIZE_LABEL: "Size",
+    t.HEART_HEAD: "Heart",
+    t.BPM_HEAD: "Heart rate number",
+    t.ADVANCED_HEAD: "Advanced",
+    t.BPM_SIZE_LABEL: "Number size",
     "小さく": "Smaller",
     "大きく": "Larger",
     t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
@@ -129,12 +134,10 @@ EN_VTS: dict[str, str] = {
         "The heart rate number is shown. Drag it in the VTube Studio window to place it."
     ),
     t.T_BPM_FAILED: "Could not show the heart rate number ({error})",
-    "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
-    "VTube Studio での大きさは、この欄の「大きさ」で心臓と一緒に変わります。"
+    "数字の色・縁取りは「④ 心拍数」の設定のとおりです。大きさは「数字の大きさ」で変えます。"
     "置き場所は VTube Studio の画面でドラッグして決めます": (
-        'The number\'s color, outline and text size follow the "④ Heart rate" settings. Its size '
-        'in VTube Studio changes together with the heart via "Size" in this section. Drag it in '
-        "the VTube Studio window to place it."
+        'The number\'s color and outline follow the "④ Heart rate" settings. Change its size with '
+        '"Number size". Drag it in the VTube Studio window to place it.'
     ),
     "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
     "文字・大きさ・色は「③ 同期文字」の設定のとおりです": (

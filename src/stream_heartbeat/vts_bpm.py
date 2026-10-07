@@ -2,7 +2,7 @@
 
 コマは流さず、心拍数が変わったらそのコマを出す。置き場所は VTube Studio の画面でドラッグして
 決める。落とした所は知らせ（ItemEvent。心臓の VtsHeart が受けてこちらへ渡す）で覚え、
-出し直しても同じ所に出す。大きさは心臓と同じ値（操作画面の「大きさ」）。
+出し直しても同じ所に出す。大きさは操作画面の「数字の大きさ」（心臓とは別）。
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from stream_heartbeat.vts import (
     DROPPED_UNPINNED,
     ERROR_ITEM_NOT_FOUND,
     ITEM_SIZE,
+    ITEM_SIZE_MAX,
+    ITEM_SIZE_MIN,
     READY,
     VtsClient,
 )
@@ -166,7 +168,8 @@ class VtsBpm:
         )
 
     def set_size(self, size: float) -> None:
-        self.size = size
+        self.size = max(ITEM_SIZE_MIN, min(ITEM_SIZE_MAX, size))
+        size = self.size
         if self._client.state != READY or self.instance_id is None:
             return
         self._client.request(
