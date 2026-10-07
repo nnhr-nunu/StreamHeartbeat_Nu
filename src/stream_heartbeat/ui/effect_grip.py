@@ -17,7 +17,6 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter, QTransform
 
 from stream_heartbeat.clock import CardiacCycle
-from stream_heartbeat.render.grip_pose import BIG_HAND_DROP, BIG_HAND_SCALE
 from stream_heartbeat.ui.app_icon import assets_dir
 from stream_heartbeat.ui.effects import HeartFrame, beat_jolt
 
@@ -87,22 +86,15 @@ def paint_grip_hand(
     grip: float,
     time_s: float,
     opacity: float,
-    big: bool = False,
 ) -> None:
-    """心臓に触れて掴む手を描く（心臓の後に描く）。grip は握る強さ 0〜1。
-
-    big は大きい手（心臓わしづかみ2。立体の手の grip_pose.big_hand と同じ大きさ・下げ方）。
-    """
+    """心臓に触れて掴む手を描く（心臓の後に描く）。grip は握る強さ 0〜1。"""
     source = hand_image()
     radius = frame.radius
     if source.isNull() or radius <= 1.0:
         return
     g = max(0.0, min(1.0, grip))
     jolt = beat_jolt(cycle.squeeze, cycle.fill)
-    width_r = HAND_WIDTH_R * (BIG_HAND_SCALE if big else 1.0)
-    # 大きくしたぶん手の甲を下げて、指先の高さを保つ
-    drop = (width_r - HAND_WIDTH_R) * BIG_HAND_DROP
-    base = width_r * radius / IMG_HAND_WIDTH
+    base = HAND_WIDTH_R * radius / IMG_HAND_WIDTH
     ratio = painter.device().devicePixelRatioF() if painter.device() is not None else 1.0
     width_px = round(IMG_SIZE[0] * base * ratio)
     image = _scaled(HAND_IMAGE, width_px)
@@ -115,7 +107,7 @@ def paint_grip_hand(
     anchor = QPointF(
         frame.center.x() + HAND_ANCHOR[0] * radius + shake * math.sin(time_s * SHAKE_SPEED[0]),
         frame.center.y()
-        + (HAND_ANCHOR[1] + drop) * radius
+        + HAND_ANCHOR[1] * radius
         + radius * 0.035 * jolt
         + shake * math.cos(time_s * SHAKE_SPEED[1]),
     )

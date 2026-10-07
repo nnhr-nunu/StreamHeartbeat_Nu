@@ -137,6 +137,10 @@ def _clean_calibration(value: object) -> list[list[float]]:
     return out
 
 
+# なくした演出の置き換え先（心臓わしづかみ2 の大きい手は 0.4.1 でなくし、1 の手にする）
+_RETIRED_EFFECTS = {"grip_big": "grip"}
+
+
 def load_profile(path: Path) -> HeartProfile:
     """壊れた・手で書き換えた項目は既定値にする。読めないファイルでも起動は止めない。"""
     try:
@@ -161,6 +165,9 @@ def load_profile(path: Path) -> HeartProfile:
         default = getattr(defaults, item.name)
         if _same_kind(default, value):
             filtered[item.name] = float(value) if isinstance(default, float) else value
+    effect = filtered.get("effect")
+    if isinstance(effect, str) and effect in _RETIRED_EFFECTS:
+        filtered["effect"] = _RETIRED_EFFECTS[effect]
     return HeartProfile(**filtered)
 
 

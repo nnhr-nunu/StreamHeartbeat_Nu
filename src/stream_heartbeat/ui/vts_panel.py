@@ -37,7 +37,7 @@ from stream_heartbeat.render.heart_frames import (
     write_frames,
 )
 from stream_heartbeat.session import HeartSession
-from stream_heartbeat.ui.effects import GRIP_EFFECTS, STETHO_EFFECTS
+from stream_heartbeat.ui.effects import EFFECT_GRIP, STETHO_EFFECTS
 from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
@@ -237,7 +237,7 @@ def look_key(
     """
     effect = item_effect(profile)
     # 2D の絵と、手で掴んでいる間（正面から見る）は向きが無い
-    front = profile.style in FLAT_ITEM_STYLES or effect in GRIP_EFFECTS
+    front = profile.style in FLAT_ITEM_STYLES or effect == EFFECT_GRIP
     angle = () if front else (round(profile.heart_yaw_deg), round(profile.heart_pitch_deg))
     place = (round(stetho[0], 1), round(stetho[1], 1)) if effect in STETHO_EFFECTS else ()
     material = chosen_material(profile)
