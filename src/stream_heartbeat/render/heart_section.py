@@ -329,9 +329,9 @@ vec2 bezier(vec2 a, vec2 m, vec2 b, float u) {
     return mix(mix(a, m, u), mix(m, b, u), u);
 }
 // 弁尖: 付け根から先へ、反りのある膜。先の縁は結節で少し厚い。
-// 返す値は先の点（腱索を付ける所）。half は膜の半ばの点
+// 返す値は先の点（腱索を付ける所）。chordMid は膜の半ばの点
 vec2 takeLeaflet(vec2 p, vec2 root, vec2 tip, float bow, float thick,
-                 inout float bestD, inout vec4 best, out vec2 half) {
+                 inout float bestD, inout vec4 best, out vec2 chordMid) {
     vec2 dir = tip - root;
     vec2 side = normalize(vec2(-dir.y, dir.x));
     vec2 ctrl = mix(root, tip, 0.5) + side * bow;
@@ -345,15 +345,15 @@ vec2 takeLeaflet(vec2 p, vec2 root, vec2 tip, float bow, float thick,
         takeCone(p, prev, cur, r0, r1, 1.0, u0, u, bestD, best);
         prev = cur;
     }
-    half = bezier(root, ctrl, tip, 0.55);
+    chordMid = bezier(root, ctrl, tip, 0.55);
     return tip;
 }
 // 腱索: 乳頭筋の先から弁尖の先と半ばへ、細い白い糸が扇に広がる
-void takeChordae(vec2 p, vec2 from, vec2 half, vec2 tip, float seed,
+void takeChordae(vec2 p, vec2 from, vec2 chordMid, vec2 tip, float seed,
                  inout float bestD, inout vec4 best) {
     for (int i = 0; i < 5; i++) {
         float u = float(i) / 4.0;
-        vec2 to = mix(half, tip, u) + vec2(0.0, 0.006 * sin(seed + float(i) * 2.1));
+        vec2 to = mix(chordMid, tip, u) + vec2(0.0, 0.006 * sin(seed + float(i) * 2.1));
         // 根元は束ねて少し太く、先は細い
         vec2 split = mix(from, to, 0.18);
         takeCone(p, from, split, 0.0055, 0.0045, 2.0, 0.0, 0.18, bestD, best);
@@ -383,28 +383,28 @@ float structures(vec2 p, out vec4 best) {
     takeCone(p, modM, modB, MOD_R * 0.85, MOD_R * 1.05, 0.0, 0.5, 1.0, bestD, best);
 
     // 房室弁: 閉じると心房側へふくらみ、開くと心室の壁へ寄って反る
-    vec2 half;
+    vec2 chordMid;
     vec2 tip;
     float bowM = mix(0.035, -0.045, gOpenAV);
     tip = takeLeaflet(p, MITRAL_A1, mix(MITRAL_C1, MITRAL_O1, gOpenAV), -bowM, 0.0125,
-                      bestD, best, half);
-    takeChordae(p, lvSepTip, half, tip, 1.0, bestD, best);
+                      bestD, best, chordMid);
+    takeChordae(p, lvSepTip, chordMid, tip, 1.0, bestD, best);
     tip = takeLeaflet(p, MITRAL_A2, mix(MITRAL_C2, MITRAL_O2, gOpenAV), bowM, 0.011,
-                      bestD, best, half);
-    takeChordae(p, lvLatTip, half, tip, 2.0, bestD, best);
+                      bestD, best, chordMid);
+    takeChordae(p, lvLatTip, chordMid, tip, 2.0, bestD, best);
     float bowT = mix(0.03, -0.04, gOpenAV);
     tip = takeLeaflet(p, TRICUSPID_A1, mix(TRICUSPID_C1, TRICUSPID_O1, gOpenAV), -bowT, 0.011,
-                      bestD, best, half);
-    takeChordae(p, rvTip, half, tip, 3.0, bestD, best);
+                      bestD, best, chordMid);
+    takeChordae(p, rvTip, chordMid, tip, 3.0, bestD, best);
     tip = takeLeaflet(p, TRICUSPID_A2, mix(TRICUSPID_C2, TRICUSPID_O2, gOpenAV), bowT, 0.011,
-                      bestD, best, half);
-    takeChordae(p, rvTip, half, tip, 4.0, bestD, best);
+                      bestD, best, chordMid);
+    takeChordae(p, rvTip, chordMid, tip, 4.0, bestD, best);
     // 大動脈弁: 閉じると 2 枚の半月の膜が椀の形に合わさり、開くと壁へ寄る
     float bowA = mix(-0.03, 0.012, gOpenAo);
     takeLeaflet(p, AORTIC_A1, mix(AORTIC_C1, AORTIC_O1, gOpenAo), bowA, 0.009,
-                bestD, best, half);
+                bestD, best, chordMid);
     takeLeaflet(p, AORTIC_A2, mix(AORTIC_C2, AORTIC_O2, gOpenAo), -bowA, 0.009,
-                bestD, best, half);
+                bestD, best, chordMid);
     return bestD;
 }
 
