@@ -18,9 +18,9 @@
 
 | OS | ダウンロードするファイル |
 | -- | ------------------------ |
-| Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
-| Mac（Apple チップ。M1 / M2 / M3 など） | `StreamHeartbeat-macOS.zip` |
-| Mac（Intel。2016 年の MacBook Pro など） | `StreamHeartbeat-macOS-intel.zip` |
+| Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
+| Mac（Apple チップ。M1 / M2 / M3 など） | `macOS-StreamHeartbeat.zip` |
+| Mac（Intel。2016 年の MacBook Pro など） | `macOS-intel-StreamHeartbeat.zip` |
 
 Mac は macOS 12 以降で動きます。Apple チップか Intel か分からないときは、左上のリンゴマーク → **この Mac について** の「チップ」（Apple）か「プロセッサ」（Intel）を見てください。
 
@@ -266,9 +266,9 @@ The app's interface **automatically starts in English** unless your OS display l
 
 | OS | File |
 | -- | ---- |
-| Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
-| macOS 12+, Apple silicon (M1 / M2 / M3 …) | `StreamHeartbeat-macOS.zip` |
-| macOS 12+, Intel | `StreamHeartbeat-macOS-intel.zip` |
+| Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
+| macOS 12+, Apple silicon (M1 / M2 / M3 …) | `macOS-StreamHeartbeat.zip` |
+| macOS 12+, Intel | `macOS-intel-StreamHeartbeat.zip` |
 
 Unzip it and open `StreamHeartbeat.exe` (Windows) or `StreamHeartbeat.app` (macOS).
 
