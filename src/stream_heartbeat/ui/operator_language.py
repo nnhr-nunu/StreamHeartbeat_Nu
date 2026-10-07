@@ -71,3 +71,4 @@ class LanguageMixin:
         self._refresh_status()
         self._vts.retranslate()
         self._show_aux(self._session.clock.oshilog_bpm)
+        self._update_notice.retranslate()

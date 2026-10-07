@@ -230,4 +230,7 @@ EN_GENERAL: dict[str, str] = {
         "Building the heart shape (first launch only; takes a moment)"
     ),
     "画面を組み立てています": "Building the windows",
+    # ---- 新しい版のお知らせ ---------------------------------------------------------
+    "新しい版 v{version} が出ています": "A new version (v{version}) is available",
+    "GitHub のダウンロードページを開きます": "Opens the download page on GitHub",
 }

@@ -9,8 +9,8 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH).parent  # noqa: F821  SPECPATH は PyInstaller が渡す
 SRC = ROOT / "src" / "stream_heartbeat"
-PYPROJECT = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-VERSION = re.search(r'^version = "([^"]+)"', PYPROJECT, re.M).group(1)
+INIT = (SRC / "__init__.py").read_text(encoding="utf-8")
+VERSION = re.search(r'^__version__ = "([^"]+)"', INIT, re.M).group(1)
 
 a = Analysis(  # noqa: F821
     [str(SRC / "__main__.py")],

@@ -9,6 +9,7 @@
   - 配信用の窓にデバッグ文字・パス・例外文を出さない（`output-overlay.mdc`）
   - コード変更後はセルフレビュー → `pytest` → 日本語で commit → `git push origin main`（`composer-self-review.mdc`）
   - README は指示がない限り更新しない。完了タスクは `task.md` から消す
+  - `src/stream_heartbeat/` か `packaging/` を変えて push するときは `__init__.py` の `__version__` を上げる（AGENTS.md「版を上げる」。忘れると pre-push フックが止める）
 - 開発用 Python は `.venv\Scripts\python.exe`（3.10）。`pytest` / `ruff check src tests` もここから
 - `QT_QPA_PLATFORM=offscreen`（CI と同じ）だと OpenGL が使えない。GL を確かめるときは offscreen 無しで実行
 - commit は PowerShell 前提。bash heredoc は使わず `-m` か `-F` を使う（`git-commit.mdc`）

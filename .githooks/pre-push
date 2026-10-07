@@ -1,0 +1,24 @@
+#!/bin/sh
+# main へ push するとき、アプリの中身が変わったのに版（__version__）が上がっていなければ止める。
+# main へ push するたびに配布の zip が作り直されるので、版を上げないと利用者に更新のお知らせが出ない。
+# 有効にする: git config core.hooksPath .githooks
+
+zero=0000000000000000000000000000000000000000
+init=src/stream_heartbeat/__init__.py
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "$zero" ] && continue
+  [ "$remote_sha" = "$zero" ] && continue
+  # 手元に無いコミットとは比べられない（先に pull が要る。push 自体が断られる）
+  git cat-file -e "$remote_sha^{commit}" 2>/dev/null || continue
+  changed=$(git diff --name-only "$remote_sha" "$local_sha" -- src/stream_heartbeat packaging)
+  [ -n "$changed" ] || continue
+  if ! git diff -U0 "$remote_sha" "$local_sha" -- "$init" | grep -q '^+__version__ = '; then
+    echo "push を止めました: アプリの中身が変わったのに、版が上がっていません。" >&2
+    echo "  $init の __version__ を上げて commit してから push してください" >&2
+    echo "  （直し・小さな改善は 3 つ目、機能の追加は 2 つ目を上げる。例 0.2.0 → 0.2.1 / 0.3.0）" >&2
+    exit 1
+  fi
+done
+exit 0
