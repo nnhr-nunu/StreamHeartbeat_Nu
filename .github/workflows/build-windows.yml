@@ -110,8 +110,16 @@ jobs:
         env:
           PYTHONFAULTHANDLER: "1"
         run: |
-          set -o pipefail
-          python -m pytest -q -rs --tb=short tests/test_gl_platform.py tests/test_heart_render.py tests/test_echo.py | tee gl-test.log
+          set +e
+          python -m pytest -q -rsf --tb=short tests/test_gl_platform.py tests/test_heart_render.py tests/test_echo.py > gl-test.log 2>&1
+          code=$?
+          cat gl-test.log
+          if [ "$code" -ne 0 ]; then
+            body=$(grep -E "^(FAILED|ERROR)" gl-test.log | head -8 | cut -c1-500; tail -n 45 gl-test.log | cut -c1-300)
+            body=$(printf '%s' "$body" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | cut -c1-9000)
+            echo "::error title=GLDIAG (${{ matrix.artifact }})::${body}"
+            exit "$code"
+          fi
           summary=$(grep -E "SKIPPED|passed|failed" gl-test.log | tail -n 6 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::notice title=OpenGL のテスト (${{ matrix.artifact }})::${summary}"
       - name: Build app
