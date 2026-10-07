@@ -243,9 +243,11 @@ def paint_bpm(
     pos: tuple[float, float] = (0.5, 0.88),
     color: str = "#FFFFFF",
     outline: str = "#000000",
+    font_px: int | None = None,
 ) -> None:
+    """font_px を渡すと、窓の大きさによらずその大きさの文字で描く（VTube Studio の心拍数の絵）。"""
     painter.setOpacity(1.0)
-    font = bpm_font(rect, scale)
+    font = bpm_font(rect, scale, font_px)
     painter.setFont(font)
     fill = QColor(color) if QColor(color).isValid() else BPM_COLOR
     ring = QColor(outline) if outline and QColor(outline).isValid() else None
@@ -254,9 +256,11 @@ def paint_bpm(
     _draw_outlined_text(painter, x, y, text, fill, ring)
 
 
-def bpm_font(rect: QRectF, scale: float) -> QFont:
+def bpm_font(rect: QRectF, scale: float, font_px: int | None = None) -> QFont:
     font = QFont()
-    font.setPixelSize(max(28, int(min(rect.width(), rect.height()) * 0.08 * max(0.4, scale))))
+    if font_px is None:
+        font_px = max(28, int(min(rect.width(), rect.height()) * 0.08 * max(0.4, scale)))
+    font.setPixelSize(font_px)
     font.setBold(True)
     return font
 

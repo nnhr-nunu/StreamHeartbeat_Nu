@@ -11,7 +11,7 @@ from PySide6.QtGui import QImage
 from PySide6.QtNetwork import QHostAddress
 from PySide6.QtWebSockets import QWebSocket, QWebSocketServer
 
-from stream_heartbeat import vts
+from stream_heartbeat import vts, vts_support
 from stream_heartbeat.profile import HeartProfile
 from stream_heartbeat.render.heart_frames import (
     FRAME_PREFIX,
@@ -131,13 +131,14 @@ class FakeVts(QObject):
             answer, data = "APIError", {"errorID": 850, "message": "not found"}
         payload = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
                    "requestID": message["requestID"], "messageType": answer, "data": data}
-        socket.sendTextMessage(json.dumps(payload))
         if kind == "ItemPinRequest" and self.echo_pins:
+            # 実物は返事より先に知らせる（2026-10-08 に正式版で確認）
             pinned = message["data"]["pin"]
             self.push("ItemEvent", {
                 "itemEventType": "DroppedPinned" if pinned else "DroppedUnpinned",
                 "itemInstanceID": message["data"]["itemInstanceID"],
                 "itemFileName": ITEM_FOLDER, "itemPosition": {"x": -0.1, "y": 0.4}})
+        socket.sendTextMessage(json.dumps(payload))
 
 
 @pytest.fixture
@@ -220,8 +221,8 @@ def test_mac_steam_items_folder_inside_app_is_found(tmp_path: Path, monkeypatch)
         / "StreamingAssets/Items"
     )
     items.mkdir(parents=True)
-    monkeypatch.setattr(vts.sys, "platform", "darwin")
-    monkeypatch.setattr(vts.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(vts_support.sys, "platform", "darwin")
+    monkeypatch.setattr(vts_support.Path, "home", lambda: tmp_path)
     assert find_items_dir() == items
 
 
@@ -295,9 +296,11 @@ def test_clicked_place_pins_item_and_is_remembered(qtbot, fake_vts: FakeVts) -> 
     # 覚えた場所が無いうちは、出しても留めない
     assert fake_vts.sent("ItemPinRequest") == []
     picked: list[dict | None] = []
+    # 押した所はつないだときから受けている（モデルの外を押したときも）
+    assert {"eventName": "ModelClickedEvent", "subscribe": True,
+            "config": {"onlyClicksOnModel": False}} in fake_vts.sent("EventSubscriptionRequest")
     assert heart.start_pick(picked.append)
-    qtbot.waitUntil(lambda: [s["eventName"] for s in fake_vts.sent("EventSubscriptionRequest")][-1:]
-                    == ["ModelClickedEvent"], timeout=3000)
+    qtbot.waitUntil(lambda: bool(fake_vts.sent("ItemMoveRequest")), timeout=3000)
     # 選ぶあいだは外して脇へ寄せる。右クリックやモデルの外では決めない
     assert fake_vts.sent("ItemPinRequest")[0]["pin"] is False
     assert fake_vts.sent("ItemMoveRequest")[0]["itemsToMove"][0]["positionX"] < -0.5
@@ -312,7 +315,11 @@ def test_clicked_place_pins_item_and_is_remembered(qtbot, fake_vts: FakeVts) -> 
     pin = fake_vts.sent("ItemPinRequest")[-1]
     assert pin["pin"] is True and pin["vertexPinType"] == "Provided"
     assert pin["pinInfo"] == {**PIN, "angle": 0, "size": 0.25}
-    assert fake_vts.sent("EventSubscriptionRequest")[-1]["subscribe"] is False
+    # 選び終えたら、モデルをクリックしても留め直さない
+    pins_before = len(fake_vts.sent("ItemPinRequest"))
+    fake_vts.push("ModelClickedEvent", click_event([{"artMeshOrder": 0, "hitInfo": HIT}]))
+    qtbot.wait(150)
+    assert len(fake_vts.sent("ItemPinRequest")) == pins_before
     # 留めたあとの大きさは留め直しで変える（移動の要求では変わらない）
     heart.set_size(0.4)
     qtbot.waitUntil(lambda: fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == 0.4,
@@ -368,25 +375,28 @@ def test_panel_restores_item_after_vts_restart(qapp, tmp_path: Path, monkeypatch
     session.profile.style = "cute"
     save_app_state(tmp_path, vts_item_shown=True, vts_item_size=5.0,
                    vts_pins={"m1": PIN, "bad": {"modelID": "bad"}},
-                   vts_item_look=list(look_key(session.profile, text=True)))
+                   vts_item_look=list(look_key(session.profile, text=True)), vts_item_squeeze=3)
     panel = VtsPanel(session, tmp_path, lambda _text: None)
     assert panel._heart.pins == {"m1": PIN} and panel._heart.size == 0.8
-    shows: list[int] = []
-    panel._heart.show_item = lambda count, done=None: shows.append(count)  # type: ignore[method-assign]
+    shows: list[tuple[int, int]] = []
+    panel._heart.show_item = (  # type: ignore[method-assign]
+        lambda count, done=None, squeeze_frames=0: shows.append((count, squeeze_frames))
+    )
     panel._on_found(True)
     assert shows == []
+    # 「ぎゅっ」のコマの数も覚えていて、出し直すときに渡す
     panel._on_found(False)
-    assert shows == [4]
+    assert shows == [(4, 3)]
     # 書き出してあるコマと見た目が違えば、前の絵を出さずに今の見た目で作り直して出す
     made: list[bool] = []
     panel._make_item = lambda auto=False: made.append(auto)  # type: ignore[method-assign]
     session.profile.effect = "grip"
     panel._on_found(False)
-    assert shows == [4] and made == [True]
+    assert shows == [(4, 3)] and made == [True]
     # 「しまう」を押したら、次につないでも出さない
     panel._hide_item()
     panel._on_found(False)
-    assert shows == [4] and made == [True]
+    assert shows == [(4, 3)] and made == [True]
     assert load_app_state(tmp_path)["vts_item_shown"] is False
     panel.shutdown()
 
@@ -564,6 +574,7 @@ def test_item_style_names_follow_the_style_list() -> None:
 
 
 def test_look_key_follows_effect_and_stethoscope_place() -> None:
+    from stream_heartbeat.render.heart_frames import squeeze_frame_count
     from stream_heartbeat.ui.vts_panel import look_key
 
     profile = HeartProfile(style="realistic", heart_yaw_deg=30.0)
@@ -575,6 +586,8 @@ def test_look_key_follows_effect_and_stethoscope_place() -> None:
     held = look_key(profile)
     profile.heart_yaw_deg = -40.0
     assert look_key(profile) == held
+    # 「ぎゅっ」のコマも入る（コマを足す前の版で書き出した絵は作り直す）
+    assert held[-2:] == ("squeeze", squeeze_frame_count(profile))
     # 聴診器は当てる所が変われば作り直す（小さなずれでは作り直さない）
     profile.effect = "stethoscope"
     assert look_key(profile, (0.3, 0.2)) != look_key(profile, (-0.5, 0.2))

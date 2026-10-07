@@ -33,6 +33,7 @@ from stream_heartbeat.render.heart_frames import (
     item_effect,
     item_text,
     render_frames,
+    squeeze_frame_count,
     write_frames,
 )
 from stream_heartbeat.session import HeartSession
@@ -41,6 +42,7 @@ from stream_heartbeat.ui.fold import make_fold_row
 from stream_heartbeat.ui.forms import CenteredForm
 from stream_heartbeat.ui.slider import labeled_slider
 from stream_heartbeat.ui.style_catalog import STYLES, chosen_material
+from stream_heartbeat.ui.vts_bpm_control import VtsBpmControl
 from stream_heartbeat.vts import (
     CONNECTING,
     DEFAULT_PORT,
@@ -63,8 +65,10 @@ from stream_heartbeat.vts import (
     find_items_dir,
     item_framerate,
 )
+from stream_heartbeat.vts_bpm import BPM_FOLDER
 from stream_heartbeat.vts_text import (
     API_SWITCH,
+    BPM_CHECK,
     HIDE_BUTTON,
     HOW_TO_LINES,
     INTRO,
@@ -86,6 +90,9 @@ from stream_heartbeat.vts_text import (
     SHOW_BUTTON,
     SIZE_LABEL,
     T_BAD_STYLE,
+    T_HAND_PLACED,
+    T_HAND_PLACED_NOTICE,
+    T_HAND_REMADE_NOTICE,
     T_NOT_SHOWN,
     T_PICKING,
     T_PINNED,
@@ -163,6 +170,7 @@ def _guide_names() -> dict[str, object]:
         "size": SIZE_LABEL,
         "params": PARAMS_CHECK,
         "words": TEXT_CHECK,
+        "bpm_check": BPM_CHECK,
         "beat": PARAM_BEAT,
         "bpm": PARAM_BPM,
     }
@@ -204,6 +212,10 @@ def _saved_pins(raw: object) -> dict[str, dict]:
     return pins
 
 
+def _saved_count(raw: object) -> int:
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else 0
+
+
 def _saved_size(raw: object) -> float:
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         return max(ITEM_SIZE_MIN, min(ITEM_SIZE_MAX, float(raw)))
@@ -233,7 +245,12 @@ def look_key(
         if word is not None
         else ()
     )  # fmt: skip
-    return (profile.style, profile.realistic_look, *materials, *angle, effect, *place, *words)
+    # 心臓わしづかみは「ぎゅっ」のコマの数も入れる（コマを足す前の版で書き出した絵は作り直す）
+    squeeze = squeeze_frame_count(profile)
+    frames = ("squeeze", squeeze) if squeeze else ()
+    return (
+        profile.style, profile.realistic_look, *materials, *angle, effect, *place, *words, *frames
+    )
 
 
 def _saved_look(raw: object) -> tuple | None:
@@ -271,9 +288,23 @@ class VtsPanel(QWidget):
             size=_saved_size(state.get("vts_item_size")),
             pins=_saved_pins(state.get("vts_pins")),
             place=clean_place(state.get("vts_item_place")),
+            squeeze_frames=_saved_count(state.get("vts_item_squeeze")),
+            hand_placed=state.get("vts_hand_placed") is True,
         )
         self._heart.on_found = self._on_found
         self._heart.on_moved = self._on_moved
+        # 心拍数の数字のアイテム。VTube Studio の知らせは心臓がまとめて受けて渡す
+        self._bpm = VtsBpmControl(
+            self._client,
+            lambda: self._session.profile,
+            state,
+            self._heart.size,
+            self._resolved_dir,
+            self._save,
+            notify,
+        )
+        self._heart.item_files.append(BPM_FOLDER)
+        self._heart.other_item_event = self._bpm.bpm.on_item_event
         saved_dir = state.get("vts_items_dir")
         self._items_dir: Path | None = Path(saved_dir) if isinstance(saved_dir, str) else None
         # 前に出していたら、つないだとき場に無ければ出し直す（VTube Studio を起動し直したときなど）
@@ -341,6 +372,7 @@ class VtsPanel(QWidget):
         details.addWidget(self._pin_btn)
         details.addLayout(size_form)
         details.addWidget(self._text)
+        details.addWidget(self._bpm.check)
         details.addWidget(self._params)
         self._details.hide()
 
@@ -435,6 +467,8 @@ class VtsPanel(QWidget):
                 note, warn = _say(T_STALE_FAILED, remake=REMAKE_BUTTON), True
             else:
                 note, warn = tr(NOTE_STALE), False
+        elif self._heart.hand_placed:
+            note, warn = _say(T_HAND_PLACED, pin=PIN_BUTTON, size=SIZE_LABEL), True
         elif self._heart.model_id in self._heart.pins:
             note, warn = _say(T_PINNED, size=SIZE_LABEL), False
         else:
@@ -468,7 +502,7 @@ class VtsPanel(QWidget):
                 folder = self._resolved_dir()
                 count = count_frames(folder / ITEM_FOLDER) if folder is not None else 0
                 if count > 0:
-                    self._heart.show_item(count)
+                    self._heart.show_item(count, squeeze_frames=self._heart.squeeze_frames)
         self._refresh()
 
     def _on_enable(self, on: bool) -> None:
@@ -489,7 +523,14 @@ class VtsPanel(QWidget):
     def _on_moved(self) -> None:
         """VTube Studio の画面で心臓を置き直した。次に出すときも同じ所に出すよう覚えておく。"""
         place = self._heart.place
-        self._save(vts_pins=self._heart.pins, vts_item_place=list(place) if place else None)
+        hand = self._heart.hand_placed
+        self._save(
+            vts_pins=self._heart.pins,
+            vts_item_place=list(place) if place else None,
+            vts_hand_placed=hand,
+        )
+        if hand:
+            self._notify(_say(T_HAND_PLACED_NOTICE, pin=PIN_BUTTON))
         self._refresh()
 
     def _save(self, **values: object) -> None:
@@ -561,7 +602,9 @@ class VtsPanel(QWidget):
                 return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            frames = render_frames(profile, stetho=stetho, text=text)
+            # 心臓わしづかみは、クリックで流す「ぎゅっ」のコマも後ろに足す
+            frames = render_frames(profile, stetho=stetho, text=text, squeeze=True)
+            squeeze = squeeze_frame_count(profile)
             count = write_frames(frames, folder / ITEM_FOLDER)
         except (OSError, RuntimeError):
             self._failed_key = key
@@ -573,10 +616,10 @@ class VtsPanel(QWidget):
             QApplication.restoreOverrideCursor()
         self._made_key = key
         self._failed_key = None
-        # 次に起動したとき、書き出してあるコマが今の見た目かを見分ける
-        self._save(vts_item_look=list(key))
+        # 次に起動したとき、書き出してあるコマが今の見た目か・「ぎゅっ」のコマが何枚かを見分ける
+        self._save(vts_item_look=list(key), vts_item_squeeze=squeeze)
         self._busy = True
-        self._heart.show_item(count, lambda ok: self._item_shown(ok, auto))
+        self._heart.show_item(count, lambda ok: self._item_shown(ok, auto), squeeze)
 
     def _item_shown(self, ok: bool, auto: bool = False) -> None:
         self._busy = False
@@ -584,7 +627,9 @@ class VtsPanel(QWidget):
             self._auto_show = True
             self._save(vts_item_shown=True)
             pinned = self._heart.model_id in self._heart.pins
-            if auto:
+            if self._heart.hand_placed:
+                self._notify(_say(T_HAND_REMADE_NOTICE, pin=PIN_BUTTON))
+            elif auto:
                 self._notify(tr(REMADE_NOTICE))
             elif pinned:
                 self._notify(tr("VTube Studio に心臓を出し、覚えている場所に付けました"))
@@ -627,7 +672,7 @@ class VtsPanel(QWidget):
 
     def _hide_item(self) -> None:
         self._auto_show = False
-        self._save(vts_item_shown=False)
+        self._save(vts_item_shown=False, vts_hand_placed=False)
         if self._client.state == READY:
             self._heart.hide_item()
         self._refresh()
@@ -653,12 +698,13 @@ class VtsPanel(QWidget):
                 _say("モデルに付けられませんでした（{error}）", error=self._heart.last_error)
             )
         else:
-            self._save(vts_pins=self._heart.pins)
+            self._save(vts_pins=self._heart.pins, vts_hand_placed=False)
             self._notify(tr(PINNED_NOTICE))
         self._refresh()
 
     def _on_size(self, value: int) -> None:
         self._heart.set_size(value / 100.0)
+        self._bpm.set_size(self._heart.size)
         if not self._size.isSliderDown():
             self._save_size()
 
@@ -682,6 +728,7 @@ class VtsPanel(QWidget):
             self._last_origin = origin
             systole = min(0.34, max(0.20, clock.interval() * 0.36))
             self._heart.beat(item_framerate(FRAME_FPS, systole, frame_systole()))
+        self._bpm.tick(float(clock.bpm))
         if self._params.isChecked() and t - self._last_param >= PARAM_INTERVAL_S:
             self._last_param = t
             cycle = clock.cycle(t)

@@ -12,15 +12,23 @@ API は ws://127.0.0.1:8001 の WebSocket（localhost と書くと名前の解�
 from __future__ import annotations
 
 import json
-import math
-import re
-import sys
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+from PySide6.QtGui import QCursor
 from PySide6.QtWebSockets import QWebSocket
+
+from stream_heartbeat.vts_support import (  # noqa: F401  （ほかのファイルはここから読む）
+    PIN_KEYS,
+    POSITION_LIMIT,
+    clean_pin,
+    clean_place,
+    clicked_pin,
+    find_items_dir,
+    hit_pin,
+    item_framerate,
+)
 
 API_NAME = "VTubeStudioPublicAPI"
 API_VERSION = "1.0"
@@ -42,25 +50,24 @@ ITEM_SIZE_MAX = 0.8
 ITEM_HOME = (0.0, -0.15)
 # 留める場所を選ぶあいだ、心臓がクリックの邪魔をしないよう寄せておく位置（左端寄り）
 PICK_ASIDE_X = -0.75
-# モデル上の場所（ArtMesh の三角形と、その中の重み）。ItemPinRequest の pinInfo に使う
-PIN_KEYS = (
-    "modelID",
-    "artMeshID",
-    "vertexID1",
-    "vertexID2",
-    "vertexID3",
-    "vertexWeight1",
-    "vertexWeight2",
-    "vertexWeight3",
-)
 # ItemAnimationControlRequest で「そのアイテムは場に無い」
 ERROR_ITEM_NOT_FOUND = 850
 # ItemEvent の種類: VTube Studio の画面でアイテムをドラッグして、モデルの上に落とした（留まった）／
 # モデルの外に落とした
 DROPPED_PINNED = "DroppedPinned"
 DROPPED_UNPINNED = "DroppedUnpinned"
-# アイテムを置ける位置の範囲（ItemLoadRequest。画面の端は ±1）
-POSITION_LIMIT = 1000.0
+# ItemEvent の種類: VTube Studio の画面でアイテムをクリックした
+# （実物は Clicked。仕様書の例は ItemClicked）
+CLICKED = frozenset({"Clicked", "ItemClicked"})
+# 「ぎゅっ」のコマを流す速さ（コマを描いた速さ。heart_frames.FRAME_FPS と同じ）
+SQUEEZE_FPS = 30.0
+# VTube Studio は、アイテムを 0.1 秒ほどより長く押すとクリック（Clicked）ではなく「落とした」
+# （DroppedPinned など）と知らせてくる（2026-10-08 に正式版で確認）。押してからこの秒より早く、
+# マウスがこの画素より動かずに離したものは、ドラッグではなくクリックとして扱う
+CLICK_MAX_S = 0.6
+CLICK_MOVE_PX = 6
+# 続けて届いたクリックで「ぎゅっ」を最初からやり直さない間（秒）
+SQUEEZE_REPEAT_S = 0.25
 # こちらから留めた・外したときにも VTube Studio は DroppedPinned などを知らせてくる
 # （留め直しでは返事のあとにも来る）。そのあいだの知らせは、手で置いたものとして扱わない秒数
 OWN_PIN_QUIET_S = 1.5
@@ -74,110 +81,6 @@ NO_VTS = "no_vts"
 DENIED = "denied"
 
 Reply = Callable[[dict], None]
-
-
-def _steam_roots() -> list[Path]:
-    """Steam 本体の場所の候補。"""
-    if sys.platform == "darwin":
-        return [Path.home() / "Library" / "Application Support" / "Steam"]
-    roots: list[Path] = []
-    if sys.platform == "win32":
-        try:
-            import winreg
-
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-                value, _kind = winreg.QueryValueEx(key, "SteamPath")
-                roots.append(Path(str(value)))
-        except OSError:
-            pass
-    roots += [Path("C:/Program Files (x86)/Steam"), Path("C:/Program Files/Steam")]
-    return roots
-
-
-def _steam_libraries() -> list[Path]:
-    libraries: list[Path] = []
-    for root in _steam_roots():
-        libraries.append(root)
-        vdf = root / "steamapps" / "libraryfolders.vdf"
-        try:
-            text = vdf.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for raw in re.findall(r'"path"\s+"([^"]+)"', text):
-            libraries.append(Path(raw.replace("\\\\", "\\")))
-    return libraries
-
-
-def find_items_dir() -> Path | None:
-    """VTube Studio のアイテムのフォルダ（Steam 版）。見つからなければ None。
-
-    Windows 版は VTube Studio_Data の中、Mac 版はアプリ（.app）の中にある。
-    """
-    items = Path("StreamingAssets/Items")
-    for library in _steam_libraries():
-        game = library / "steamapps/common/VTube Studio"
-        candidates = [game / "VTube Studio_Data" / items]
-        bundles = sorted(game.glob("*.app"))
-        candidates += [app / "Contents/Resources/Data" / items for app in bundles]
-        for candidate in candidates:
-            if candidate.is_dir():
-                return candidate
-    return None
-
-
-def item_framerate(frames_per_second: float, systole: float, reference_systole: float) -> float:
-    """拍が速いほど収縮が短いので、そのぶんコマ送りも速める（0.1〜120 に収める）。"""
-    rate = frames_per_second * reference_systole / max(0.05, systole)
-    return max(0.1, min(120.0, rate))
-
-
-def clean_pin(raw: object) -> dict | None:
-    """保存・受信したピンの場所を確かめる。形が崩れていれば None。"""
-    if not isinstance(raw, dict):
-        return None
-    pin = {key: raw.get(key) for key in PIN_KEYS}
-    if not all(isinstance(pin[key], str) and pin[key] for key in PIN_KEYS[:2]):
-        return None
-    for key in PIN_KEYS[2:5]:
-        if not isinstance(pin[key], int) or isinstance(pin[key], bool):
-            return None
-    for key in PIN_KEYS[5:]:
-        if not isinstance(pin[key], (int, float)) or isinstance(pin[key], bool):
-            return None
-        pin[key] = float(pin[key])
-    return pin
-
-
-def clicked_pin(event: dict) -> dict | None:
-    """ModelClickedEvent から、いちばん手前の ArtMesh 上の場所を取り出す（左クリックだけ）。"""
-    if event.get("modelWasClicked") is not True or event.get("mouseButtonID") != 0:
-        return None
-    return hit_pin(event.get("artMeshHits"))
-
-
-def hit_pin(raw: object) -> dict | None:
-    """ArtMesh に当たった所の一覧（artMeshHits）から、いちばん手前の場所を取り出す。"""
-    hits = [h for h in raw if isinstance(h, dict)] if isinstance(raw, list) else []
-    hits.sort(key=lambda h: o if isinstance(o := h.get("artMeshOrder"), int) else 999)
-    for hit in hits:
-        pin = clean_pin(hit.get("hitInfo"))
-        if pin is not None:
-            return pin
-    return None
-
-
-def clean_place(raw: object) -> tuple[float, float] | None:
-    """保存・受信した画面の位置（x, y）を確かめる。形が崩れていれば None。"""
-    if isinstance(raw, dict):
-        raw = (raw.get("x"), raw.get("y"))
-    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
-        return None
-    if not all(
-        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in raw
-    ):
-        return None
-    x, y = (max(-POSITION_LIMIT, min(POSITION_LIMIT, float(v))) for v in raw)
-    return x, y
 
 
 class VtsClient(QObject):
@@ -350,6 +253,7 @@ class VtsHeart:
     出し直したとき・モデルを読み込み直したときに同じ場所へ留め直す。
     VTube Studio の API からは、手で留めた場所も今の位置も読み出せないため。
     VTube Studio の画面で心臓をドラッグして置いたときは、知らせ（ItemEvent）で置いた所を覚える。
+    心臓をクリックしたときは、心臓わしづかみの「ぎゅっ」のコマ（休んでいる形のあとに足したコマ）を流す。
     """
 
     def __init__(
@@ -358,6 +262,8 @@ class VtsHeart:
         size: float = ITEM_SIZE,
         pins: dict[str, dict] | None = None,
         place: tuple[float, float] | None = None,
+        squeeze_frames: int = 0,
+        hand_placed: bool = False,
     ) -> None:
         self._client = client
         self.instance_id: str | None = None
@@ -369,6 +275,21 @@ class VtsHeart:
         self.pins: dict[str, dict] = dict(pins or {})
         # VTube Studio の画面でドラッグして置いた所（留める場所が分からないとき、ここに出す）
         self.place = place
+        # 休んでいる形のあとに足した「ぎゅっ」のコマの数（無ければ 0）
+        self.squeeze_frames = squeeze_frames
+        # VTube Studio の画面で手で体に置いた。VTube Studio が付けた場所（三角形）は正式版では
+        # 聞けないので、作り直すと体から外れる（操作画面で知らせる）
+        self.hand_placed = hand_placed
+        # ItemEvent のうち心臓のもの以外（心拍数のアイテム）を渡す先と、知らせを受けるフォルダ
+        self.item_files: list[str] = [ITEM_FOLDER]
+        self.other_item_event: Callable[[dict], None] | None = None
+        # 作り直す前に外して、その知らせで今の場所を読んでいる間は真
+        self._reading_place = False
+        # この時刻までは「ぎゅっ」のコマを流している（拍で 0 コマ目へ戻さない）と、流し始めた時刻
+        self._squeeze_until = 0.0
+        self._squeeze_at = -1.0
+        # VTube Studio の画面で左ボタンを押した時刻とマウスの位置（クリックかドラッグかを見分ける）
+        self._press: tuple[float, tuple[int, int]] | None = None
         self.model_id = ""
         # つないだ直後に場を調べ終えたら、心臓が場にあったかを渡す
         self.on_found: Callable[[bool], None] | None = None
@@ -385,6 +306,11 @@ class VtsHeart:
     def picking(self) -> bool:
         return self._pick_done is not None
 
+    @property
+    def rest_frame(self) -> int:
+        """休んでいる形のコマ（拍のコマの最後。そのあとに「ぎゅっ」のコマが続く）。"""
+        return max(0, self.frame_count - self.squeeze_frames - 1)
+
     def _on_state(self, state: str) -> None:
         if state != READY:
             self._params_ready = False
@@ -392,7 +318,12 @@ class VtsHeart:
 
     def _on_ready(self) -> None:
         self._client.subscribe("ModelLoadedEvent", {}, self._on_model)
-        self._client.subscribe("ItemEvent", {"itemFileNames": [ITEM_FOLDER]}, self._on_item_event)
+        self._client.subscribe("ItemEvent", {"itemFileNames": self.item_files}, self._on_item_event)
+        # 押した瞬間を知るため、モデルの外を押したときも受ける
+        # （留める場所を選ぶクリックもこれで受ける）
+        self._client.subscribe(
+            "ModelClickedEvent", {"onlyClicksOnModel": False}, self._on_model_clicked
+        )
         self._client.request("CurrentModelRequest", {}, self._on_model)
         # つなぎ直したときは、前に出したアイテムがまだ場にあれば使い続ける
         self._find_instance(self._report_found)
@@ -408,24 +339,44 @@ class VtsHeart:
             self._pin_saved()
 
     def _on_item_event(self, data: dict) -> None:
-        """VTube Studio の画面で心臓をドラッグして置いた。見た目を変えて出し直しても同じ所に出す。
+        """VTube Studio の画面で心臓をクリックした・ドラッグして置いた。
 
+        クリックは「ぎゅっ」。置いた所は覚え、見た目を変えて出し直しても同じ所に出す。
         モデルの上に落とすと VTube Studio が留めるが、留めた場所（ArtMesh の三角形）は知らせて
-        こない。落とした所にある ArtMesh を聞いて覚える（聞けない版では置いた所だけ覚える）。
+        こない。落とした所にある ArtMesh を聞いて覚える。聞けない版（正式版）では置いた所だけ覚え、
+        手で体に置いたこと（hand_placed）を残す。
         """
+        if data.get("itemFileName") not in (None, ITEM_FOLDER):
+            if self.other_item_event is not None:
+                self.other_item_event(data)
+            return
         kind = data.get("itemEventType")
-        if kind not in (DROPPED_PINNED, DROPPED_UNPINNED) or self.instance_id is None:
+        if self.instance_id is None or data.get("itemInstanceID") != self.instance_id:
+            return
+        place = clean_place(data.get("itemPosition"))
+        if self._reading_place and kind == DROPPED_UNPINNED:
+            # 作り直す前に外したときの知らせ（今の心臓の場所）
+            self._reading_place = False
+            if place is not None:
+                self.place = place
+            return
+        if kind in CLICKED:
+            self.squeeze()
+            return
+        if kind not in (DROPPED_PINNED, DROPPED_UNPINNED) or place is None:
             return
         if time.monotonic() < self._quiet_until:
             return
-        place = clean_place(data.get("itemPosition"))
-        if data.get("itemInstanceID") != self.instance_id or place is None:
+        if self._was_click():
+            # 心臓をクリックしただけ。VTube Studio は同じ所に留め直すので、覚えた場所はそのまま
+            self.squeeze()
             return
         self.place = place
         # 前に覚えた場所へは戻さない（置き直した所が新しい場所）
         model = self.model_id
         self.pins.pop(model, None)
-        if kind == DROPPED_UNPINNED or not model:
+        self.hand_placed = kind == DROPPED_PINNED and bool(model)
+        if not self.hand_placed:
             self._moved()
             return
 
@@ -433,11 +384,30 @@ class VtsHeart:
             pin = hit_pin(reply.get("artMeshHits"))
             if pin is not None and pin["modelID"] == model == self.model_id:
                 self.pins[model] = pin
+                self.hand_placed = False
             self._moved()
 
         self._client.request(
             "ArtMeshAtPositionRequest", {"x": place[0], "y": place[1], "visualize": 0}, got
         )
+
+    def _on_model_clicked(self, data: dict) -> None:
+        """VTube Studio の画面で押した（アイテム越しでも来る）。"""
+        if self.picking:
+            self._on_click(data)
+        elif data.get("mouseButtonID") == 0:
+            pos = QCursor.pos()
+            self._press = (time.monotonic(), (pos.x(), pos.y()))
+
+    def _was_click(self) -> bool:
+        """今届いた「落とした」知らせが、ドラッグではなくクリック（押して、動かさずに離した）か。"""
+        press, self._press = self._press, None
+        if press is None:
+            return False
+        at, (x, y) = press
+        pos = QCursor.pos()
+        moved = abs(pos.x() - x) + abs(pos.y() - y)
+        return time.monotonic() - at < CLICK_MAX_S and moved <= CLICK_MOVE_PX
 
     def _moved(self) -> None:
         if self.on_moved is not None:
@@ -472,9 +442,19 @@ class VtsHeart:
             got,
         )
 
-    def show_item(self, frame_count: int, done: Callable[[bool], None] | None = None) -> None:
-        """心臓アイテムを出し直す（新しいコマを読ませるため、出ていれば一度しまう）。"""
+    def show_item(
+        self,
+        frame_count: int,
+        done: Callable[[bool], None] | None = None,
+        squeeze_frames: int = 0,
+    ) -> None:
+        """心臓アイテムを出し直す（新しいコマを読ませるため、出ていれば一度しまう）。
+
+        squeeze_frames はコマの最後に足した「ぎゅっ」のコマの数。
+        """
         self.frame_count = frame_count
+        self.squeeze_frames = squeeze_frames
+        self._squeeze_until = 0.0
         self._stop_pick()
 
         def load() -> None:
@@ -520,7 +500,19 @@ class VtsHeart:
             if self.instance_id is None:
                 load()
                 return
-            self._unload(lambda _data: load())
+            if not self.hand_placed:
+                self._unload(lambda _data: load())
+                return
+            # 手で体に置いた心臓は、VTube Studio が付けた場所へは付け直せない。外したときの
+            # 知らせで今の場所を読み（体の動きで、落とした所からずれていることがある）、
+            # 新しい心臓をそこへ出す
+            self._reading_place = True
+
+            def unpinned(_reply: dict) -> None:
+                self._reading_place = False
+                self._unload(lambda _data: load())
+
+            self._pin_request({"pin": False, "itemInstanceID": self.instance_id}, unpinned)
 
         self._find_instance(unload_then_load, rescan=True)
 
@@ -529,6 +521,7 @@ class VtsHeart:
         self._stop_pick()
         self._unload(None)
         self.instance_id = None
+        self.hand_placed = False
 
     def _unload(self, then: Reply | None) -> None:
         # 同じフォルダから出したものは（重複していても）まとめてしまう
@@ -544,29 +537,34 @@ class VtsHeart:
             then,
         )
 
+    def _stops(self) -> list[int]:
+        """止めるコマ: 休んでいる形（拍のコマの最後）と、「ぎゅっ」のコマの最後。"""
+        return sorted({self.rest_frame, self.frame_count - 1})
+
     def _rest(self) -> None:
-        """最後のコマ（休んでいる形）で止めておく。"""
+        """休んでいる形のコマで止めておく。"""
         if self.instance_id is None or self.frame_count <= 0:
             return
-        last = self.frame_count - 1
         self._client.request(
             "ItemAnimationControlRequest",
             {
                 "itemInstanceID": self.instance_id,
                 "framerate": -1,
-                "frame": last,
+                "frame": self.rest_frame,
                 "brightness": -1,
                 "opacity": -1,
                 "setAutoStopFrames": True,
-                "autoStopFrames": [last],
+                "autoStopFrames": self._stops(),
                 "setAnimationPlayState": True,
                 "animationPlayState": False,
             },
         )
 
     def beat(self, framerate: float) -> None:
-        """拍。最初のコマから再生し、最後のコマ（休み）で止まる。"""
+        """拍。最初のコマから再生し、休んでいる形のコマで止まる。「ぎゅっ」の途中は流さない。"""
         if self._client.state != READY or self.instance_id is None or self.frame_count <= 0:
+            return
+        if time.monotonic() < self._squeeze_until:
             return
         instance = self.instance_id
 
@@ -584,11 +582,37 @@ class VtsHeart:
                 "brightness": -1,
                 "opacity": -1,
                 "setAutoStopFrames": True,
-                "autoStopFrames": [self.frame_count - 1],
+                "autoStopFrames": self._stops(),
                 "setAnimationPlayState": True,
                 "animationPlayState": True,
             },
             replied,
+        )
+
+    def squeeze(self) -> None:
+        """心臓わしづかみの「ぎゅっ」のコマを流す（ほかの演出の心臓では何もしない）。"""
+        if self._client.state != READY or self.instance_id is None or self.squeeze_frames <= 0:
+            return
+        last = self.frame_count - 1
+        first = last - self.squeeze_frames + 1
+        now = time.monotonic()
+        if first <= 0 or now - self._squeeze_at < SQUEEZE_REPEAT_S:
+            return
+        self._squeeze_at = now
+        self._squeeze_until = now + self.squeeze_frames / SQUEEZE_FPS
+        self._client.request(
+            "ItemAnimationControlRequest",
+            {
+                "itemInstanceID": self.instance_id,
+                "framerate": SQUEEZE_FPS,
+                "frame": first,
+                "brightness": -1,
+                "opacity": -1,
+                "setAutoStopFrames": True,
+                "autoStopFrames": [last],
+                "setAnimationPlayState": True,
+                "animationPlayState": True,
+            },
         )
 
     # ------------------------------------------------------------ 留める・大きさ
@@ -630,7 +654,6 @@ class VtsHeart:
         # 心臓がモデルに重なっているとクリックが心臓に当たるので、外して脇へ寄せる
         self._pin_request({"pin": False, "itemInstanceID": self.instance_id})
         self._move(x=PICK_ASIDE_X, y=0.0, seconds=0.3)
-        self._client.subscribe("ModelClickedEvent", {"onlyClicksOnModel": True}, self._on_click)
         return True
 
     def cancel_pick(self) -> None:
@@ -645,9 +668,7 @@ class VtsHeart:
             self._move(x=x, y=y, seconds=0.3)
 
     def _stop_pick(self) -> None:
-        if self._pick_done is not None:
-            self._pick_done = None
-            self._client.unsubscribe("ModelClickedEvent")
+        self._pick_done = None
 
     def _on_click(self, data: dict) -> None:
         done = self._pick_done
@@ -662,6 +683,7 @@ class VtsHeart:
                 done(None)
                 return
             self.pins[pin["modelID"]] = pin
+            self.hand_placed = False
             done(pin)
 
         self._pin(pin, pinned)
