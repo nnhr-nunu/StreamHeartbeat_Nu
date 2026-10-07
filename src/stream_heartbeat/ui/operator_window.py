@@ -99,7 +99,7 @@ SAVE_FAIL_LABEL = "保存できませんでした（ファイルが使用中か�
 CLOCK_WARN = "時計と数字がズレています（推しログは遅延します）"
 CAL_FOLD_TITLE = "心拍の補正（数字が合わないときだけ）"
 # 拍の文字・心拍数は配信用の窓でつまんで動かせる（label_drag）
-DRAG_HINT = "配信用の窓で、文字をドラッグして動かすこともできます"
+DRAG_HINT = "配信用の窓で、出ている文字をドラッグして動かすこともできます"
 
 
 def _right(widget: QWidget) -> QHBoxLayout:

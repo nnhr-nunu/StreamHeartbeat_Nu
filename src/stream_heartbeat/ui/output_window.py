@@ -623,11 +623,11 @@ class OutputCanvas(QOpenGLWidget):
             self.update()
             return
         if self._press_at is None and self._drag_from is None and self._label_at(event.position()):
-            # つまめる文字の上では、つまめると分かる手の形にする（聴診器はそのまま。上を通るだけで
-            # 配信画面の聴診器が置き場所へ戻らないように）
+            # つまめる文字の上では、動かせると分かる形にする（回せる心臓の手の形と分ける）。
+            # 聴診器はそのまま（上を通るだけで配信画面の聴診器が置き場所へ戻らないように）
             if self.effect in STETHO_EFFECTS:
                 self._motion.hover(self._relative(event.position()))
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
         if self._press_at is not None:
             moved = event.position() - self._press_at
@@ -648,7 +648,7 @@ class OutputCanvas(QOpenGLWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._motion.release()
         if self._labels.release():
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
         pressed_at = self._press_at
         self._press_at = None

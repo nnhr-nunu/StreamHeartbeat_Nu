@@ -302,6 +302,7 @@ class VtsPanel(QWidget):
             self._resolved_dir,
             self._save,
             notify,
+            self._choose_folder,
         )
         self._heart.item_files.append(BPM_FOLDER)
         self._heart.other_item_event = self._bpm.bpm.on_item_event
@@ -345,7 +346,7 @@ class VtsPanel(QWidget):
         self._text = QCheckBox(TEXT_CHECK)
         self._text.setToolTip(
             "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
-            "文字・大きさ・色は「拍の文字」の設定のとおりです"
+            "文字・大きさ・色は「③ 同期文字」の設定のとおりです"
         )
         self._params = QCheckBox(PARAMS_CHECK)
         self._folder = QLabel("")
@@ -373,6 +374,7 @@ class VtsPanel(QWidget):
         details.addLayout(size_form)
         details.addWidget(self._text)
         details.addWidget(self._bpm.check)
+        details.addWidget(self._bpm.note)
         details.addWidget(self._params)
         self._details.hide()
 
@@ -473,6 +475,7 @@ class VtsPanel(QWidget):
             note, warn = _say(T_PINNED, size=SIZE_LABEL), False
         else:
             note, warn = _say(T_UNPINNED, pin=PIN_BUTTON), False
+        self._bpm.refresh()
         view = (ready, can_item, shown, picking, note, warn)
         if view == self._view:
             return

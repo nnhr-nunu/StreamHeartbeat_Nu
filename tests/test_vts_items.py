@@ -312,3 +312,33 @@ def test_bpm_item_unchecked_while_disconnected_is_put_away(
     control._on_found(False)
     assert hidden == [True] and made == []
     panel.shutdown()
+
+
+def test_bpm_note_tells_whether_the_number_is_shown(qapp, tmp_path: Path, monkeypatch) -> None:
+    del qapp
+    from stream_heartbeat.session import HeartSession
+    from stream_heartbeat.ui import vts_panel
+    from stream_heartbeat.ui.vts_panel import VtsPanel
+    from stream_heartbeat.vts_text import BPM_SHOWN_NOTE
+
+    monkeypatch.setattr(vts_panel, "find_items_dir", lambda: None)
+    panel = VtsPanel(HeartSession(), tmp_path, lambda _text: None)
+    control = panel._bpm
+    chosen: list[bool] = []
+    control._choose_folder = lambda: chosen.append(True)
+    panel._client._state = vts.READY
+    # 書き出し先が無ければフォルダを選ばせ、それでも無ければ出せなかったことを一文で残す
+    control.check.setChecked(True)
+    assert chosen == [True]
+    assert control.note.objectName() == "warn" and "Items" in control.note.text()
+    # 出せたら、出していることと次の一手（ドラッグして置く）を出す
+    control._error = ""
+    control.bpm.instance_id = "bpm1"
+    control.refresh()
+    assert control.note.text() == BPM_SHOWN_NOTE and control.note.objectName() == "meta"
+    # チェックを外すと消える
+    monkeypatch.setattr(control.bpm, "hide", lambda: None)
+    control.check.setChecked(False)
+    assert control.note.text() == ""
+    panel._client._state = vts.OFF
+    panel.shutdown()

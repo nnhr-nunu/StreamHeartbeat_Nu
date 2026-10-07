@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
 from stream_heartbeat.i18n import tr
 from stream_heartbeat.profile import HeartProfile
@@ -21,7 +21,13 @@ from stream_heartbeat.render.heart_frames import write_frames
 from stream_heartbeat.vts import READY, VtsClient
 from stream_heartbeat.vts_bpm import BPM_FOLDER, VtsBpm
 from stream_heartbeat.vts_support import clean_place
-from stream_heartbeat.vts_text import BPM_CHECK, BPM_SHOWN_NOTICE, NOT_ITEMS_NOTICE
+from stream_heartbeat.vts_text import (
+    BPM_CHECK,
+    BPM_SHOWN_NOTE,
+    BPM_SHOWN_NOTICE,
+    NOT_ITEMS_NOTICE,
+    T_BPM_FAILED,
+)
 
 # 色などを変えてから作り直すまで待つ秒（続けて変えている間は待つ）
 REMAKE_WAIT_S = 0.8
@@ -42,11 +48,17 @@ class VtsBpmControl:
         items_dir: Callable[[], Path | None],
         save: Callable[..., None],
         notify: Callable[[str], None],
+        choose_folder: Callable[[], None] | None = None,
     ) -> None:
-        """profile は今のプロファイル、state は保存してある app_state、items_dir は書き出し先。"""
+        """profile は今のプロファイル、state は保存してある app_state、items_dir は書き出し先。
+
+        choose_folder は、書き出し先が見つからないときにフォルダを選ばせる
+        （チェックを入れたときだけ）。
+        """
         self._client = client
         self._profile = profile
         self._items_dir = items_dir
+        self._choose_folder = choose_folder
         self._save = save
         self._notify = notify
         self.bpm = VtsBpm(client, size=size, place=clean_place(state.get("vts_bpm_place")))
@@ -55,8 +67,13 @@ class VtsBpmControl:
         saved_look = state.get("vts_bpm_look")
         self._made: tuple | None = tuple(saved_look) if isinstance(saved_look, list) else None
         self._pending: tuple[tuple, float] | None = None
-        # 書き出しに失敗した設定（同じ設定では自動で試し直さない）
+        # 書き出しに失敗した設定（同じ設定では自動で試し直さない）と、出せなかった理由の一文
         self._failed: tuple | None = None
+        self._error = ""
+        # 数字の様子の一文（出している・出せなかった）。知らせはすぐ消えるので出し続ける
+        self.note = QLabel("")
+        self.note.setWordWrap(True)
+        self.note.hide()
         self.check = QCheckBox(BPM_CHECK)
         self.check.setToolTip(
             "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
@@ -84,7 +101,9 @@ class VtsBpmControl:
         if on:
             self.make(notice=True)
         else:
+            self._error = ""
             self.bpm.hide()
+        self.refresh()
 
     def _on_moved(self) -> None:
         place = self.bpm.place
@@ -96,33 +115,61 @@ class VtsBpmControl:
             return
         look = bpm_look(self._profile())
         folder = self._items_dir()
+        if folder is None and notice and self._choose_folder is not None:
+            self._choose_folder()
+            folder = self._items_dir()
         if folder is None:
-            self._failed = look
-            self._notify(tr(NOT_ITEMS_NOTICE))
+            self._fail(look, tr(NOT_ITEMS_NOTICE))
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             write_frames(render_bpm_frames(self._profile()), folder / BPM_FOLDER)
         except (OSError, RuntimeError):
-            self._failed = look
-            self._notify(
-                tr("心拍数の画像を書き出せませんでした（書き出し先のフォルダを確かめてください）")
+            self._fail(
+                look,
+                tr("心拍数の画像を書き出せませんでした（書き出し先のフォルダを確かめてください）"),
             )
             return
         finally:
             QApplication.restoreOverrideCursor()
         self._made = look
         self._failed = None
+        self._error = ""
         self._save(vts_bpm_look=list(look))
 
         def shown(ok: bool) -> None:
             if not ok:
-                error = self.bpm.last_error
-                self._notify(tr("VTube Studio に心拍数を出せませんでした（{error}）", error=error))
+                self._fail(None, tr(T_BPM_FAILED, error=tr(self.bpm.last_error)))
             elif notice:
                 self._notify(tr(BPM_SHOWN_NOTICE))
+            self.refresh()
 
         self.bpm.show(shown)
+
+    def _fail(self, look: tuple | None, message: str) -> None:
+        """出せなかった。知らせ、様子の一文にも残す（look はその設定では自動で試し直さない）。"""
+        if look is not None:
+            self._failed = look
+        self._error = message
+        self._notify(message)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """数字の様子の一文を今の状態に合わせる（変わったときだけ書き換える）。"""
+        shown = self._client.state == READY and self.check.isChecked()
+        if shown and self._error:
+            text, kind = self._error, "warn"
+        elif shown and self.bpm.instance_id is not None:
+            text, kind = tr(BPM_SHOWN_NOTE), "meta"
+        else:
+            text, kind = "", "meta"
+        if self.note.objectName() != kind:
+            self.note.setObjectName(kind)
+            self.note.style().unpolish(self.note)
+            self.note.style().polish(self.note)
+        if self.note.text() != text:
+            self.note.setText(text)
+        self.note.setVisible(bool(text))
 
     def tick(self, bpm: float) -> None:
         """操作画面のタイマーごと。心拍数のコマを出し、設定が変わっていれば作り直す。"""

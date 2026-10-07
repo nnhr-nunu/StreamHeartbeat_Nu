@@ -47,7 +47,8 @@ _HOW_TO_EN = (
     "place as in the output window (always in the same spot, without the per-beat wobble).",
     '- If you tick "{bpm_check}", the heart rate number also appears in VTube Studio. Its color, '
     'outline and size follow the "④ Heart rate" settings. Drag it in the VTube Studio window to '
-    "place it (the place is remembered for next time).",
+    "place it (the place is remembered for next time. If you put it on the model it moves with "
+    'the body, but it comes off when it is remade after you change the "④" settings).',
     '- To remove the heart, press "{hide}". It will not appear the next time you start the app '
     '(press "{show}" to show it again).',
     "- Styles available in VTube Studio: {names}",
@@ -123,7 +124,11 @@ EN_VTS: dict[str, str] = {
     "大きく": "Larger",
     t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
     t.TEXT_CHECK: "Also show the beat text with the heart in VTube Studio",
-    t.BPM_CHECK: "Also show the heart rate in VTube Studio",
+    t.BPM_CHECK: "Also show the heart rate number in VTube Studio",
+    t.BPM_SHOWN_NOTE: (
+        "The heart rate number is shown. Drag it in the VTube Studio window to place it."
+    ),
+    t.T_BPM_FAILED: "Could not show the heart rate number ({error})",
     "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
     "VTube Studio での大きさは、この欄の「大きさ」で心臓と一緒に変わります。"
     "置き場所は VTube Studio の画面でドラッグして決めます": (
@@ -132,7 +137,7 @@ EN_VTS: dict[str, str] = {
         "the VTube Studio window to place it."
     ),
     "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
-    "文字・大きさ・色は「拍の文字」の設定のとおりです": (
+    "文字・大きさ・色は「③ 同期文字」の設定のとおりです": (
         "Shows the output window's beat text (such as ❤) on the VTube Studio heart too, "
         "in the same place. The text, size and color follow the beat text settings."
     ),
