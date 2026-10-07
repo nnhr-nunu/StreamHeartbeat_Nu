@@ -62,6 +62,8 @@ class FakeVts(QObject):
         self.item_gone = False
         # 場に出ているアイテム（ItemListRequest の返事）
         self.scene: list[dict] = []
+        # ArtMeshAtPositionRequest の返事（None ならその要求を知らない版の VTube Studio）
+        self.art_mesh_hits: list[dict] | None = None
         self.received: list[dict] = []
         self._server = QWebSocketServer("fake-vts", QWebSocketServer.SslMode.NonSecureMode)
         assert self._server.listen(QHostAddress.SpecialAddress.LocalHost, 0)
@@ -117,6 +119,12 @@ class FakeVts(QObject):
             data = {"modelLoaded": True, "modelName": "Model", "modelID": "m1"}
         elif kind == "ItemPinRequest":
             data = {"isPinned": message["data"]["pin"], "itemInstanceID": "inst1"}
+        elif kind == "ArtMeshAtPositionRequest":
+            if self.art_mesh_hits is None:
+                answer, data = "APIError", {"errorID": 1, "message": "unknown request"}
+            else:
+                data = {"modelWasHit": bool(self.art_mesh_hits),
+                        "artMeshHits": self.art_mesh_hits}
         elif kind == "ItemAnimationControlRequest" and self.item_gone:
             answer, data = "APIError", {"errorID": 850, "message": "not found"}
         payload = {"apiName": "VTubeStudioPublicAPI", "apiVersion": "1.0",
@@ -352,7 +360,7 @@ def test_panel_restores_item_after_vts_restart(qapp, tmp_path: Path, monkeypatch
     session.profile.style = "cute"
     save_app_state(tmp_path, vts_item_shown=True, vts_item_size=5.0,
                    vts_pins={"m1": PIN, "bad": {"modelID": "bad"}},
-                   vts_item_look=list(look_key(session.profile)))
+                   vts_item_look=list(look_key(session.profile, text=True)))
     panel = VtsPanel(session, tmp_path, lambda _text: None)
     assert panel._heart.pins == {"m1": PIN} and panel._heart.size == 0.8
     shows: list[int] = []
@@ -445,7 +453,7 @@ def test_panel_buttons_and_note_follow_connection_and_look(qapp, tmp_path: Path)
     assert panel._note.text() == vts_panel.NOTE_NOT_SHOWN
     # 出したら作り直し・留める・しまうを押せる
     panel._heart.instance_id = "inst1"
-    panel._made_key = look_key(profile)
+    panel._made_key = look_key(profile, text=True)
     panel._refresh()
     assert panel._item_btn.text() == vts_panel.REMAKE_BUTTON
     assert panel._pin_btn.isEnabled() and panel._hide_btn.isEnabled()
@@ -454,7 +462,7 @@ def test_panel_buttons_and_note_follow_connection_and_look(qapp, tmp_path: Path)
     profile.heart_yaw_deg += 20.0
     panel._refresh()
     assert panel._note.text() == vts_panel.NOTE_STALE and panel._note.objectName() == "meta"
-    panel._failed_key = look_key(profile)
+    panel._failed_key = look_key(profile, text=True)
     panel._refresh()
     assert panel._note.text() == vts_panel.NOTE_STALE_FAILED and panel._note.objectName() == "warn"
     # アイテムにできないスタイルでは出せない
@@ -462,7 +470,7 @@ def test_panel_buttons_and_note_follow_connection_and_look(qapp, tmp_path: Path)
     panel._refresh()
     assert panel._note.text() == vts_panel.NOTE_BAD_STYLE and not panel._item_btn.isEnabled()
     profile.style = "realistic"
-    panel._made_key = look_key(profile)
+    panel._made_key = look_key(profile, text=True)
     panel._heart.model_id = "m1"
     panel._heart.pins = {"m1": PIN}
     panel._refresh()
@@ -626,7 +634,7 @@ def test_panel_remakes_after_the_look_settles(qtbot, tmp_path: Path, monkeypatch
     panel._make_item = lambda auto=False: made.append(auto)  # type: ignore[method-assign]
     panel._client._state = READY
     panel._heart.instance_id = "inst1"
-    panel._made_key = look_key(profile)
+    panel._made_key = look_key(profile, text=True)
     panel._auto_remake()
     assert made == []
     # 見た目を変えても、続けて変えている間は待つ
@@ -642,7 +650,8 @@ def test_panel_remakes_after_the_look_settles(qtbot, tmp_path: Path, monkeypatch
     panel._auto_remake()
     assert made == [True]
     # 聴診器の所は配信用の窓に聞く
-    assert look_key(profile, (0.4, 0.1)) == panel._look_key() != look_key(profile)
+    placed = look_key(profile, (0.4, 0.1), text=True)
+    assert placed == panel._look_key() != look_key(profile, text=True)
     # 作り直している間・失敗した見た目・出していないときは作り直さない
     panel._busy = True
     now[0] += REMAKE_WAIT_S * 2
@@ -697,8 +706,8 @@ def test_panel_remakes_item_in_vts_when_the_effect_changes(
         lambda: len(fake_vts.sent("ItemLoadRequest")) == 2 and not panel._busy, timeout=3000
     )
     assert sorted(path.name for path in (items / ITEM_FOLDER).glob("*.png")) != first
-    assert panel._made_key == look_key(session.profile)
-    assert load_app_state(tmp_path)["vts_item_look"] == list(look_key(session.profile))
+    assert panel._made_key == look_key(session.profile, text=True)
+    assert load_app_state(tmp_path)["vts_item_look"] == list(look_key(session.profile, text=True))
     assert notices[-1] == vts_panel.REMADE_NOTICE
     panel.shutdown()
 
@@ -715,3 +724,163 @@ def test_show_item_keeps_the_new_frame_count(qtbot, fake_vts: FakeVts) -> None:
     rest = fake_vts.sent("ItemAnimationControlRequest")[-1]
     assert rest["frame"] == 27 and rest["autoStopFrames"] == [27]
     client.stop()
+
+
+def drop_event(kind: str, x: float, y: float, instance: str = "inst1") -> dict:
+    return {"itemEventType": kind, "itemInstanceID": instance,
+            "itemFileName": ITEM_FOLDER, "itemPosition": {"x": x, "y": y}}
+
+
+def test_item_dragged_in_vts_comes_back_to_the_same_place(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts, pins={"m1": PIN})
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
+    assert any(s["eventName"] == "ItemEvent" and s["config"]["itemFileNames"] == [ITEM_FOLDER]
+               for s in fake_vts.sent("EventSubscriptionRequest"))
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: heart.instance_id == "inst1", timeout=3000)
+    # ほかのアイテムを動かしても覚えない
+    fake_vts.push("ItemEvent", drop_event("DroppedUnpinned", 0.5, 0.5, instance="other"))
+    # モデルの外へ置いた: 置いた所を覚え、前に留めた場所へは戻さない
+    fake_vts.push("ItemEvent", drop_event("DroppedUnpinned", 0.4, -0.3))
+    qtbot.waitUntil(lambda: moved == [True], timeout=3000)
+    assert heart.place == (0.4, -0.3) and heart.pins == {}
+    # 見た目を変えて出し直しても、置いた所に出す（留めない）
+    pins_before = len(fake_vts.sent("ItemPinRequest"))
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: len(fake_vts.sent("ItemLoadRequest")) == 2, timeout=3000)
+    load = fake_vts.sent("ItemLoadRequest")[-1]
+    assert (load["positionX"], load["positionY"]) == (0.4, -0.3)
+    qtbot.wait(100)
+    assert len(fake_vts.sent("ItemPinRequest")) == pins_before
+    client.stop()
+
+
+def test_item_dropped_on_model_remembers_where_it_is_pinned(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts)
+    moved: list[bool] = []
+    heart.on_moved = lambda: moved.append(True)
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: heart.instance_id == "inst1", timeout=3000)
+    # 落とした所の ArtMesh を聞いて、留めた場所として覚える
+    fake_vts.art_mesh_hits = [{"artMeshOrder": 0, "hitInfo": HIT}]
+    fake_vts.push("ItemEvent", drop_event("DroppedPinned", 0.1, 0.2))
+    qtbot.waitUntil(lambda: moved == [True], timeout=3000)
+    asked = fake_vts.sent("ArtMeshAtPositionRequest")[-1]
+    assert (asked["x"], asked["y"]) == (0.1, 0.2)
+    assert heart.pins == {"m1": PIN} and heart.place == (0.1, 0.2)
+    # 聞けない版の VTube Studio では、置いた所だけ覚える（前の場所へは戻さない）
+    fake_vts.art_mesh_hits = None
+    fake_vts.push("ItemEvent", drop_event("DroppedPinned", -0.2, 0.0))
+    qtbot.waitUntil(lambda: moved == [True, True], timeout=3000)
+    assert heart.pins == {} and heart.place == (-0.2, 0.0)
+    client.stop()
+
+
+def test_wide_frames_are_shown_larger_in_vts(qtbot, fake_vts: FakeVts) -> None:
+    client, heart = _ready_heart(qtbot, fake_vts, size=0.3, pins={"m1": PIN})
+    heart.zoom = 1.5
+    heart.show_item(20)
+    qtbot.waitUntil(lambda: bool(fake_vts.sent("ItemPinRequest")), timeout=3000)
+    # コマを 1.5 倍広く描いたので、心臓の見かけの大きさが変わらないよう 1.5 倍で出す
+    assert fake_vts.sent("ItemLoadRequest")[-1]["size"] == pytest.approx(0.45)
+    assert fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == pytest.approx(0.45)
+    # VTube Studio の上限（1）は超えない
+    heart.set_size(0.8)
+    qtbot.waitUntil(lambda: fake_vts.sent("ItemPinRequest")[-1]["pinInfo"]["size"] == 1.0,
+                    timeout=3000)
+    client.stop()
+
+
+def test_saved_place_is_checked() -> None:
+    from stream_heartbeat.vts import clean_place
+
+    assert clean_place([0.25, -0.5]) == (0.25, -0.5)
+    assert clean_place({"x": 2000, "y": -3}) == (1000.0, -3.0)
+    assert clean_place([True, 0.0]) is None
+    assert clean_place([float("nan"), 0.0]) is None
+    assert clean_place("0,0") is None and clean_place(None) is None
+
+
+def _spy_words(monkeypatch) -> list[tuple[float, float, float]]:
+    """コマに描いた拍の文字（基準点の x・y と濃さ）を集める。
+
+    offscreen ではフォントが無く、文字が画素に出ないため。
+    """
+    from stream_heartbeat.render import heart_frames
+
+    calls: list[tuple[float, float, float]] = []
+
+    def spy(_painter, point, _text, **kwargs) -> None:
+        calls.append((point.x(), point.y(), kwargs["opacity"]))
+
+    monkeypatch.setattr(heart_frames, "paint_beat_word", spy)
+    return calls
+
+
+def test_frames_carry_the_beat_text(qapp, monkeypatch) -> None:
+    del qapp
+    from stream_heartbeat.render.heart_frames import TEXT_SECONDS, item_text, item_zoom
+
+    profile = HeartProfile(style="cute", beat_text="ドクン")
+    plain = render_frames(profile, size=128)
+    calls = _spy_words(monkeypatch)
+    worded = render_frames(profile, size=128, text=True)
+    side = round(128 * item_zoom(profile, True, 128))
+    assert worded[0].width() == side >= 128
+    # 文字が消えきるまでコマにし、休んでいる形（最後のコマ）には描かない
+    rest = len(worded) - 1
+    assert rest >= int(TEXT_SECONDS * 30) > len(plain) - 1
+    assert 0 < len(calls) < rest
+    alphas = [a for _x, _y, a in calls]
+    peak = alphas.index(max(alphas))
+    assert alphas[0] < 0.5 < max(alphas) == 1.0 and 0 < peak < len(alphas) - 1
+    assert alphas[-1] < 0.2
+    # 窓で心臓の上に置いた文字は、コマでも心臓の上（いつも同じ所）
+    word = item_text(profile, 128)
+    assert word is not None and word.dy < 0
+    assert len({(x, y) for x, y, _a in calls}) == 1 and calls[0][1] < side / 2
+    # 文字を出さない設定なら描かない
+    assert item_text(HeartProfile(style="cute", show_beat_text=False)) is None
+    assert item_text(HeartProfile(style="cute", beat_text="  ")) is None
+    calls.clear()
+    render_frames(profile, size=128)
+    assert calls == []
+
+
+def test_far_beat_text_stays_inside_the_frame(qapp, monkeypatch) -> None:
+    del qapp
+    from PySide6.QtCore import QPointF
+
+    from stream_heartbeat.render.heart_frames import (
+        ITEM_ZOOM_MAX,
+        _text_corners,
+        item_text,
+        item_zoom,
+    )
+
+    # 窓の左上の隅に置いた文字は、上限まで広げても届かないので、コマの中へ寄せて描く
+    profile = HeartProfile(style="cute", beat_text="ドクン", beat_text_x=0.02,
+                           beat_text_y=0.02, beat_text_scale=1.5)
+    assert item_zoom(profile, True, 128) == ITEM_ZOOM_MAX
+    calls = _spy_words(monkeypatch)
+    side = render_frames(profile, size=128, text=True)[0].width()
+    word = item_text(profile, 128)
+    assert word is not None
+    corners = _text_corners(word, QPointF(calls[0][0], calls[0][1]))
+    assert all(-0.5 <= c.x() <= side + 0.5 and -0.5 <= c.y() <= side + 0.5 for c in corners)
+
+
+def test_rib_frames_are_drawn_wider() -> None:
+    from stream_heartbeat.render.heart_frames import RIB_ITEM_ZOOM, item_zoom
+    from stream_heartbeat.ui.vts_panel import look_key
+
+    ribs = HeartProfile(style="xray_heart", realistic_look="ribcage", show_beat_text=False)
+    assert item_zoom(ribs, True) == RIB_ITEM_ZOOM
+    assert item_zoom(HeartProfile(style="realistic", show_beat_text=False), True) == 1.0
+    # 文字を出すかどうか・文字の中身が変われば作り直す
+    profile = HeartProfile(style="realistic")
+    assert look_key(profile, text=True) != look_key(profile)
+    changed = HeartProfile(style="realistic", beat_text="ドクン")
+    assert look_key(changed, text=True) != look_key(profile, text=True)
+    assert look_key(changed) == look_key(profile)

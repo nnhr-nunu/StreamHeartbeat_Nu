@@ -1,6 +1,7 @@
 """レントゲン4 の肋骨を描く。Blender の心臓（model_gl）の周りに、同じ座標・同じ置き方で重ねる。
 
-肋骨は窓より大きいので、心臓から離れるほど薄れて消える（窓の端で切れて見えない）。
+肋骨は窓より大きいので、心臓から離れるほど薄れて消える。窓（VTube Studio のコマ）の端の近くでも
+薄れる（窓を小さくしても、心臓を大きくしても、端で真っすぐ切れて見えない）。
 材質は X 線（硬い外側が縁で厚く写る）とガラス（素通しの映り込み）。X 線は心臓と同じく
 背景に重ねる 2 回描き（model_shaders の XRAY_OUT_GLSL）。ガラスは心臓より奥と手前に分けて描き、
 奥の骨 → 心臓 → 手前の骨の順に重ねる。
@@ -8,7 +9,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QMatrix4x4, QOpenGLFunctions, QVector3D
+from PySide6.QtGui import QMatrix4x4, QOpenGLFunctions, QVector2D, QVector3D
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
     QOpenGLShader,
@@ -24,10 +25,13 @@ from stream_heartbeat.render.model_mesh import RibcageMesh, load_ribcage_mesh
 from stream_heartbeat.render.model_shaders import SHADING_GLSL, XRAY_OUT_GLSL
 
 GL_SHORT = 0x1402
-# 薄れ始め・消える所を決める楕円の真ん中と半径（形の座標。心臓の胴の少し上を真ん中に、縦に長め）。
-# 半径の 0.55 倍から薄れ始め、半径で消える
+# 薄れ始め・消える所を決める楕円の真ん中と半径（形の座標。心臓の胴の少し上を真ん中に、横に広め）。
+# 半径の 0.55 倍から薄れ始め、半径で消える。横はモデルの胸の幅くらいまで見せる。これより広げると
+# 背中側の肋骨まで重なって網目のように見える
 BONE_FADE_CENTER = (0.0, -0.25, 0.0)
-BONE_FADE_RADIUS = (2.3, 2.3, 2.3)
+BONE_FADE_RADIUS = (2.8, 2.5, 2.8)
+# 窓の端で薄れる幅（窓の短い辺に対する割合）
+BONE_EDGE_FADE = 0.12
 # 骨を描き分ける: 全部 / 心臓より奥だけ / 心臓より手前だけ（ガラスの重なりの順）
 SIDE_ALL = 0
 SIDE_BEHIND = 1
@@ -78,6 +82,8 @@ uniform vec3 uFadeRadius;
 uniform int uSide;
 uniform vec3 uSplitPoint;
 uniform vec3 uSplitDir;
+uniform vec2 uViewport;
+uniform float uEdgeFade;
 
 out vec4 fragColor;
 """
@@ -92,6 +98,8 @@ void main() {
         discard;
     }
     float fade = 1.0 - smoothstep(0.55, 1.0, length((vObjPos - uFadeCenter) / uFadeRadius));
+    vec2 edge = min(gl_FragCoord.xy, uViewport - gl_FragCoord.xy);
+    fade *= smoothstep(0.0, uEdgeFade, min(edge.x, edge.y));
     if (fade <= 0.0) {
         discard;
     }
@@ -188,8 +196,11 @@ class BoneRenderer:
         side: int = SIDE_ALL,
         split: tuple[QVector3D, QVector3D] | None = None,
         cull: tuple[int, ...] = (),
+        viewport: tuple[int, int] = (0, 0),
     ) -> None:
         """cutout は X 線の何回目か（1: 下を隠す / 2: 色を足す）。split は分ける面（点・向き）。
+
+        viewport は描く窓の画素（幅・高さ）。端の近くの骨を薄くする（0 なら薄くしない）。
 
         cull は描く前に裏返す面の並び（ガラスは奥の面 → 手前の面の 2 回）。空なら 1 回だけ描く。
         """
@@ -214,6 +225,11 @@ class BoneRenderer:
         program.setUniformValue1f("uOpacity", float(max(0.0, min(1.0, opacity))))
         program.setUniformValue("uFadeCenter", QVector3D(*BONE_FADE_CENTER))
         program.setUniformValue("uFadeRadius", QVector3D(*BONE_FADE_RADIUS))
+        # 窓の大きさが分からなければ、端では薄くしない（どの画素も端から十分遠い扱い）
+        side = min(viewport)
+        far = (float(viewport[0]), float(viewport[1])) if side > 0 else (1e7, 1e7)
+        program.setUniformValue("uViewport", QVector2D(*far))
+        program.setUniformValue1f("uEdgeFade", BONE_EDGE_FADE * side if side > 0 else 1.0)
         program.setUniformValue1i("uSide", side)
         program.setUniformValue("uSplitPoint", point)
         program.setUniformValue("uSplitDir", direction)

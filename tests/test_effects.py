@@ -34,11 +34,13 @@ from stream_heartbeat.ui.effects import (
     EFFECT_DEFIB,
     EFFECT_DOPPLER,
     EFFECT_GRIP,
+    EFFECT_GRIP_BIG,
     EFFECT_MONITOR,
     EFFECT_NONE,
     EFFECT_STETHO,
     EFFECT_STETHO_FLIP,
     EFFECT_TAGGING,
+    FRONT_EFFECTS,
     GRIP_MIN_HOLD_S,
     POP_KEEP_S,
     EffectMotion,
@@ -78,7 +80,7 @@ def test_heart_styles_sit_a_little_higher() -> None:
 def test_grip_and_stetho_for_every_heart_style() -> None:
     # 心臓の形が出るスタイルなら、どれでも手で掴めて聴診器を当てられる。
     # 除細動器はリアル系の心臓（リアル・レントゲン）だけ
-    hands = [EFFECT_NONE, EFFECT_GRIP, EFFECT_STETHO, EFFECT_STETHO_FLIP]
+    hands = [EFFECT_NONE, EFFECT_GRIP, EFFECT_GRIP_BIG, EFFECT_STETHO, EFFECT_STETHO_FLIP]
     for style in ("xray", "xray_heart", "realistic"):
         keys = [key for key, _label in effect_choices(style)]
         assert keys == [*hands, EFFECT_DEFIB, EFFECT_BURST]
@@ -86,7 +88,9 @@ def test_grip_and_stetho_for_every_heart_style() -> None:
         keys = [key for key, _label in effect_choices(style)]
         assert keys == [*hands, EFFECT_BURST]
     labels = [label for _key, label in effect_choices("realistic")]
-    assert labels[1:] == ["心臓わしづかみ", "聴診器1", "聴診器2", "除細動器", "はじけるハート"]
+    assert labels[1:] == [
+        "心臓わしづかみ1", "心臓わしづかみ2", "聴診器1", "聴診器2", "除細動器", "はじけるハート"
+    ]
     # 断面・波形・窓いっぱいの絵は、そのスタイルに合った演出とはじけるハート
     assert [k for k, _ in effect_choices("echo")] == [EFFECT_NONE, EFFECT_DOPPLER, EFFECT_BURST]
     assert [k for k, _ in effect_choices("mri")] == [EFFECT_NONE, EFFECT_TAGGING, EFFECT_BURST]
@@ -253,6 +257,7 @@ def test_effect_combo_follows_style_and_keeps_choice(qapp: QApplication) -> None
     assert _effect_keys(operator) == [
         EFFECT_NONE,
         EFFECT_GRIP,
+        EFFECT_GRIP_BIG,
         EFFECT_STETHO,
         EFFECT_STETHO_FLIP,
         EFFECT_DEFIB,
@@ -402,3 +407,48 @@ def test_vts_gets_stetho_place_from_output_window(qapp: QApplication) -> None:
     assert operator._vts._stetho_offset() == pytest.approx((0.0, 0.0), abs=1e-6)
     profile.stetho_x += frame.radius / rect.width()
     assert operator._vts._stetho_offset() == pytest.approx((1.0, 0.0), abs=1e-6)
+
+
+def test_big_hand_is_wider_and_lower_on_every_heart(qapp: QApplication) -> None:
+    del qapp
+    from stream_heartbeat.render.grip_pose import BIG_HAND_SCALE, HEART_BODY, big_hand
+    from stream_heartbeat.render.model_body import REST_WEIGHTS, model_grip_body
+
+    # 心臓わしづかみ2: 同じ胴に、幅が大きく・手の甲が低い手を当てる（指先の高さはおよそ同じ）
+    for body in (HEART_BODY, model_grip_body(REST_WEIGHTS)):
+        big = big_hand(body)
+        assert big.hand_width == pytest.approx(body.hand_width * BIG_HAND_SCALE)
+        assert big.anchor[0] == body.anchor[0] and big.anchor[1] < body.anchor[1]
+        assert big.rim == body.rim and big.depth == body.depth
+    # 平らな手（2D）も同じだけ大きく、低く描く
+    rect = QRectF(0, 0, 400, 400)
+    frame = gl_heart_frame(rect, 0.5, STYLE_LOOKS["xray_heart"])
+    cycle = BeatClock().cycle(0.5)
+    covered = []
+    for big_flag in (False, True):
+        image = QImage(400, 400, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(image)
+        paint_grip_hand(
+            painter, rect, frame, cycle, grip=0.0, time_s=0.0, opacity=1.0, big=big_flag
+        )
+        painter.end()
+        rows = [y for y in range(0, 400, 2) if any(
+            image.pixelColor(x, y).alpha() > 128 for x in range(0, 400, 4))]
+        cols = [x for x in range(0, 400, 2) if any(
+            image.pixelColor(x, y).alpha() > 128 for y in range(0, int(frame.center.y()), 4))]
+        covered.append((rows[0], cols[-1] - cols[0]))
+    (top, width), (big_top, big_width) = covered
+    assert big_width > width * 1.12
+    assert abs(big_top - top) < frame.radius * 0.25
+
+
+def test_both_grips_hold_the_heart_in_front(qapp: QApplication) -> None:
+    del qapp
+    profile = HeartProfile(style="realistic", effect=EFFECT_GRIP_BIG)
+    operator, output = _open(profile)
+    # 2 もクリックで握り、正面に固定する（回せない）
+    assert output.canvas.effect == EFFECT_GRIP_BIG
+    assert operator._angle_wrap.isHidden()
+    assert EFFECT_GRIP_BIG in FRONT_EFFECTS
+

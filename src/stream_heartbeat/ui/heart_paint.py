@@ -173,22 +173,51 @@ def paint_bursts(
     color: str = "#FF4D4D",
     outline: str = "#000000",
 ) -> None:
-    font = QFont()
-    font.setPixelSize(burst_font_px(min(rect.width(), rect.height()), scale))
-    font.setBold(True)
-    painter.setFont(font)
-    fill = QColor(color) if QColor(color).isValid() else TEXT_COLOR
-    ring = QColor(outline) if outline and QColor(outline).isValid() else None
+    font_px = burst_font_px(min(rect.width(), rect.height()), scale)
     for burst in bursts:
-        painter.save()
-        painter.setOpacity(burst_opacity(burst.alpha, opacity))
         x = rect.left() + burst.pos[0] * rect.width()
         y = rect.top() + burst.pos[1] * rect.height()
-        painter.translate(x, y)
-        painter.rotate(burst.angle)
-        _draw_outlined_text(painter, 0, 0, burst.text, fill, ring)
-        painter.restore()
+        paint_beat_word(
+            painter,
+            QPointF(x, y),
+            burst.text,
+            font_px=font_px,
+            angle=burst.angle,
+            opacity=burst_opacity(burst.alpha, opacity),
+            color=color,
+            outline=outline,
+        )
     painter.setOpacity(1.0)
+
+
+def beat_word_font(font_px: int) -> QFont:
+    font = QFont()
+    font.setPixelSize(font_px)
+    font.setBold(True)
+    return font
+
+
+def paint_beat_word(
+    painter: QPainter,
+    point: QPointF,
+    text: str,
+    *,
+    font_px: int,
+    angle: float,
+    opacity: float,
+    color: str,
+    outline: str,
+) -> None:
+    """拍の文字を 1 つ描く。point は文字の左下（並びの基準）で、そこを中心に angle 度回す。"""
+    fill = QColor(color) if QColor(color).isValid() else TEXT_COLOR
+    ring = QColor(outline) if outline and QColor(outline).isValid() else None
+    painter.save()
+    painter.setFont(beat_word_font(font_px))
+    painter.setOpacity(opacity)
+    painter.translate(point)
+    painter.rotate(angle)
+    _draw_outlined_text(painter, 0, 0, text, fill, ring)
+    painter.restore()
 
 
 def paint_ripples(painter: QPainter, rect: QRectF, ripples: list[Ripple]) -> None:

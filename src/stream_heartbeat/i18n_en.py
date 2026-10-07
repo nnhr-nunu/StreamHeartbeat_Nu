@@ -184,7 +184,8 @@ EN_GENERAL: dict[str, str] = {
     "心電図1": "ECG 1",
     "心電図2": "ECG 2",
     # ---- 演出 ---------------------------------------------------------------------
-    "心臓わしづかみ": "Heart grab",
+    "心臓わしづかみ1": "Heart grab 1",
+    "心臓わしづかみ2": "Heart grab 2",
     "聴診器1": "Stethoscope 1",
     "聴診器2": "Stethoscope 2",
     "除細動器": "Defibrillator",

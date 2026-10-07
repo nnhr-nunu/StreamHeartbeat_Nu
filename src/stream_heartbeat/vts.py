@@ -12,6 +12,7 @@ API は ws://127.0.0.1:8001 の WebSocket（localhost と書くと名前の解�
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from collections.abc import Callable
@@ -53,6 +54,12 @@ PIN_KEYS = (
 )
 # ItemAnimationControlRequest で「そのアイテムは場に無い」
 ERROR_ITEM_NOT_FOUND = 850
+# ItemEvent の種類: VTube Studio の画面でアイテムをドラッグして、モデルの上に落とした（留まった）／
+# モデルの外に落とした
+DROPPED_PINNED = "DroppedPinned"
+DROPPED_UNPINNED = "DroppedUnpinned"
+# アイテムを置ける位置の範囲（ItemLoadRequest。画面の端は ±1）
+POSITION_LIMIT = 1000.0
 
 # 状態（操作画面の表示に使う）
 OFF = "off"
@@ -141,13 +148,32 @@ def clicked_pin(event: dict) -> dict | None:
     """ModelClickedEvent から、いちばん手前の ArtMesh 上の場所を取り出す（左クリックだけ）。"""
     if event.get("modelWasClicked") is not True or event.get("mouseButtonID") != 0:
         return None
-    hits = [h for h in event.get("artMeshHits") or [] if isinstance(h, dict)]
+    return hit_pin(event.get("artMeshHits"))
+
+
+def hit_pin(raw: object) -> dict | None:
+    """ArtMesh に当たった所の一覧（artMeshHits）から、いちばん手前の場所を取り出す。"""
+    hits = [h for h in raw if isinstance(h, dict)] if isinstance(raw, list) else []
     hits.sort(key=lambda h: o if isinstance(o := h.get("artMeshOrder"), int) else 999)
     for hit in hits:
         pin = clean_pin(hit.get("hitInfo"))
         if pin is not None:
             return pin
     return None
+
+
+def clean_place(raw: object) -> tuple[float, float] | None:
+    """保存・受信した画面の位置（x, y）を確かめる。形が崩れていれば None。"""
+    if isinstance(raw, dict):
+        raw = (raw.get("x"), raw.get("y"))
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        return None
+    if not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in raw
+    ):
+        return None
+    x, y = (max(-POSITION_LIMIT, min(POSITION_LIMIT, float(v))) for v in raw)
+    return x, y
 
 
 class VtsClient(QObject):
@@ -318,7 +344,8 @@ class VtsHeart:
 
     モデルに留める場所（pins、モデル ID ごと）と大きさ（size）はこちらで覚え、
     出し直したとき・モデルを読み込み直したときに同じ場所へ留め直す。
-    VTube Studio の API からは、手で留めた場所を読み出せないため。
+    VTube Studio の API からは、手で留めた場所も今の位置も読み出せないため。
+    VTube Studio の画面で心臓をドラッグして置いたときは、知らせ（ItemEvent）で置いた所を覚える。
     """
 
     def __init__(
@@ -326,16 +353,24 @@ class VtsHeart:
         client: VtsClient,
         size: float = ITEM_SIZE,
         pins: dict[str, dict] | None = None,
+        place: tuple[float, float] | None = None,
     ) -> None:
         self._client = client
         self.instance_id: str | None = None
         self.frame_count = 0
         self.last_error = ""
         self.size = size
+        # コマの絵が、心臓のまわりをふつうの何倍の広さまで描いてあるか（肋骨・拍の文字の余白）。
+        # VTube Studio へ渡す大きさに掛けて、心臓そのものの見かけの大きさは size のまま保つ
+        self.zoom = 1.0
         self.pins: dict[str, dict] = dict(pins or {})
+        # VTube Studio の画面でドラッグして置いた所（留める場所が分からないとき、ここに出す）
+        self.place = place
         self.model_id = ""
         # つないだ直後に場を調べ終えたら、心臓が場にあったかを渡す
         self.on_found: Callable[[bool], None] | None = None
+        # VTube Studio の画面で心臓を動かし、覚えている場所（pins・place）が変わった
+        self.on_moved: Callable[[], None] | None = None
         self._params_ready = False
         self._pick_done: Callable[[dict | None], None] | None = None
         client.ready.connect(self._on_ready)
@@ -352,6 +387,7 @@ class VtsHeart:
 
     def _on_ready(self) -> None:
         self._client.subscribe("ModelLoadedEvent", {}, self._on_model)
+        self._client.subscribe("ItemEvent", {"itemFileNames": [ITEM_FOLDER]}, self._on_item_event)
         self._client.request("CurrentModelRequest", {}, self._on_model)
         # つなぎ直したときは、前に出したアイテムがまだ場にあれば使い続ける
         self._find_instance(self._report_found)
@@ -365,6 +401,44 @@ class VtsHeart:
         self.model_id = str(data.get("modelID") or "") if loaded else ""
         if loaded:
             self._pin_saved()
+
+    def _on_item_event(self, data: dict) -> None:
+        """VTube Studio の画面で心臓をドラッグして置いた。見た目を変えて出し直しても同じ所に出す。
+
+        モデルの上に落とすと VTube Studio が留めるが、留めた場所（ArtMesh の三角形）は知らせて
+        こない。落とした所にある ArtMesh を聞いて覚える（聞けない版では置いた所だけ覚える）。
+        """
+        kind = data.get("itemEventType")
+        if kind not in (DROPPED_PINNED, DROPPED_UNPINNED) or self.instance_id is None:
+            return
+        place = clean_place(data.get("itemPosition"))
+        if data.get("itemInstanceID") != self.instance_id or place is None:
+            return
+        self.place = place
+        # 前に覚えた場所へは戻さない（置き直した所が新しい場所）
+        model = self.model_id
+        self.pins.pop(model, None)
+        if kind == DROPPED_UNPINNED or not model:
+            self._moved()
+            return
+
+        def got(reply: dict) -> None:
+            pin = hit_pin(reply.get("artMeshHits"))
+            if pin is not None and pin["modelID"] == model == self.model_id:
+                self.pins[model] = pin
+            self._moved()
+
+        self._client.request(
+            "ArtMeshAtPositionRequest", {"x": place[0], "y": place[1], "visualize": 0}, got
+        )
+
+    def _moved(self) -> None:
+        if self.on_moved is not None:
+            self.on_moved()
+
+    def _vts_size(self) -> float:
+        """VTube Studio へ渡す大きさ（コマを広く描いたぶん大きくする。0〜1 に収める）。"""
+        return min(1.0, self.size * max(1.0, self.zoom))
 
     # ------------------------------------------------------------ アイテム
 
@@ -401,13 +475,15 @@ class VtsHeart:
         self._stop_pick()
 
         def load() -> None:
+            # VTube Studio の画面で置いた所があればそこへ（覚えた場所があれば、出したあと留める）
+            x, y = self.place or ITEM_HOME
             self._client.request(
                 "ItemLoadRequest",
                 {
                     "fileName": ITEM_FOLDER,
-                    "positionX": ITEM_HOME[0],
-                    "positionY": ITEM_HOME[1],
-                    "size": self.size,
+                    "positionX": x,
+                    "positionY": y,
+                    "size": self._vts_size(),
                     "rotation": 0,
                     "fadeTime": 0.3,
                     "order": 5,
@@ -528,7 +604,7 @@ class VtsHeart:
                 "angleRelativeTo": "RelativeToModel",
                 "sizeRelativeTo": "RelativeToWorld",
                 "vertexPinType": "Provided",
-                "pinInfo": {**pin, "angle": 0, "size": self.size},
+                "pinInfo": {**pin, "angle": 0, "size": self._vts_size()},
             },
             then,
         )
@@ -552,7 +628,8 @@ class VtsHeart:
         if self.pins.get(self.model_id) is not None:
             self._pin_saved()
         elif self.instance_id is not None:
-            self._move(x=ITEM_HOME[0], y=ITEM_HOME[1], seconds=0.3)
+            x, y = self.place or ITEM_HOME
+            self._move(x=x, y=y, seconds=0.3)
 
     def _stop_pick(self) -> None:
         if self._pick_done is not None:
@@ -584,7 +661,7 @@ class VtsHeart:
         if self.pins.get(self.model_id) is not None and not self.picking:
             self._pin_saved()
         else:
-            self._move(size=self.size)
+            self._move(size=self._vts_size())
 
     def _move(
         self, *, x: float = -1000.0, y: float = -1000.0, size: float = -1000.0, seconds: float = 0.0
