@@ -32,17 +32,22 @@ _HOW_TO_EN = (
     'If you leave "Connect to VTube Studio" ticked, just starting this app and VTube Studio '
     "shows the heart in the same place. It also connects automatically if you start "
     "VTube Studio later.",
-    "- If you drag the heart to a new place in the VTube Studio window, that place is remembered "
-    "too (it reappears there even after the heart is remade with a new look).",
+    "- You can also drag the heart to a new place in the VTube Studio window. It reappears there "
+    "even after the heart is remade with a new look, but it is not attached to the body (this app "
+    'cannot read where VTube Studio attached it). To attach it, use "{pin}".',
+    '- Change the size with "{size}". A size changed with the mouse wheel in the VTube Studio '
+    'window goes back to the "{size}" size when the heart is remade.',
     "- If you change the style, the heart's angle or the effect, the heart in VTube Studio "
     "automatically follows after a short wait.",
     "- The Heart grab, Stethoscope and Popping hearts effects also appear on the VTube Studio "
-    "heart. The strong squeeze on click and the stethoscope following the mouse only work in "
-    "the output window; in VTube Studio the hand stays in place and the stethoscope stays "
-    "where you left it in the output window.",
+    "heart. With Heart grab, clicking the heart in the VTube Studio window makes the hand "
+    "squeeze it. The stethoscope following the mouse only works in the output window; in "
+    "VTube Studio the stethoscope stays where you left it in the output window.",
     '- If you tick "{words}", the beat text (such as ❤ or "ba-dump") also appears in the same '
-    "place as in the output window (always in the same spot, without the per-beat wobble). "
-    "The heart rate number is not shown.",
+    "place as in the output window (always in the same spot, without the per-beat wobble).",
+    '- If you tick "{bpm_check}", the heart rate number also appears in VTube Studio. Its color, '
+    'outline and size follow the "④ Heart rate" settings. Drag it in the VTube Studio window to '
+    "place it (the place is remembered for next time).",
     '- To remove the heart, press "{hide}". It will not appear the next time you start the app '
     '(press "{show}" to show it again).',
     "- Styles available in VTube Studio: {names}",
@@ -70,6 +75,9 @@ _TROUBLE_EN = (
     '   -> Press "{remake}".',
     "- I removed the heart on the VTube Studio side",
     '   -> Press "{show}" again.',
+    "- After changing the look, the heart in VTube Studio came off the body or got bigger",
+    "   -> A place or size changed by dragging or with the mouse wheel in the VTube Studio window "
+    'goes back when the heart is remade. Attach it with "{pin}" and set the size with "{size}".',
     "- The heart is out of place, or I want to attach it somewhere else",
     '   -> Press "{pin}" and click the model again in the VTube Studio window.',
 )
@@ -115,6 +123,12 @@ EN_VTS: dict[str, str] = {
     "大きく": "Larger",
     t.PARAMS_CHECK: "Also send the heartbeat as parameters (advanced)",
     t.TEXT_CHECK: "Also show the beat text with the heart in VTube Studio",
+    t.BPM_CHECK: "Also show the heart rate in VTube Studio",
+    "数字の色・縁取り・大きさは「④ 心拍数」の設定のとおりです。"
+    "置き場所は VTube Studio の画面でドラッグして決めます": (
+        'The number\'s color, outline and size follow the "④ Heart rate" settings. '
+        "Drag it in the VTube Studio window to place it."
+    ),
     "配信用の窓の拍の文字（❤ やドクンなど）を、VTube Studio の心臓にも同じ所に出します。"
     "文字・大きさ・色は「拍の文字」の設定のとおりです": (
         "Shows the output window's beat text (such as ❤) on the VTube Studio heart too, "
@@ -145,6 +159,12 @@ EN_VTS: dict[str, str] = {
         'The heart is shown. Next, press "{pin}" and decide where on the model to attach it.'
     ),
     t.T_PINNED: 'The heart is attached to the model. You can change its size with "{size}".',
+    t.T_HAND_PLACED: (
+        "A heart placed on the body in the VTube Studio window comes off the body when it is "
+        "remade with a new look (this app cannot read where VTube Studio attached it). If you "
+        'attach it with "{pin}", it stays attached after remaking. Change the size with "{size}" '
+        "rather than the mouse wheel, too."
+    ),
     t.PICK_NOTICE: (
         "Switch to the VTube Studio window and left-click the model's chest "
         "(where you want the heart) with the mouse"
@@ -156,6 +176,23 @@ EN_VTS: dict[str, str] = {
     ),
     # ---- 知らせ ---------------------------------------------------------------------
     t.REMADE_NOTICE: "The heart in VTube Studio now matches the current look",
+    t.T_HAND_PLACED_NOTICE: (
+        'To keep it attached to the body after changing the look, attach it with "{pin}"'
+    ),
+    t.T_HAND_REMADE_NOTICE: (
+        "Updated the heart in VTube Studio to the current look and showed it where it was. "
+        'To attach it to the body, press "{pin}".'
+    ),
+    t.BPM_SHOWN_NOTICE: (
+        "Showed the heart rate in VTube Studio. Drag it in the VTube Studio window to where you "
+        "want it."
+    ),
+    "心拍数の画像を書き出せませんでした（書き出し先のフォルダを確かめてください）": (
+        "Could not export the heart rate images (check the export folder)"
+    ),
+    "VTube Studio に心拍数を出せませんでした（{error}）": (
+        "Could not show the heart rate in VTube Studio ({error})"
+    ),
     t.PINNED_NOTICE: (
         "Attached to the model. From now on the heart will be attached here automatically "
         "whenever you show it."

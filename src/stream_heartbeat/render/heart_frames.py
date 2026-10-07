@@ -3,9 +3,10 @@
 コマは拍の瞬間（0 コマ目）から収縮・充満を経て、休んでいる形（最後のコマ）まで。
 拍と拍のあいだは最後のコマで止めておき、次の拍でまた 0 コマ目から流す。
 
-演出（心臓わしづかみの手・聴診器・はじけるハート）もコマに描き込む。クリックで強く握る・
-聴診器がマウスについてくるといった操作は配信用の窓だけのもので、コマは手を添えたまま・
-配信用の窓で置いた所に聴診器を当てたままの姿になる。
+演出（心臓わしづかみの手・聴診器・はじけるハート）もコマに描き込む。聴診器がマウスについてくる
+といった操作は配信用の窓だけのもので、コマは配信用の窓で置いた所に聴診器を当てたままの姿になる。
+心臓わしづかみは、休んでいる形のあとに「ぎゅっ」と握って緩めるコマも足せる（squeeze）。
+VTube Studio で心臓をクリックしたときに、そこだけを流す。
 
 拍の文字（❤ やドクンなど）も、配信用の窓で心臓に対して置いてある所・大きさのまま描き込める。
 コマは毎回同じ絵なので、窓のような拍ごとの位置・傾きの揺れは無い。
@@ -19,6 +20,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF
@@ -41,6 +43,7 @@ from stream_heartbeat.ui.effects import (
     EFFECT_STETHO,
     GRIP_EFFECTS,
     STETHO_EFFECTS,
+    EffectMotion,
     HeartFrame,
     active_effect,
     flat_heart_frame,
@@ -91,6 +94,8 @@ TEXT_WINDOW = 720.0
 TEXT_SECONDS = BURST_FADE_IN_S + BURST_HOLD_S + BURST_FADE_OUT_S
 # 文字の縁取り（heart_paint は上下左右に 2px ずらして重ねる）と、コマの端までの余り
 TEXT_MARGIN_PX = 6.0
+# 「ぎゅっ」のコマは、この握りの強さまで緩んだら休んでいる形のコマで終える
+SQUEEZE_END = 0.05
 
 
 @dataclass(frozen=True)
@@ -254,6 +259,30 @@ def beat_cycles(seconds: float = FRAME_SECONDS) -> list[CardiacCycle]:
     return cycles
 
 
+@cache
+def squeeze_grips() -> tuple[float, ...]:
+    """「ぎゅっ」の各コマの握りの強さ。配信用の窓で 1 回クリックしたときと同じ握り込み・緩め方で、
+    最後は休んでいる形（0）。"""
+    motion = EffectMotion()
+    rest = (0.5, 0.5)
+    motion.step(0.0, rest)
+    motion.press(0.0)
+    motion.release()
+    grips: list[float] = []
+    k = 1
+    while k == 1 or motion.grip >= SQUEEZE_END:
+        motion.step(k / FRAME_FPS, rest)
+        grips.append(motion.grip)
+        k += 1
+    grips.append(0.0)
+    return tuple(grips)
+
+
+def squeeze_frame_count(profile: HeartProfile) -> int:
+    """render_frames(squeeze=True) が休んでいる形のあとに足す「ぎゅっ」のコマの数（無ければ 0）。"""
+    return len(squeeze_grips()) if item_effect(profile) in GRIP_EFFECTS else 0
+
+
 def frame_systole() -> float:
     """コマを作った心拍数での収縮の長さ（clock.cycle と同じ決め方）。"""
     interval = 60.0 / FRAME_BPM
@@ -276,12 +305,15 @@ def render_frames(
     size: int = FRAME_SIZE,
     stetho: tuple[float, float] = (0.0, 0.0),
     text: bool = False,
+    squeeze: bool = False,
 ) -> list[QImage]:
     """プロファイルのスタイル・向き・演出で 1 拍ぶんのコマを描く。アイテムにできなければ空。
 
     stetho は聴診器を当てる所の、心臓の真ん中からのずれ（心臓の半径を 1 とする）。
     text は拍の文字も描くか。コマは item_zoom(profile, text) 倍に広げて描く
     （一辺は frame_side。心臓の画素の大きさは size 角のときと同じ）。
+    squeeze が真で演出が心臓わしづかみなら、休んでいる形のあとに「ぎゅっ」のコマ
+    （squeeze_frame_count 枚。拍の文字は無し）を足す。
     """
     if profile.style not in ITEM_STYLES:
         return []
@@ -297,14 +329,21 @@ def render_frames(
         seconds = max(seconds, TEXT_SECONDS)
     cycles = beat_cycles(seconds)
     rest = len(cycles) - 1
-    # 各コマの拍からの秒（最後は休んでいる形）
+    # 各コマの拍からの秒（最後は休んでいる形）と握りの強さ
     ages = [k / FRAME_FPS for k in range(rest)] + [60.0 / FRAME_BPM * 0.9]
+    grips = [0.0] * len(cycles)
+    if squeeze and effect in GRIP_EFFECTS:
+        # 「ぎゅっ」は休んでいる形の心臓を握る。秒は休んでいる形から続ける（手の震えの位相）
+        extra = squeeze_grips()
+        cycles += [cycles[rest]] * len(extra)
+        ages += [ages[rest] + (k + 1) / FRAME_FPS for k in range(len(extra))]
+        grips += list(extra)
     frame = _item_frame(profile, side, zoom)
     anchor = _text_anchor(word, frame.center, side) if word is not None else None
     if profile.style in FLAT_ITEM_STYLES:
-        frames = _flat_frames(profile, side, zoom, frame, effect, cycles, ages, stetho)
+        frames = _flat_frames(profile, side, zoom, frame, effect, cycles, ages, stetho, grips, rest)
     else:
-        frames = _gl_frames(profile, side, zoom, frame, effect, cycles, ages, stetho)
+        frames = _gl_frames(profile, side, zoom, frame, effect, cycles, ages, stetho, grips, rest)
     if word is not None and anchor is not None:
         for k, image in enumerate(frames[:rest]):
             _paint_text(image, word, anchor, ages[k])
@@ -320,15 +359,23 @@ def _flat_frames(
     cycles: list[CardiacCycle],
     ages: list[float],
     stetho: tuple[float, float],
+    grips: list[float],
+    rest: int,
 ) -> list[QImage]:
+    """rest は休んでいる形のコマの番号（それより後は「ぎゅっ」のコマ）。"""
     rect = QRectF(0, 0, side, side)
     scale = _flat_scale(profile) / zoom
-    rest = len(cycles) - 1
     frames: list[QImage] = []
     for k, cycle in enumerate(cycles):
         image = _clear_image(side)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if grips[k] > 0.0:
+            # 「ぎゅっ」と握ると、配信用の窓と同じく心臓が真ん中を軸に潰れる
+            squash_x, squash_y = grip_squash(held_grip(grips[k], cycle))
+            painter.translate(frame.center)
+            painter.scale(squash_x, squash_y)
+            painter.translate(-frame.center)
         paint_heart(
             painter,
             rect,
@@ -341,7 +388,9 @@ def _flat_frames(
         )
         painter.end()
         if effect:
-            layer = _effect_layer(side, frame, effect, cycle, ages[k], k == rest, stetho)
+            layer = _effect_layer(
+                side, frame, effect, cycle, ages[k], k >= rest, stetho, grip=grips[k]
+            )
             _overlay(image, layer)
         frames.append(image)
     return frames
@@ -356,6 +405,8 @@ def _gl_frames(
     cycles: list[CardiacCycle],
     ages: list[float],
     stetho: tuple[float, float],
+    grips: list[float],
+    rest: int,
 ) -> list[QImage]:
     from stream_heartbeat.paths import cache_dir
     from stream_heartbeat.render.heart_gl import BASE_SCALE, OffscreenHeart
@@ -365,7 +416,6 @@ def _gl_frames(
     heart = OffscreenHeart(shared_heart_mesh(cache_dir()))
     look = _look(profile)
     scale = ITEM_SCALE / zoom
-    rest = len(cycles) - 1
     frames: list[QImage] = []
     grip = effect in GRIP_EFFECTS
     # 手で掴んでいる間は、配信用の窓と同じく正面から見る（手の絵に合わせる）
@@ -377,14 +427,14 @@ def _gl_frames(
         body, grip_cycle = grip_for_look(look, cycle)
         if effect == EFFECT_GRIP_BIG:
             body = big_hand(body)
-        squash_x, squash_y = grip_squash(held_grip(0.0, grip_cycle)) if grip else (1.0, 1.0)
+        squash_x, squash_y = grip_squash(held_grip(grips[k], grip_cycle)) if grip else (1.0, 1.0)
         pose = None
         if grip:
             pose = grip_pose(
                 shift=(look.shift_x, look.shift_y),
                 size=BASE_SCALE * scale * look.size_factor,
                 cycle=grip_cycle,
-                grip=0.0,
+                grip=grips[k],
                 time_s=ages[k],
                 body=body,
             )
@@ -415,7 +465,9 @@ def _gl_frames(
             )
         if layer is None and effect:
             model = look.program == "model"
-            layer = _effect_layer(side, frame, effect, cycle, ages[k], k == rest, stetho, model)
+            layer = _effect_layer(
+                side, frame, effect, cycle, ages[k], k >= rest, stetho, model, grip=grips[k]
+            )
         if layer is not None:
             _overlay(image, layer)
         frames.append(image)
@@ -453,10 +505,12 @@ def _effect_layer(
     resting: bool,
     stetho: tuple[float, float],
     model: bool = False,
+    grip: float = 0.0,
 ) -> QImage:
     """心臓の上に重ねる演出（平らな手・聴診器・はじけるハート）を、背景の透けた絵にする。
 
     model は Blender の心臓（形が縮むので、聴診器を当てた所も表面と一緒に寄る）。
+    grip は手の握りの強さ（「ぎゅっ」のコマ）。
     """
     layer = _clear_image(size)
     rect = QRectF(0, 0, size, size)
@@ -464,7 +518,7 @@ def _effect_layer(
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     if effect in GRIP_EFFECTS:
         big = effect == EFFECT_GRIP_BIG
-        paint_grip_hand(painter, rect, frame, cycle, grip=0.0, time_s=age, opacity=1.0, big=big)
+        paint_grip_hand(painter, rect, frame, cycle, grip=grip, time_s=age, opacity=1.0, big=big)
     elif effect in STETHO_EFFECTS:
         pos = point_from_heart(frame, stetho, STETHO_REACH)
         # チェストピースは薄くする所より上に当てる（下に置いてあっても消えかけない）
