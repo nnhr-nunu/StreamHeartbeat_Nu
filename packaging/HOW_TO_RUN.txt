@@ -25,9 +25,9 @@ Mac で「開けません」と出たら、いったん閉じてから
 「このまま開く」を押し、もう一度開いてください。
 初回にマイクの使用を聞かれたら「許可」を押してください。
 
-Windows: StreamHeartbeat-windows.zip の StreamHeartbeat.exe
-Mac（Apple チップ）: StreamHeartbeat-macOS.zip の StreamHeartbeat.app
-Mac（Intel）: StreamHeartbeat-macOS-intel.zip の StreamHeartbeat.app
+Windows: windows-StreamHeartbeat.zip の StreamHeartbeat.exe
+Mac（Apple チップ）: macOS-StreamHeartbeat.zip の StreamHeartbeat.app
+Mac（Intel）: macOS-intel-StreamHeartbeat.zip の StreamHeartbeat.app
 
 利用条件は 利用規約.txt、同梱しているソフトのライセンスは ライセンス フォルダにあります。
 

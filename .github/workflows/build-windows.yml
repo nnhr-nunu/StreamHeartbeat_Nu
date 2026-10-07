@@ -47,12 +47,12 @@ jobs:
           Copy-Item packaging/HOW_TO_RUN.txt dist/StreamHeartbeat/使いかた.txt
           python packaging/write_licenses.py dist/StreamHeartbeat
       - if: github.event_name != 'pull_request'
-        run: Compress-Archive -Path dist/StreamHeartbeat/* -DestinationPath StreamHeartbeat-windows.zip -Force
+        run: Compress-Archive -Path dist/StreamHeartbeat/* -DestinationPath windows-StreamHeartbeat.zip -Force
       - if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: windows-zip
-          path: StreamHeartbeat-windows.zip
+          path: windows-StreamHeartbeat.zip
 
   # Mac は Apple チップ版と Intel 版を別々に作る。どちらも macOS 12 以降で開ける形にする
   # （2016 年の MacBook Pro など、macOS 12 までしか入らない Mac があるため）
@@ -64,11 +64,11 @@ jobs:
         include:
           - os: macos-latest
             artifact: macos-zip
-            zip: StreamHeartbeat-macOS.zip
+            zip: macOS-StreamHeartbeat.zip
             python_from: actions
           - os: macos-15-intel
             artifact: macos-intel-zip
-            zip: StreamHeartbeat-macOS-intel.zip
+            zip: macOS-intel-StreamHeartbeat.zip
             python_from: python.org
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
@@ -196,11 +196,11 @@ jobs:
 
             | PC | ダウンロードするファイル |
             | -- | ------------ |
-            | Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
-            | Mac（M1 / M2 / M3 など Apple チップ） | `StreamHeartbeat-macOS.zip` |
-            | Mac（Intel。2016 年の MacBook Pro など） | `StreamHeartbeat-macOS-intel.zip` |
+            | Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
+            | Mac（M1 / M2 / M3 など Apple チップ） | `macOS-StreamHeartbeat.zip` |
+            | Mac（Intel。2016 年の MacBook Pro など） | `macOS-intel-StreamHeartbeat.zip` |
 
-            Mac は macOS 12 以降で動きます。どれか分からないときは、左上のリンゴマーク → **この Mac について** を見てください。「チップ」が Apple なら `macOS.zip`、「プロセッサ」が Intel なら `macOS-intel.zip` です。
+            Mac は macOS 12 以降で動きます。どれか分からないときは、左上のリンゴマーク → **この Mac について** を見てください。「チップ」が Apple なら `macOS-StreamHeartbeat.zip`、「プロセッサ」が Intel なら `macOS-intel-StreamHeartbeat.zip` です。
 
             ## OBS への取り込み
 
@@ -221,7 +221,7 @@ jobs:
             2. **システム設定 → プライバシーとセキュリティ**（macOS 12 は **システム環境設定 → セキュリティとプライバシー → 一般**）を開き、「StreamHeartbeat」の横の **このまま開く** を押す
             3. もう一度 `StreamHeartbeat.app` を開き、確認が出たら **開く** を押す
 
-            「このアプリケーションはこの Mac ではサポートされていません」と出たら zip を間違えています。Intel の Mac は `StreamHeartbeat-macOS-intel.zip` を使ってください。
+            「このアプリケーションはこの Mac ではサポートされていません」と出たら zip を間違えています。Intel の Mac は `macOS-intel-StreamHeartbeat.zip` を使ってください。
 
             ## マイクの許可（Mac）
 
@@ -248,11 +248,11 @@ jobs:
 
             | PC | File to download |
             | -- | ---------------- |
-            | Windows 10 / 11 | `StreamHeartbeat-windows.zip` |
-            | Mac with Apple silicon (M1 / M2 / M3 …) | `StreamHeartbeat-macOS.zip` |
-            | Mac with an Intel chip (e.g. a 2016 MacBook Pro) | `StreamHeartbeat-macOS-intel.zip` |
+            | Windows 10 / 11 | `windows-StreamHeartbeat.zip` |
+            | Mac with Apple silicon (M1 / M2 / M3 …) | `macOS-StreamHeartbeat.zip` |
+            | Mac with an Intel chip (e.g. a 2016 MacBook Pro) | `macOS-intel-StreamHeartbeat.zip` |
 
-            macOS 12 or later is required. If you are not sure which Mac you have, click the Apple menu → **About This Mac**. If "Chip" says Apple, use `macOS.zip`; if "Processor" says Intel, use `macOS-intel.zip`.
+            macOS 12 or later is required. If you are not sure which Mac you have, click the Apple menu → **About This Mac**. If "Chip" says Apple, use `macOS-StreamHeartbeat.zip`; if "Processor" says Intel, use `macOS-intel-StreamHeartbeat.zip`.
 
             ### Adding it to OBS
 
@@ -273,7 +273,7 @@ jobs:
             2. Open **System Settings → Privacy & Security** (macOS 12: **System Preferences → Security & Privacy → General**) and click **Open Anyway** next to "StreamHeartbeat".
             3. Open `StreamHeartbeat.app` again and click **Open** when asked.
 
-            If you see "This application is not supported on this Mac", you downloaded the wrong zip. Intel Macs need `StreamHeartbeat-macOS-intel.zip`.
+            If you see "This application is not supported on this Mac", you downloaded the wrong zip. Intel Macs need `macOS-intel-StreamHeartbeat.zip`.
 
             ### Microphone permission (macOS)
 
@@ -285,9 +285,9 @@ jobs:
 
             A detailed guide (in Japanese) and an English summary are in the [README](https://github.com/nnhr-nunu/StreamHeartbeat_Nu#english-summary).
           files: |
-            windows-zip/StreamHeartbeat-windows.zip
-            macos-zip/StreamHeartbeat-macOS.zip
-            macos-intel-zip/StreamHeartbeat-macOS-intel.zip
+            windows-zip/windows-StreamHeartbeat.zip
+            macos-zip/macOS-StreamHeartbeat.zip
+            macos-intel-zip/macOS-intel-StreamHeartbeat.zip
           fail_on_unmatched_files: true
           make_latest: true
       # 版ごとの目印のタグ（v0.2.0 など）。その版で最初に出したコミットに付け、あとは動かさない
