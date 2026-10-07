@@ -61,11 +61,13 @@ DROPPED_UNPINNED = "DroppedUnpinned"
 CLICKED = frozenset({"Clicked", "ItemClicked"})
 # 「ぎゅっ」のコマを流す速さ（コマを描いた速さ。heart_frames.FRAME_FPS と同じ）
 SQUEEZE_FPS = 30.0
-# VTube Studio は、アイテムを 0.1 秒ほどより長く押すとクリック（Clicked）ではなく「落とした」
-# （DroppedPinned など）と知らせてくる（2026-10-08 に正式版で確認）。押してからこの秒より早く、
-# マウスがこの画素より動かずに離したものは、ドラッグではなくクリックとして扱う
-CLICK_MAX_S = 0.6
-CLICK_MOVE_PX = 6
+# VTube Studio は、アイテムを押したままマウスが少し動くと、クリック（Clicked）ではなく「落とした」
+# （DroppedPinned など）と知らせてくる（2026-10-08 に正式版で確認）。押してから離すまでにマウスが
+# この画素より動かなかったものは、長く押していてもドラッグではなくクリックとして扱う
+# （付ける場所を選んで覚えた場所を、握るつもりのクリックで忘れないように）。
+# CLICK_MAX_S は、離した知らせと結び付ける押した記録の古さの上限
+CLICK_MAX_S = 5.0
+CLICK_MOVE_PX = 12
 # 続けて届いたクリックで「ぎゅっ」を最初からやり直さない間（秒）
 SQUEEZE_REPEAT_S = 0.25
 # こちらから留めた・外したときにも VTube Studio は DroppedPinned などを知らせてくる
@@ -307,14 +309,24 @@ class VtsHeart:
         return self._pick_done is not None
 
     @property
+    def _squeeze_count(self) -> int:
+        """使える「ぎゅっ」のコマの数。保存した数が場のコマ数と合わなければ 0（拍のコマを守る）。"""
+        count = self.squeeze_frames
+        return count if 0 < count < self.frame_count - 1 else 0
+
+    @property
     def rest_frame(self) -> int:
         """休んでいる形のコマ（拍のコマの最後。そのあとに「ぎゅっ」のコマが続く）。"""
-        return max(0, self.frame_count - self.squeeze_frames - 1)
+        return max(0, self.frame_count - self._squeeze_count - 1)
 
     def _on_state(self, state: str) -> None:
         if state != READY:
+            # 切れると、待っていた返事や知らせは来ない
             self._params_ready = False
             self._pick_done = None
+            self._reading_place = False
+            self._press = None
+            self._squeeze_until = 0.0
 
     def _on_ready(self) -> None:
         self._client.subscribe("ModelLoadedEvent", {}, self._on_model)
@@ -591,10 +603,11 @@ class VtsHeart:
 
     def squeeze(self) -> None:
         """心臓わしづかみの「ぎゅっ」のコマを流す（ほかの演出の心臓では何もしない）。"""
-        if self._client.state != READY or self.instance_id is None or self.squeeze_frames <= 0:
+        count = self._squeeze_count
+        if self._client.state != READY or self.instance_id is None or count <= 0:
             return
         last = self.frame_count - 1
-        first = last - self.squeeze_frames + 1
+        first = last - count + 1
         now = time.monotonic()
         if first <= 0 or now - self._squeeze_at < SQUEEZE_REPEAT_S:
             return
@@ -621,6 +634,10 @@ class VtsHeart:
         pin = self.pins.get(self.model_id)
         if pin is not None and self.instance_id is not None and not self.picking:
             self._pin(pin)
+            if self.hand_placed:
+                # 別のモデルへ切り替えて、そのモデルで覚えた場所に付けた
+                self.hand_placed = False
+                self._moved()
 
     def _pin(self, pin: dict, then: Reply | None = None) -> None:
         self._pin_request(
@@ -651,8 +668,14 @@ class VtsHeart:
         if self._client.state != READY or self.instance_id is None:
             return False
         self._pick_done = done
+        # 手で体に置いた心臓は、外したときの知らせで今の場所を読む（やめたらそこへ戻す）
+        self._reading_place = self.hand_placed
+
+        def unpinned(_reply: dict) -> None:
+            self._reading_place = False
+
         # 心臓がモデルに重なっているとクリックが心臓に当たるので、外して脇へ寄せる
-        self._pin_request({"pin": False, "itemInstanceID": self.instance_id})
+        self._pin_request({"pin": False, "itemInstanceID": self.instance_id}, unpinned)
         self._move(x=PICK_ASIDE_X, y=0.0, seconds=0.3)
         return True
 
@@ -666,6 +689,10 @@ class VtsHeart:
         elif self.instance_id is not None:
             x, y = self.place or ITEM_HOME
             self._move(x=x, y=y, seconds=0.3)
+            if self.hand_placed:
+                # 選ぶために外したので、もう体には付いていない（置いてあった所へ戻しただけ）
+                self.hand_placed = False
+                self._moved()
 
     def _stop_pick(self) -> None:
         self._pick_done = None
@@ -692,7 +719,7 @@ class VtsHeart:
         self.size = max(ITEM_SIZE_MIN, min(ITEM_SIZE_MAX, size))
         if self._client.state != READY or self.instance_id is None:
             return
-        # 留めてあるアイテムは移動の要求では大きさが変わらない。留め直しで大きさを渡す
+        # 留めてあるときは、留め直しで大きさを渡す（覚えた場所に付け直すときと同じ値にそろえる）
         if self.pins.get(self.model_id) is not None and not self.picking:
             self._pin_saved()
         else:

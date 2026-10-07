@@ -59,15 +59,22 @@ class VtsBpmControl:
         self._failed: tuple | None = None
         self.check = QCheckBox(BPM_CHECK)
         self.check.setToolTip(
-            "数字の色・縁取り・大きさは「④ 心拍数」の設定のとおりです。"
+            "数字の色・縁取り・文字の大きさは「④ 心拍数」の設定のとおりです。"
+            "VTube Studio での大きさは、この欄の「大きさ」で心臓と一緒に変わります。"
             "置き場所は VTube Studio の画面でドラッグして決めます"
         )
         self.check.setChecked(bool(state.get("vts_bpm_shown", False)))
         self.check.toggled.connect(self._on_toggled)
 
     def _on_found(self, found: bool) -> None:
-        """つないだ直後。出すことにしていて、場に無いか見た目が古ければ出し直す。"""
-        if self.check.isChecked() and (not found or self._made != bpm_look(self._profile())):
+        """つないだ直後。出すことにしていて、場に無いか見た目が古ければ出し直す。
+
+        つながっていない間にチェックを外していて、場に残っていればしまう（止まった数字を残さない）。
+        """
+        if not self.check.isChecked():
+            if found:
+                self.bpm.hide()
+        elif not found or self._made != bpm_look(self._profile()):
             self.make()
 
     def _on_toggled(self, on: bool) -> None:
