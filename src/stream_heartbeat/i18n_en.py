@@ -15,6 +15,22 @@ EN_GENERAL: dict[str, str] = {
     "マイク": "Microphone",
     "音の大きさ": "Sound level",
     # ---- 入力: ファイル・Bluetooth の心拍計（β） ----------------------------------
+    "デスクトップの音（β）": "Desktop audio (beta)",
+    (
+        "YouTube など、この PC で鳴っている音で動かします（β）。"
+        "合うのは心音の動画や録音です。音楽や声でも、低い音や大きな音に反応して動きます。"
+    ): (
+        "Beats to the sound playing on this PC, such as YouTube (beta). Heartbeat videos and "
+        "recordings fit best. Music and voices also move it on low or loud sounds."
+    ),
+    "音の出力先を開けません。スピーカーやヘッドホンのつながりを確かめてください": (
+        "Can't open the sound output. Check your speakers or headphones."
+    ),
+    "ほかの窓の手前に重ねる": "Keep on top of other windows",
+    "クリックを後ろの窓へ通す": "Let clicks pass to windows behind",
+    "心臓を右ドラッグで移動、ホイールで窓の大きさを変えます": (
+        "Right-drag the heart to move it; scroll to resize the window."
+    ),
     "音声・動画ファイル（β）": "Audio / video file (beta)",
     "Bluetooth 心拍計（β）": "Bluetooth HR monitor (beta)",
     "ファイル": "File",

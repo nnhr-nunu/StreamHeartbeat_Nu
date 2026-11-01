@@ -77,6 +77,7 @@ from stream_heartbeat.ui.operator_calibration import (
 from stream_heartbeat.ui.operator_controls import ProfileControlsMixin
 from stream_heartbeat.ui.operator_input import InputMixin
 from stream_heartbeat.ui.operator_language import LanguageMixin, obs_hint
+from stream_heartbeat.ui.operator_overlay import OverlayMixin
 from stream_heartbeat.ui.output_window import OutputWindow
 from stream_heartbeat.ui.placement import window_geom
 from stream_heartbeat.ui.slider import labeled_slider
@@ -132,7 +133,7 @@ def _toggle_box(
 
 
 class OperatorWindow(
-    CalibrationMixin, InputMixin, LanguageMixin, ProfileControlsMixin, QMainWindow
+    CalibrationMixin, InputMixin, LanguageMixin, OverlayMixin, ProfileControlsMixin, QMainWindow
 ):
     def __init__(self, session: HeartSession, output: OutputWindow) -> None:
         super().__init__()
@@ -383,6 +384,7 @@ class OperatorWindow(
         style_inner.addWidget(self._effect_hint)
         style_inner.addWidget(self._gl_note)
         style_inner.addWidget(self._angle_wrap)
+        style_inner.addWidget(self._build_overlay_controls())
         style_inner.addWidget(self._obs_hint)
         style_box = QGroupBox("② スタイル")
         style_box.setLayout(style_inner)
@@ -557,7 +559,10 @@ class OperatorWindow(
     def _rebuild_output(self) -> None:
         """配信用の窓を同じ場所に作り直す（背景を透明にしたとき）。"""
         old = self._output
+        transparency = old.needs_transparent_rebuild()
         new = OutputWindow(self._session)
+        new.set_overlay_choice(self._on_top.isChecked(), self._click_through.isChecked())
+        new.apply_backdrop()
         new.set_quit_handler(self.close)
         new.canvas.angle_locked = old.canvas.angle_locked
         new.setGeometry(old.geometry())
@@ -567,9 +572,13 @@ class OperatorWindow(
         old.allow_close()
         old.close()
         old.deleteLater()
-        self._flash(
-            "透明にするため配信用の窓を開き直しました。OBS の取り込みが外れたら選び直してください"
-        )
+        # 作り直した窓に取られたフォーカスを、押していた操作画面へ戻す
+        self.activateWindow()
+        if transparency:
+            self._flash(
+                "透明にするため配信用の窓を開き直しました。"
+                "OBS の取り込みが外れたら選び直してください"
+            )
 
     def _refresh_style_controls(self) -> None:
         style, look = self._style_choice()
@@ -713,7 +722,7 @@ class OperatorWindow(
             self._meter.setValue(min(100, int(peak**0.5 * 100)))
         self._watch_audio(bool(samples), now)
         recording = self._session.recording
-        if recording and samples:
+        if recording and samples and self._can_monitor_input():
             self._monitor.write_mono(samples)
         self._session.tick(now, samples, beats=beats)
         self._refresh_status()

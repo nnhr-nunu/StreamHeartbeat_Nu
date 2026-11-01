@@ -198,6 +198,7 @@ class ProfileControlsMixin:
         profile.oshilog_bpm_url = self._bpm_url.text().strip()
         if self._mic_chosen and self._mics.currentData():
             profile.mic_id = str(self._mics.currentData())
+        self._sync_overlay()
         self._output.apply_backdrop()
         if self._output.needs_rebuild():
             self._rebuild_output()

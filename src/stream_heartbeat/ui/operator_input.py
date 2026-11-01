@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from stream_heartbeat.audio import list_mics
 from stream_heartbeat.i18n import tr
-from stream_heartbeat.ui.input_panel import MODE_BLE, MODE_MIC
+from stream_heartbeat.ui.input_panel import MODE_BLE, MODE_DESKTOP, MODE_MIC
 
 # この秒数マイクから何も届かなければ、抜けたか止まったとみなして知らせる
 NO_AUDIO_S = 2.0
@@ -89,6 +89,10 @@ class InputMixin:
         if self._input.mode == MODE_MIC:
             return self._mic.pull_mono(), []
         return self._input.pull(now), self._input.beats(now)
+
+    def _can_monitor_input(self) -> bool:
+        """録音中に入力を聞き返してよいか。デスクトップの音を鳴らすと、取り込んだ音がまた入る。"""
+        return self._input.mode != MODE_DESKTOP
 
     def _input_live_text(self, bpm: int) -> str | None:
         """拍を取れているときの上の帯の文（心拍計のときだけ。ほかは None）。"""

@@ -10,7 +10,14 @@ import time
 from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
-from PySide6.QtGui import QCloseEvent, QMouseEvent, QPainter, QShowEvent, QSurfaceFormat
+from PySide6.QtGui import (
+    QCloseEvent,
+    QMouseEvent,
+    QPainter,
+    QShowEvent,
+    QSurfaceFormat,
+    QWheelEvent,
+)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMainWindow
 
@@ -100,6 +107,11 @@ def gl_surface_format() -> QSurfaceFormat:
     return core_profile(fmt)
 
 
+# 手前に重ねるときの窓の最小の辺と、ホイール 1 目盛りの大きさの変わり方
+OVERLAY_MIN_SIDE = 120
+OVERLAY_WHEEL_RATE = 1.1
+
+
 class OutputCanvas(QOpenGLWidget):
     def __init__(self, session: HeartSession) -> None:
         super().__init__()
@@ -118,6 +130,8 @@ class OutputCanvas(QOpenGLWidget):
         self._drag_from: QPointF | None = None
         # 角度の固定は保存しない。起動のたびにオフ
         self.angle_locked = False
+        self.overlay = False
+        self._move_from: QPointF | None = None
         # 演出（握る強さ・聴診器の位置）。聴診器はドラッグで回したときは置き直さない
         self._motion = EffectMotion()
         self._press_at: QPointF | None = None
@@ -581,7 +595,29 @@ class OutputCanvas(QOpenGLWidget):
             self._shown_bursts,
         )
 
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if not self.overlay:
+            super().wheelEvent(event)
+            return
+        # 枠が無いので、ホイールで窓の大きさを変える（真ん中を動かさない）
+        window = self.window()
+        area = window.screen().availableGeometry()
+        rate = OVERLAY_WHEEL_RATE if event.angleDelta().y() > 0 else 1.0 / OVERLAY_WHEEL_RATE
+        side = min(window.width(), window.height()) * rate
+        side = int(max(OVERLAY_MIN_SIDE, min(side, min(area.width(), area.height()))))
+        center = window.geometry().center()
+        window.resize(side, side)
+        frame = window.geometry()
+        frame.moveCenter(center)
+        window.move(frame.topLeft())
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self.overlay and event.button() == Qt.MouseButton.RightButton:
+            # 枠が無いので、右ドラッグで窓を動かす（左は回す・文字をつまむのに使っている）。
+            # startSystemMove は Windows だと左ボタンでしか動かない
+            self._move_from = event.globalPosition()
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # 拍の文字・心拍数の上なら、演出より先につまんで動かす
             rect = QRectF(self.rect())
@@ -613,6 +649,12 @@ class OutputCanvas(QOpenGLWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._move_from is not None:
+            moved = event.globalPosition() - self._move_from
+            self._move_from = event.globalPosition()
+            window = self.window()
+            window.move(window.pos() + moved.toPoint())
+            return
         if self._labels.dragging:
             self._labels.move(QRectF(self.rect()), self._session.profile, event.position())
             self.update()
@@ -641,6 +683,10 @@ class OutputCanvas(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._move_from is not None and event.button() == Qt.MouseButton.RightButton:
+            self._move_from = None
+            self.setCursor(self._idle_cursor())
+            return
         self._motion.release()
         if self._labels.release():
             self.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -691,6 +737,9 @@ class OutputCanvas(QOpenGLWidget):
 class OutputWindow(QMainWindow):
     def __init__(self, session: HeartSession) -> None:
         super().__init__()
+        self._on_top = False
+        self._click_through = False
+        self._created_overlay: tuple[bool, bool] | None = None
         self.setWindowTitle(OUTPUT_WINDOW_TITLE)
         self.setMinimumSize(480, 480)
         self.resize(720, 720)
@@ -709,8 +758,35 @@ class OutputWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
         self.canvas.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, transparent)
         self.canvas.update()
+        if self._created_overlay is None:
+            self._apply_overlay_flags()
+
+    def set_overlay_choice(self, on_top: bool, click_through: bool) -> None:
+        """手前に重ねるかの選択。効くのは透明な背景のとき（出したあとの窓は作り直しで効く）。"""
+        self._on_top = on_top
+        self._click_through = click_through
+
+    def _overlay_state(self) -> tuple[bool, bool]:
+        """（手前に重ねる, クリックを通す）の、今の背景で実際に効く値。"""
+        on_top = self._on_top and self.canvas._session.profile.backdrop == "transparent"
+        return on_top, on_top and self._click_through
+
+    def _apply_overlay_flags(self) -> None:
+        on_top, through = self._overlay_state()
+        self.canvas.overlay = on_top
+        side = OVERLAY_MIN_SIDE if on_top else 480
+        self.setMinimumSize(side, side)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, on_top)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on_top)
+        self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, through)
 
     def needs_rebuild(self) -> bool:
+        """枠・手前・クリックの通し方も、OpenGL の窓なので作り直して変える。"""
+        if self.needs_transparent_rebuild():
+            return True
+        return self._created_overlay is not None and self._created_overlay != self._overlay_state()
+
+    def needs_transparent_rebuild(self) -> bool:
         """透過は窓を作るときにしか効かない。緑などで作った窓を透明にするには作り直す。"""
         if self._created_translucent is None:
             # まだ一度も出していない窓は、そのまま透過にできる
@@ -723,6 +799,7 @@ class OutputWindow(QMainWindow):
             self._created_translucent = self.testAttribute(
                 Qt.WidgetAttribute.WA_TranslucentBackground
             )
+            self._created_overlay = self._overlay_state()
         super().showEvent(event)
 
     def set_quit_handler(self, handler: Callable[[], None]) -> None:

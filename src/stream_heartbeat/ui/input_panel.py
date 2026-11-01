@@ -1,4 +1,5 @@
-"""操作画面「① 入力」のうち、マイクの代わりの入力（β）: 音声・動画ファイルと Bluetooth の心拍計。
+"""操作画面「① 入力」のうち、マイクの代わりの入力（β）: デスクトップの音・音声や動画のファイル・
+Bluetooth の心拍計。
 
 どちらを使っているか・選んだファイル・つないだ心拍計は、この PC の設定（app_state.json）に覚える。
 """
@@ -34,6 +35,7 @@ from stream_heartbeat.ble_heart_rate import (
 from stream_heartbeat.file_input import MAX_FILE_S, FilePlayer, load_pcm16
 from stream_heartbeat.heart_rate import BeatsFromRate, HeartRateReading
 from stream_heartbeat.i18n import SKIP_PROP, tr
+from stream_heartbeat.loopback import LoopbackTap, loopback_supported
 from stream_heartbeat.profile import load_app_state, save_app_state
 from stream_heartbeat.samples import AUDIO_FILTER
 from stream_heartbeat.ui.combo import MarkedComboBox
@@ -42,8 +44,11 @@ from stream_heartbeat.ui.forms import CenteredForm
 MODE_MIC = "mic"
 MODE_FILE = "file"
 MODE_BLE = "ble"
+MODE_DESKTOP = "desktop"
 MODES = (
     (MODE_MIC, "マイク"),
+    # スピーカーへ出る音を取り込めるのは今のところ Windows だけ
+    *(((MODE_DESKTOP, "デスクトップの音（β）"),) if loopback_supported() else ()),
     (MODE_FILE, "音声・動画ファイル（β）"),
     (MODE_BLE, "Bluetooth 心拍計（β）"),
 )
@@ -67,6 +72,11 @@ BLE_GUIDE = (
     "PC とつながらない機種もあります）。Apple Watch・Galaxy Watch はそのままでは送れません。"
     "スマホのアプリとつながっている間は、PC からつなげない機種があります。"
 )
+DESKTOP_GUIDE = (
+    "YouTube など、この PC で鳴っている音で動かします（β）。"
+    "合うのは心音の動画や録音です。音楽や声でも、低い音や大きな音に反応して動きます。"
+)
+DESKTOP_FAIL = "音の出力先を開けません。スピーカーやヘッドホンのつながりを確かめてください"
 NO_BLE_SUPPORT = "この版では Bluetooth の心拍計を使えません"
 STATE_TEXTS = {
     IDLE: "つないでいません",
@@ -123,6 +133,7 @@ class InputPanel(QWidget):
         self._link.devices_found.connect(self._on_found)
         self._link.state_changed.connect(self._on_link_state)
         self._link.reading.connect(self._on_reading)
+        self._desktop = LoopbackTap()
 
         self.mode_combo = MarkedComboBox()
         for key, label in MODES:
@@ -168,6 +179,20 @@ class InputPanel(QWidget):
         file_col.addWidget(self._hear)
         file_col.addWidget(self._file_guide)
 
+        # ---- デスクトップの音
+        self._desktop_fail = QLabel(DESKTOP_FAIL)
+        self._desktop_fail.setObjectName("warn")
+        self._desktop_fail.setWordWrap(True)
+        self._desktop_fail.hide()
+        desktop_guide = QLabel(DESKTOP_GUIDE)
+        desktop_guide.setObjectName("guide")
+        desktop_guide.setWordWrap(True)
+        self._desktop_box = QWidget()
+        desktop_col = QVBoxLayout(self._desktop_box)
+        desktop_col.setContentsMargins(0, 0, 0, 0)
+        desktop_col.addWidget(self._desktop_fail)
+        desktop_col.addWidget(desktop_guide)
+
         # ---- Bluetooth の心拍計
         self._devices = MarkedComboBox()
         self._devices.setProperty(SKIP_PROP, True)
@@ -198,6 +223,7 @@ class InputPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._desktop_box)
         layout.addWidget(self._file_box)
         layout.addWidget(self._ble_box)
 
@@ -210,6 +236,8 @@ class InputPanel(QWidget):
         self._show_mode()
         if self.mode == MODE_BLE:
             self._auto_connect()
+        elif self.mode == MODE_DESKTOP:
+            self._desktop.start()
 
     # ------------------------------------------------------------ 操作画面から呼ぶ
 
@@ -223,7 +251,10 @@ class InputPanel(QWidget):
         return self._beats.bpm if self._beats.beating else 0
 
     def pull(self, now: float) -> list[float]:
-        """ファイルから、前に呼んでから流れた分の音（ファイルを使っていなければ空）。"""
+        """デスクトップかファイルから、前に呼んでから流れた分の音（どちらでもなければ空）。"""
+        if self.mode == MODE_DESKTOP:
+            self._desktop_fail.setVisible(self._desktop.failed)
+            return self._desktop.pull_mono()
         if self.mode != MODE_FILE or self._player is None:
             return []
         was_playing = self._player.playing
@@ -254,6 +285,7 @@ class InputPanel(QWidget):
 
     def shutdown(self) -> None:
         self._sound.stop()
+        self._desktop.stop()
         self._link.shutdown()
 
     # ------------------------------------------------------------ 入力のしかた
@@ -265,6 +297,11 @@ class InputPanel(QWidget):
             self._player.pause()
             self._sound.stop()
             self._show_play()
+        if mode == MODE_DESKTOP:
+            self._desktop.start()
+        else:
+            self._desktop.stop()
+            self._desktop_fail.hide()
         if mode == MODE_BLE:
             self._auto_connect()
         else:
@@ -274,6 +311,7 @@ class InputPanel(QWidget):
         self.mode_changed.emit(mode)
 
     def _show_mode(self) -> None:
+        self._desktop_box.setVisible(self.mode == MODE_DESKTOP)
         self._file_box.setVisible(self.mode == MODE_FILE)
         self._ble_box.setVisible(self.mode == MODE_BLE)
 
