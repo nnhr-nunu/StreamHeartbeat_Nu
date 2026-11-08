@@ -1,0 +1,16 @@
+#!/bin/sh
+# gitleaks: コミットに秘密（キー・トークンなど）が混ざるのを止める（NunuDB docs/toolkit-rollout.md 3。2026-11-09）
+# 誤検知なら、その行に「gitleaks:allow」と書くか、リポジトリ直下の .gitleaksignore に指紋を足す。
+G=$(command -v gitleaks 2>/dev/null)
+if [ -z "$G" ] && [ -n "$LOCALAPPDATA" ] && command -v cygpath >/dev/null 2>&1; then
+  C="$(cygpath -u "$LOCALAPPDATA")/Microsoft/WinGet/Links/gitleaks.exe"
+  [ -x "$C" ] && G="$C"
+fi
+if [ -z "$G" ]; then
+  echo "pre-commit: gitleaks が見つからないので、秘密の検査を飛ばしました" >&2
+  exit 0
+fi
+"$G" git --pre-commit --staged --redact --no-banner --log-level warn -v || {
+  echo "pre-commit: 秘密らしい文字列が見つかったのでコミットを止めました（上の File と Line を確かめてください）" >&2
+  exit 1
+}
