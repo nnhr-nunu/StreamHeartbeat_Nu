@@ -62,3 +62,29 @@ git status → commit → git push origin main → 報告に hash と origin 同
 | `git-commit.mdc` | 常時（PowerShell commit） |
 | `python.mdc` | `src/**/*.py` |
 | `testing.mdc` | `tests/**` |
+
+## 開発の補足（旧 CLAUDE.md から移した）
+
+- `.cursor/rules/*.mdc` の内容が正本のルール。特に次は毎回守る:
+  - 返信は日本語。先頭 2 行は `# ★【対応結果】★：{kind}-{ID}{絵文字}` と `---`（`StreamHeartbeat.mdc`）
+  - 配信用の窓にデバッグ文字・パス・例外文を出さない（`output-overlay.mdc`）
+  - コード変更後はセルフレビュー → `pytest` → 日本語で commit → `git push origin main`（`composer-self-review.mdc`）
+  - README は指示がない限り更新しない。完了タスクは `task.md` から消す
+  - `src/stream_heartbeat/` か `packaging/` を変えて push するときは `__init__.py` の `__version__` を上げる（AGENTS.md「版を上げる」。忘れると pre-push フックが止める）
+- 開発用 Python は `.venv\Scripts\python.exe`（3.10）。`pytest` / `ruff check src tests` もここから
+- `QT_QPA_PLATFORM=offscreen`（CI と同じ）だと OpenGL が使えない。GL を確かめるときは offscreen 無しで実行
+- commit は PowerShell 前提。bash heredoc は使わず `-m` か `-F` を使う（`git-commit.mdc`）
+
+## 主な作業領域の入口
+
+| 目的 | 入口 |
+| ---- | ---- |
+| UI・見た目 | `ui/operator_window.py`（803 行。追加時は分割）, `ui/styles.py`, `ui/slider.py`, `ui/combo.py` |
+| 心臓モデル（立体） | `render/heart_mesh.py`, `render/heart_shaders.py`, `render/heart_gl.py`, `ui/heart_realistic.py` |
+| 心臓モデル（2D 各種） | `ui/heart_cute.py`, `heart_ecg.py`, `heart_echo.py`, `heart_imaging.py`, `heart_paint.py`, `motion.py` |
+| 心音認識 | `detect.py`（ピーク検出・型）, `audio.py`, `session.py`, `profile.py`（キャリブ）, `samples.py` + `tests/test_detect.py` |
+
+## 層の決まり（どこを書き換えてよいか）
+- 事実（読み書きする）: task.md・AGENTS.md・`.cursor/rules/`。済んだ節は docs/history/ へ移す（入口の task.md と AGENTS.md は 20KB まで）
+- 原本（書き換えない）: docs/history/ の記録・`material/`（素材）
+- 成果物（手で直さない。元かスクリプトを直して作り直す）: `dist/`・`build/`・`graphify-out/`（git の外）。配布 zip と版のタグは CI が作る
