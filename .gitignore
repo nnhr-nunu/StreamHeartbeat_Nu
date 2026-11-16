@@ -48,3 +48,10 @@ scripts/heart_eval/results/
 
 # Blender の心臓モデルの素材（大きいので手元だけ。アプリに入れるのは変換した assets のみ）
 material/
+
+# secrets gate (2026-11-17): keep real env files out of git
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.sample
